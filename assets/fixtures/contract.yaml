@@ -1,0 +1,131 @@
+# DevOps Contract 契约样例
+
+contracts:
+  - id: git-no-force-push
+    type: constraint
+    name: 禁止 force push
+    description: 禁止 force push 到主分支
+    severity: critical
+    rule:
+      type: forbidden
+      action: git push --force
+      target: main
+
+  - id: git-conventional-commits
+    type: constraint
+    name: 必须使用规范提交
+    description: 提交信息必须符合 Conventional Commits 格式
+    severity: error
+    rule:
+      type: required
+      pattern: "^(feat|fix|docs|test|refactor|chore): .+"
+
+  - id: git-no-empty-commit
+    type: constraint
+    name: 禁止空提交
+    description: 禁止创建无实际变更的提交
+    severity: warning
+    rule:
+      type: forbidden
+      action: git commit --allow-empty
+
+  - id: submodule-branch-required
+    type: constraint
+    name: 子模块必须指定分支
+    description: 子模块必须配置跟踪的分支
+    severity: error
+    rule:
+      type: required
+      field: submodule.branch
+
+  - id: submodule-no-detached-head
+    type: constraint
+    name: 禁止 detached HEAD 提交
+    description: 禁止在子模块游离状态下提交
+    severity: error
+    rule:
+      type: forbidden
+      action: git commit
+      condition: HEAD detached
+
+  - id: submodule-update-reference
+    type: constraint
+    name: 必须更新子模块引用
+    description: 子模块推送后必须更新主仓库引用
+    severity: error
+    rule:
+      type: required
+      after: git push
+      then: git add submodule
+
+  - id: release-changelog-required
+    type: constraint
+    name: 禁止跳过 CHANGELOG
+    description: 发布前必须更新 CHANGELOG.md
+    severity: critical
+    rule:
+      type: required-before
+      action: git tag
+      requires: CHANGELOG.md modified
+
+  - id: release-clean-working-tree
+    type: constraint
+    name: 禁止有变更时发布
+    description: 发布前工作区必须干净
+    severity: critical
+    rule:
+      type: required-before
+      action: git tag
+      condition: working-tree clean
+
+boundaries:
+  - id: branch-feature
+    name:何时用 feature 分支
+    condition: 非紧急的功能开发
+    branches:
+      - feature/*
+    priority: 2
+
+  - id: branch-hotfix
+    name: 何时用 hotfix 分支
+    condition: 生产环境 bug 修复
+    branches:
+      - hotfix/*
+    priority: 1
+
+  - id: branch-release
+    name: 何时用 release 分支
+    condition: 版本发布准备
+    branches:
+      - release/*
+    priority: 1
+
+checks:
+  - id: pre-push-check
+    name: push 前检查
+    before: git push
+    rules:
+      - git-no-force-push
+      - git-conventional-commits
+
+  - id: pre-commit-check
+    name: 提交前检查
+    before: git commit
+    rules:
+      - git-conventional-commits
+      - git-no-empty-commit
+
+  - id: pre-tag-check
+    name: 发布前检查
+    before: git tag
+    rules:
+      - release-changelog-required
+      - release-clean-working-tree
+
+  - id: submodule-check
+    name: 子模块操作检查
+    before: git submodule update
+    rules:
+      - submodule-branch-required
+      - submodule-no-detached-head
+      - submodule-update-reference
