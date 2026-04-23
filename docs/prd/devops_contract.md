@@ -1,154 +1,133 @@
 # DevOps 契约
 
-本文档定义 qtcloud-devops 仓库的 DevOps 规范，以 Contract 形式声明各环节的最佳实践。
+本文档以约束形式声明 qtcloud-devops 仓库的 DevOps 规范。
 
-## Git 契约
+## Git 约束
 
-### 分支管理
-
-- 主分支：`main`，仅接受 PR 合并
-- 功能分支：`feature/<name>` 或 `fix/<name>`
-- 发布分支：`release/v<version>`
-
-### 提交规范
-
-使用 Conventional Commits：
+### 约束 1：禁止直接 push 到 main
 
 ```
-<type>: <description>
+不允许：git push origin main
+必须：创建 PR，经审查后合并
 ```
 
-类型：
-- `feat`：新功能
-- `fix`：修复 bug
-- `docs`：文档更新
-- `test`：测试相关
-- `refactor`：重构
-- `chore`：构建/工具
+### 约束 2：禁止 force push
 
-### 提交流程
-
-1. 创建分支
-2. 开发并提交
-3. 推送并创建 PR
-4. 代码审查后合并
-
----
-
-## 子模块契约
-
-### 添加子模块
-
-```bash
-# 检查远程仓库非空
-git ls-remote <url> HEAD
-
-# 添加子模块
-git submodule add <url> <path>
-
-# 提交主仓库
-git add <path>
-git commit -m "feat: add <name> submodule"
+```
+不允许：git push --force
+必须：使用 rebase 或 merge 解决分歧
+例外：个人实验分支可 forcepush
 ```
 
-### 更新子模块
+### 约束 3：禁止空提交
 
-```bash
-# 检查子模块状态
-git submodule status
-
-# 初始化并更新
-git submodule update --init <path>
-
-# 拉取最新代码
-git submodule update --remote <path>
-
-# 检查是否在 main 分支
-git -C <path> status
-
-# 切换到 main 分支（如需）
-git -C <path> checkout main
-
-# 主仓库记录变更
-git add <path>
-git commit -m "chore: update <name> submodule"
+```
+不允许：git commit --allow-empty
+必须：每次提交有实际变更
 ```
 
-### 删除子模块
+### 约束 4：使用规范提交格式
 
-```bash
-# 取消初始化
-git submodule deinit -f <path>
-
-# 删除目录
-rm -rf <path>
-
-# 删除 Git 索引
-git rm -f <path>
-
-# 清理配置残留
-git config --file .git/config --remove-section submodule.<name>
-
-# 提交
-git commit -m "chore: remove <name> submodule"
+```
+必须：Conventional Commits (<type>: <description>)
+类型：feat, fix, docs, test, refactor, chore
+禁止：自由格式 commit message
 ```
 
 ---
 
-## 发布契约
+## 子模块约束
 
-### 版本号
+### 约束 5：禁止添加空仓库为子模块
 
-遵循 semver：`v<major>.<minor>.<patch>`
+```
+不允许：git submodule add <empty-repo-url> <path>
+必须：子仓库至少有初始提交
+```
 
-### 发布流程
+### 约束 6：子模块必须指定 branch
 
-1. 更新 CHANGELOG.md
-2. 创建标签
-3. 推送标签
-4. 创建 GitHub Release
+```
+不允许：未配置 track 分支
+必须：git config -f .gitmodules submodule.<name>.branch main
+```
 
-### CHANGELOG 格式
+### 约束 7：子模块更新前检查分支
 
-```markdown
-## [<version>] - <date>
+```
+不允许：在 detached HEAD 状态提交
+必须：git checkout main 后再提交
+```
 
-### Added
-- 新增内容
+### 约束 8：禁止跳过子模块引用更新
 
-### Changed
-- 变更内容
-
-### Removed
-- 移除内容
+```
+不允许：只推送子模块不更新主仓库引用
+必须：子模块推送后 git add <path> 提交
 ```
 
 ---
 
-## 验证清单
+## 发布约束
 
-### 提交前
+### 约束 9：禁止跳过 CHANGELOG
 
-- [ ] 代码符合规范
-- [ ] 无未提交的变更
-- [ ] 分支正确
+```
+不允许：发布前未更新 CHANGELOG.md
+必须：按 Keep a Changelog 格式添加版本内容
+```
 
-### 发布前
+### 约束 10：禁止重复版本号
 
+```
+不允许：git tag <已存在版本>
+必须：确认版本号未使用
+```
+
+### 约束 11：禁止在工作区有变更时发布
+
+```
+不允许：git status 有变更时发布
+必须：工作区干净后再发布
+```
+
+---
+
+## 边界声明
+
+### 边界 1：何时用 feature 分支
+
+```
+场景：任何非紧急修改
+分支：feature/<name>
+合并后：删除分支
+```
+
+### 边界 2：何时用 hotfix 分支
+
+```
+场景：生产环境 bug 修复
+分支：hotfix/<name>
+合并后：删除分支
+```
+
+### 边界 3：发布前必须检查
+
+```
+检查项：
 - [ ] CHANGELOG 已更新
-- [ ] 版本号正确
+- [ ] 版本号符合 semver
 - [ ] 工作区干净
-
-### 子模块操作前
-
-- [ ] 子模块状态正常
-- [ ] 远程仓库存在
-- [ ] 分支正确
+- [ ] 测试通过
+```
 
 ---
 
-## 依赖工具
+## 违反约束的处理
 
-- `git`：版本控制
-- `gh`：GitHub CLI
-- `commitizen`：规范提交（可选）
+| 约束 | 违反处理 |
+|------|---------|
+| 约束 1-2 | 拒绝合并，要求重做 |
+| 约束 3-4 | 提醒后强制修正 |
+| 约束 5-8 | 拒绝提交，要求重做 |
+| 约束 9-11 | 拒绝发布，要求重做 |
