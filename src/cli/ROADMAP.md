@@ -12,28 +12,23 @@
 | 6 | git remote 可达 | 从 `git remote get-url origin` 自动检测仓库 |
 | 7 | 用户可交互 | 发布确认需 TTY 交互，CI 需 `-y` 跳过 |
 
-## 待规划（由用户决定）
+## 待规划（按优先级）
 
-### 发布目标管理
+### P0 — 体验修复
 
-发布目标（PyPI、pub.dev、Docker Hub 等）是 devops 系统的核心概念，需要显式建模：
+- **CHANGELOG 路径智能检测**：自动查找 pyproject.toml 同层的 CHANGELOG.md，减少 `--changelog` 使用场景
 
-- **包注册表作为发布目标**：PyPI、pub.dev、npm 等是 release 的消费端，不是某个项目的私事
-- **契约声明发布目标**：项目通过契约声明"发布到 PyPI"，devops 工具据此选择发布策略
-- **发布后验证**：推送到注册表后验证是否成功（如 `pip install` 检查版本是否存在）
-- **多目标发布**：同一项目可能同时发布到 PyPI 和镜像源
-- GitLink 镜像容灾同步（发布时同步推送 tag 到 GitLink remote）
+### P1 — 基础设施
 
-### devops 工具功能
+- **GitLink 镜像容灾同步**：发布时同步推送 tag 到 GitLink remote
 
-- CHANGELOG 路径智能检测（自动查找 pyproject.toml 同层的 CHANGELOG.md）
-- 支持非 semver 版本策略
+### P2 — 架构设计（只设计，不实现）
+
+- **语言/框架契约**：设计数据模型，显式声明项目语言、包类型、发布目标。不急于实现，为后续功能提供架构基础
+- **发布目标管理**：基于契约模型，将 PyPI/pub.dev/Docker Hub 等作为系统级概念接入，派生发布策略
+
+### P3 — 配置扩展
+
 - 放宽分支限制（可配置允许的分支列表）
+- 支持非 semver 版本策略
 - CI Action 版本升级（Node.js 20 弃用）
-
-### 语言/框架契约（谨慎设计）
-
-- 通过契约显式声明项目语言、包类型、发布目标
-- `init` 命令：在当前目录初始化 DevOps 契约
-- `check` 命令：运行所有预定义契约检查
-- 集成到 release 预检查中
