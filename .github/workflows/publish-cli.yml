@@ -1,0 +1,24 @@
+name: publish-cli
+on:
+  release:
+    types: [published]
+jobs:
+  publish:
+    if: startsWith(github.ref, 'refs/tags/cli/')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install uv
+        run: pip install uv
+      - name: build
+        run: uv build
+      - name: publish
+        run: uv publish
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
