@@ -12,21 +12,6 @@
 | 6 | git remote 可达 | 从 `git remote get-url origin` 自动检测仓库 |
 | 7 | 用户可交互 | 发布确认需 TTY 交互，CI 需 `-y` 跳过 |
 
-## v0.1.0 ✅
-
-CLI 接口重构、文档体系建立、PyPI 发布。
-
-### Done
-
-- `--tag-only` / `--release-only` 参数，分开执行 tag 和 GitHub Release
-- 自动检测 remote 仓库，移除 `--repo` 参数
-- 默认模式幂等（tag 已存在时跳过创建，继续发 release）
-- `--release-only` 预检查验证 tag 必须存在
-- docs/index.md、commands.md、low-level-api.md、README.md
-- AGENTS.md CLI 设计规则固化
-- .github/workflows/publish-cli.yml（PyPI 自动发布）
-- 发布到 PyPI（v0.1.0）
-
 ## v0.2.0（计划）
 
 ### CHANGELOG 路径智能检测
