@@ -15,7 +15,7 @@
 | 7 | 用户可交互 | 发布确认需 TTY 交互，CI 需 `-y` 跳过 |
 | 8 | 单仓库发布 | 子模块发布是独立流程 |
 
-## v0.1.0 ✅
+## v0.0.1 ✅
 
 发布 `release` 命令 — 预检查、打标签、推送、创建 GitHub Release。
 
@@ -25,7 +25,6 @@
 - `release` 命令：发布前确认交互（🧠 AI 介入点）
 - `release` 命令：发布后验证（`gh release view`）
 - `release` 命令：异常回滚（标签推送失败 / Release 创建失败自动回滚）
-- `contract-check` 命令：加载并展示 DevOps 契约
 
 ### Todo
 

@@ -1,10 +1,12 @@
 # CHANGELOG
 
-## [v0.1.0] - 2026-05-21
+## [0.0.1] - 2026-05-21
 
 初始版本。
 
 ### Added
 
-- 增加 `release` 命令（预检查、打标签、推送、创建 GitHub Release）
-- 增加 `contract-check` 命令（加载并展示 DevOps 契约）
+- `release` 命令：预检查、发布前确认、执行发布、验证、回滚全流程自动化
+- `release --version/-V`：版本号参数
+- `release --dry-run`：仅检查不执行
+- `release -y`：跳过确认直接发布
