@@ -21,11 +21,12 @@ def release(
     changelog: str = typer.Option("CHANGELOG.md", "--changelog", help="CHANGELOG.md 路径"),
     repo: str = typer.Option(None, "--repo", help="GitHub 仓库（如 quanttide/quanttide-platform）"),
     dry_run: bool = typer.Option(False, "--dry-run", help="仅检查，不执行"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认提示，直接发布"),
 ):
     """发布 Release — 预检查、打标签、推送、创建 GitHub Release"""
     from app.release import run
     from pathlib import Path
-    return run(version, Path(changelog), repo, dry_run)
+    return run(version, Path(changelog), repo, dry_run, yes)
 
 
 @app.command(hidden=True)

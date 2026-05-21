@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 
-FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures"
+FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent.parent / "tests" / "fixtures"
 
 
 @pytest.fixture

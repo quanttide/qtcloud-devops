@@ -80,7 +80,7 @@ contracts:
 
 boundaries:
   - id: branch-feature
-    name:何时用 feature 分支
+    name: 何时用 feature 分支
     condition: 非紧急的功能开发
     branches:
       - feature/*

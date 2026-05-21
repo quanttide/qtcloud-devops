@@ -1,6 +1,7 @@
 # 发布示例
 
 > 事实源：[devops-release 技能](../../assets/skills/devops-release/SKILL.md)
+> 对应 CLI：[qtcloud-devops-cli](../../src/cli) — `uv run python -m app.cli release`
 
 ## 执行模式说明
 
@@ -17,95 +18,91 @@
 
 ### 1. 预检查 — 🤖 规则
 
-所有预检查均为自动化规则，可直接执行：
+所有预检查均为自动化规则，CLI 内部由 `release.py:precheck()` 执行：
 
 ```bash
-git status
-
-VERSION="v0.4.0"
-if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-  echo "错误: 版本号格式错误"
-  exit 1
-fi
-
-if ! grep -q "^## \[${VERSION#v}\]" CHANGELOG.md; then
-  echo "错误: CHANGELOG.md 未找到 v0.4.0 版本记录"
-  exit 1
-fi
-
-NOTES=$(sed -n "/^## \[${VERSION#v}\]/,/^## \[/p" CHANGELOG.md | sed '1d;$d')
-if [ -z "$NOTES" ]; then
-  echo "错误: 无法提取 Release Notes"
-  exit 1
-fi
-
-if git tag -l | grep -q "^${VERSION}$"; then
-  echo "错误: 标签 v0.4.0 已存在"
-  exit 1
-fi
-
-echo "=== Release Notes 预览 ==="
-echo "$NOTES"
-echo "========================="
+# 直接使用 CLI（dry-run 仅检查不执行）
+qtcloud-devops release v0.4.0 --repo quanttide/quanttide-founder --dry-run
 ```
+
+检查项：
+- 版本号格式（semver）
+- CHANGELOG.md 存在且包含目标版本
+- 标签是否已存在
+- 工作区是否干净
+- 是否在可发布分支（main/master/release/*）
 
 ### 2. 发布前确认 — 🧠 AI
 
-AI 向用户展示检查结果摘要，等待用户确认后再继续：
+CLI 的 `release.py:confirm_release()` 向用户展示摘要并等待确认：
 
 ```text
 发布版本: v0.4.0
 
 检查结果:
-✓ 版本号格式正确
-✓ CHANGELOG.md 包含目标版本
-✓ Release Notes 提取成功
-✓ 标签不存在
-✓ 工作区干净
+  ✓ 预检查全部通过
 
-待执行命令:
-1. git tag v0.4.0 && git push origin v0.4.0
-2. gh release create v0.4.0 --title "v0.4.0" --notes "..."
+Release Notes 预览:
+  初始版本。
 
-确认发布? (y/n)
+  ### Added
+  - 功能 A
+  - 功能 B
+
+确认发布? (y/N):
+```
+
+AI 等待用户输入 `y/yes` 后继续。可使用 `-y` 跳过确认（CI 等自动化场景）：
+
+```bash
+qtcloud-devops release v0.4.0 --repo quanttide/quanttide-founder -y
 ```
 
 ### 3. 执行发布 — 🤖 规则
 
-用户确认后，自动执行以下命令：
+用户确认后，`release.py:run()` 自动依次执行：
 
-```bash
-git tag v0.4.0 && git push origin v0.4.0
-
-gh release create v0.4.0 \
-  --title "v0.4.0" \
-  --notes "$NOTES" \
-  --repo quanttide/quanttide-founder
-
-gh release view v0.4.0 --repo quanttide/quanttide-founder
-```
+1. `create_tag()` — `git tag v0.4.0`
+2. `push_tag()` — `git push origin v0.4.0`
+3. `create_release()` — `gh release create v0.4.0`
 
 ### 4. 验证 — 🤖 规则
 
+`release.py:verify_release()` 自动执行 `gh release view` 验证结果：
+
 ```bash
-# 预期输出
-# ✓ Release v0.4.0 创建成功
-#   标签: v0.4.0
-#   URL: https://github.com/quanttide/quanttide-founder/releases/tag/v0.4.0
+gh release view v0.4.0 --repo quanttide/quanttide-founder
+```
+
+预期输出：
+
+```
+✓ Release v0.4.0 创建成功
+  标签: v0.4.0
+  URL: https://github.com/quanttide/quanttide-founder/releases/tag/v0.4.0
+```
+
+### 5. 一键执行
+
+```bash
+qtcloud-devops release v0.4.0 --repo quanttide/quanttide-founder
 ```
 
 ## 错误处理
 
-| 错误 | 处理方式 | 模式 |
-|------|----------|:----:|
-| CHANGELOG 缺少版本 | 输出错误信息并终止，提示用户先更新 CHANGELOG | 🤖 规则 |
-| 标签已存在 | 输出错误信息并终止，提示用户删除旧标签或使用新版本 | 🤖 规则 |
-| 工作区脏 | 输出错误信息并终止，提示用户提交或暂存变更 | 🤖 规则 |
-| Release Notes 为空 | 输出错误信息并终止，提示检查 CHANGELOG 格式 | 🤖 规则 |
-| 标签已推送但 Release 创建失败 | 向用户展示错误，询问是否删除标签并回滚 | 🧠 AI |
-| 其他不可预见的错误 | 向用户展示完整错误信息，由用户决策下一步 | 🧠 AI |
+| 阶段 | 错误 | 处理方式 | 模式 |
+|------|------|----------|:----:|
+| 预检查 | CHANGELOG 缺少版本 | 输出错误并终止，提示先更新 CHANGELOG | 🤖 规则 |
+| 预检查 | 标签已存在 | 输出错误并终止，提示删除旧标签或使用新版本 | 🤖 规则 |
+| 预检查 | 工作区脏 | 输出错误并终止，提示提交或暂存变更 | 🤖 规则 |
+| 预检查 | 分支不正确 | 输出错误并终止，提示切换到正确分支 | 🤖 规则 |
+| 执行 | 创建标签失败 | 输出错误并终止 | 🤖 规则 |
+| 执行 | 推送标签失败 | 自动回滚（删除本地+远程标签），输出错误 | 🧠 AI |
+| 执行 | Release 创建失败 | 自动回滚（删除本地+远程标签），输出错误 | 🧠 AI |
+| 验证 | Release 验证失败 | 输出警告（标签和 Release 已存在，需人工检查） | 🤖 规则 |
 
 ## 参考
 
 - 完整工作流见 [devops-release SKILL.md](../../assets/skills/devops-release/SKILL.md)
+- CLI 源码见 [src/cli/release.py](../../src/cli/app/release.py)
 - 子模块发布流程也请参考技能文档

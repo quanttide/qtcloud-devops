@@ -62,6 +62,27 @@ def extract_notes(version: str, changelog: Path) -> Optional[str]:
     return text if text else None
 
 
+def confirm_release(version: str, notes: Optional[str], yes: bool = False) -> bool:
+    """🧠 AI 介入点：展示检查摘要并等待用户确认"""
+    print(f"\n发布版本: {version}")
+    print()
+    print("检查结果:")
+    print("  ✓ 预检查全部通过")
+    print()
+    print("Release Notes 预览:")
+    print(notes or "(空)")
+    print()
+
+    if yes:
+        return True
+
+    try:
+        response = input("确认发布? (y/N): ").strip().lower()
+        return response in ("y", "yes")
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+
 def create_tag(version: str) -> bool:
     result = subprocess.run(
         ["git", "tag", version],
@@ -100,14 +121,39 @@ def create_release(version: str, notes: str, repo: str) -> bool:
     return True
 
 
+def verify_release(version: str, repo: str) -> bool:
+    """🤖 规则：发布后验证"""
+    result = subprocess.run(
+        ["gh", "release", "view", version, "--repo", repo],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(f"⚠ 验证 Release 失败: {result.stderr.strip()}")
+        return False
+    print(result.stdout.strip())
+    return True
+
+
+def rollback_tag(version: str) -> None:
+    """🧠 AI 介入点：标签已推送但后续失败时回滚"""
+    subprocess.run(["git", "tag", "-d", version], capture_output=True)
+    subprocess.run(
+        ["git", "push", "origin", "--delete", version],
+        capture_output=True, text=True,
+    )
+    print(f"↻ 标签 {version} 已回滚")
+
+
 def run(
     version: str,
     changelog: Optional[Path] = None,
     repo: Optional[str] = None,
     dry_run: bool = False,
+    yes: bool = False,
 ):
     changelog = changelog or Path.cwd() / "CHANGELOG.md"
 
+    # --- 🤖 规则：预检查 ---
     errors = precheck(version, changelog)
     if errors:
         print("预检查失败:")
@@ -124,15 +170,28 @@ def run(
         print("✓ 预检查通过 (dry-run 模式，不执行)")
         return 0
 
+    # --- 🧠 AI 介入点：发布前确认 ---
+    if not confirm_release(version, notes, yes=yes):
+        print("已取消发布")
+        return 0
+
+    # --- 🤖 规则：执行发布 ---
     if not create_tag(version):
         return 1
 
     if not push_tag(version):
+        rollback_tag(version)
         return 1
 
     if repo:
         if not create_release(version, notes or "", repo):
+            rollback_tag(version)
             return 1
 
-    print(f"✓ Release {version} 创建成功")
+    # --- 🤖 规则：发布后验证 ---
+    if repo:
+        print("\n--- 验证 ---")
+        verify_release(version, repo)
+
+    print(f"\n✓ Release {version} 创建成功")
     return 0
