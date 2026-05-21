@@ -4,10 +4,11 @@
 基于 devops-release 技能，提供预检查、发布前确认、执行发布、验证、回滚的全流程自动化。
 
 用法:
-    qtcloud-devops release --version v0.1.0             # 仅创建 Git 标签
-    qtcloud-devops release --version v0.1.0 --release-only  # 仅创建 GitHub Release
-    qtcloud-devops release --version v0.1.0 --dry-run       # 仅检查
-    qtcloud-devops release --version v0.1.0 -y              # 跳过确认
+    qtcloud-devops release --version v0.1.0                   # 标签 + GitHub Release
+    qtcloud-devops release --version v0.1.0 --tag-only        # 仅创建 Git 标签
+    qtcloud-devops release --version v0.1.0 --release-only    # 仅创建 GitHub Release
+    qtcloud-devops release --version v0.1.0 --dry-run         # 仅检查
+    qtcloud-devops release --version v0.1.0 -y                # 跳过确认
 """
 
 import typer
@@ -36,8 +37,9 @@ def release(
 ):
     """发布 Release。
 
-    默认行为：创建 Git 标签并推送（等价于 --tag-only）。
-    加 --release-only：仅为已有标签创建 GitHub Release（从 git remote 自动检测仓库）。
+    默认行为：创建 Git 标签并推送 + GitHub Release（仓库从 git remote 自动检测）。
+    --tag-only：仅打标签，跳过 GitHub Release。
+    --release-only：仅为已有标签创建 GitHub Release（跳过标签创建）。
     """
     from pathlib import Path
 

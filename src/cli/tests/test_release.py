@@ -281,8 +281,8 @@ def test_run_tag_and_release_only_mutually_exclusive():
     assert run("v0.1.0", Path("/tmp"), tag_only=True, release_only=True) == 1
 
 
-def test_run_default_creates_tag_only(monkeypatch):
-    """默认行为：只打标签，不发 GitHub Release"""
+def test_run_default_creates_tag_and_release(monkeypatch):
+    """默认行为：标签 + GitHub Release"""
     changelog = Path("/tmp/test_run_default.md")
     changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
 
@@ -291,12 +291,16 @@ def test_run_default_creates_tag_only(monkeypatch):
         calls.append(cmd)
         if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
             return MagicMock(returncode=0, stdout="main\n")
+        if cmd == ["git", "remote", "get-url", "origin"]:
+            return MagicMock(returncode=0, stdout="git@github.com:quanttide/repo.git\n")
+        if "view" in str(cmd):
+            return MagicMock(returncode=0, stdout="Release v0.1.0\n")
         return MagicMock(returncode=0, stdout="")
 
     monkeypatch.setattr("app.release.subprocess.run", recorder)
     assert run("v0.1.0", changelog, yes=True) == 0
     assert ["git", "tag", "v0.1.0"] in calls
-    assert not any("create" in c for c in calls)
+    assert any("create" in c for c in calls)
     changelog.unlink()
 
 

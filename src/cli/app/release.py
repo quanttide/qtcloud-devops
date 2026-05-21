@@ -217,7 +217,6 @@ def run(
         return 0
 
     # --- 执行发布 ---
-    repo = get_remote_repo()
     tag_created = False
 
     if not release_only:
@@ -229,11 +228,16 @@ def run(
         tag_created = True
         print(f"✓ 标签 {version} 已创建并推送")
 
-    if release_only:
+    if not tag_only:
+        repo = get_remote_repo()
         if not repo:
             print("错误: 无法从 git remote 解析 GitHub 仓库")
+            if tag_created:
+                rollback_tag(version)
             return 1
         if not create_release(version, notes or "", repo):
+            if tag_created:
+                rollback_tag(version)
             return 1
         print(f"✓ GitHub Release {version} 已创建")
         print(f"  https://github.com/{repo}/releases/tag/{version}")
