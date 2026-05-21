@@ -51,3 +51,26 @@ src/cli/
 - 包名（PyPI）: `qtcloud-devops-cli`
 - 导入名: `app.*`
 - 仓库 tag 前缀: `cli/`
+
+## CLI 设计规则
+
+### release 命令行为
+
+```
+qtcloud-devops release --version v0.1.0                # 标签 + GitHub Release（默认）
+qtcloud-devops release --version v0.1.0 --tag-only      # 仅标签
+qtcloud-devops release --version v0.1.0 --release-only  # 仅 GitHub Release
+```
+
+**规则：**
+
+- **默认** = 标签 + GitHub Release（仓库从 git remote 自动检测）
+- `--tag-only` 和 `--release-only` 互斥
+- tag 是否已存在的处理：
+  - `--release-only`：tag **必须**存在，否则拒绝
+  - 默认 / `--tag-only`：tag 存在则跳过创建，不影响后续
+- `--repo` 参数**不存在**，仓库名通过 `get_remote_repo()` 从 `git remote get-url origin` 解析
+- 发布后**不验证** GitHub Release（`verify_release` 函数未使用）
+- 创建标签失败：返回错误码 1
+- 推送标签失败：自动回滚本地标签
+- GitHub Release 创建失败：若之前创建了标签则自动回滚

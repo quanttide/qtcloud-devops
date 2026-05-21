@@ -37,15 +37,15 @@ def precheck(version: str, changelog: Path, release_only: bool = False) -> list[
     else:
         errors.append(f"CHANGELOG.md 不存在: {changelog}")
 
-    if not release_only:
+    if release_only:
         result = subprocess.run(
             ["git", "tag", "-l"],
             capture_output=True,
             text=True,
         )
         existing_tags = result.stdout.strip().split("\n")
-        if version in existing_tags:
-            errors.append(f"标签已存在: {version}")
+        if version not in existing_tags:
+            errors.append(f"标签不存在: {version}（--release-only 需要标签已存在）")
 
     result = subprocess.run(
         ["git", "status", "--porcelain"],
@@ -220,13 +220,21 @@ def run(
     tag_created = False
 
     if not release_only:
-        if not create_tag(version):
-            return 1
-        if not push_tag(version):
-            rollback_tag(version)
-            return 1
-        tag_created = True
-        print(f"✓ 标签 {version} 已创建并推送")
+        result = subprocess.run(
+            ["git", "tag", "-l"],
+            capture_output=True, text=True,
+        )
+        tag_exists = version in result.stdout.strip().split("\n")
+        if tag_exists:
+            print(f"→ 标签 {version} 已存在，跳过 tag 创建")
+        else:
+            if not create_tag(version):
+                return 1
+            if not push_tag(version):
+                rollback_tag(version)
+                return 1
+            tag_created = True
+            print(f"✓ 标签 {version} 已创建并推送")
 
     if not tag_only:
         repo = get_remote_repo()

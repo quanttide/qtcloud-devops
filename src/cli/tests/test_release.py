@@ -37,14 +37,14 @@ def test_precheck_changelog_not_found():
     assert any("不存在" in e for e in errors)
 
 
-def test_precheck_tag_exists(monkeypatch):
+def test_precheck_default_does_not_check_tag_exists(monkeypatch):
+    """默认模式不检查标签是否存在"""
     monkeypatch.setattr("app.release.subprocess.run", mock_subprocess({
-        ("git", "tag", "-l"): MagicMock(stdout="v0.1.0\nv0.2.0\n"),
         ("git", "status", "--porcelain"): MagicMock(stdout=""),
         ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(stdout="main\n"),
-    }))
+    }, default=MagicMock(returncode=0, stdout="")))
     errors = precheck("v0.1.0", Path("/tmp/CHANGELOG.md"))
-    assert any("标签已存在" in e for e in errors)
+    assert all("标签" not in e for e in errors)
 
 
 def test_precheck_dirty_workspace(monkeypatch):
@@ -230,6 +230,7 @@ def test_run_cancelled(monkeypatch):
 
 def test_run_create_tag_failure(monkeypatch):
     monkeypatch.setattr("app.release.subprocess.run", mock_subprocess({
+        ("git", "tag", "-l"): MagicMock(stdout=""),
         ("git", "tag", "v0.1.0"): MagicMock(returncode=1, stderr="错误"),
         ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(returncode=0, stdout="main\n"),
     }, default=MagicMock(returncode=0, stdout="")))
@@ -243,6 +244,8 @@ def test_run_push_tag_failure_triggers_rollback(monkeypatch):
     calls = []
     def recorder(cmd, **kw):
         calls.append(cmd)
+        if cmd == ["git", "tag", "-l"]:
+            return MagicMock(returncode=0, stdout="")
         if cmd == ["git", "push", "origin", "v0.1.0"]:
             return MagicMock(returncode=1, stderr="错误")
         if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
@@ -259,13 +262,15 @@ def test_run_push_tag_failure_triggers_rollback(monkeypatch):
 
 
 def test_run_tag_only_explicit(monkeypatch):
-    """--tag-only 显式声明，行为与默认一致"""
+    """--tag-only 显式声明，只打标签不发 release"""
     changelog = Path("/tmp/test_run_tag_only_explicit.md")
     changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
 
     calls = []
     def recorder(cmd, **kw):
         calls.append(cmd)
+        if cmd == ["git", "tag", "-l"]:
+            return MagicMock(returncode=0, stdout="")
         if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
             return MagicMock(returncode=0, stdout="main\n")
         return MagicMock(returncode=0, stdout="")
@@ -289,6 +294,8 @@ def test_run_default_creates_tag_and_release(monkeypatch):
     calls = []
     def recorder(cmd, **kw):
         calls.append(cmd)
+        if cmd == ["git", "tag", "-l"]:
+            return MagicMock(returncode=0, stdout="")
         if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
             return MagicMock(returncode=0, stdout="main\n")
         if cmd == ["git", "remote", "get-url", "origin"]:
@@ -304,6 +311,31 @@ def test_run_default_creates_tag_and_release(monkeypatch):
     changelog.unlink()
 
 
+def test_run_default_skips_tag_if_exists(monkeypatch):
+    """默认模式：标签已存在时跳过 tag 创建，继续发 release"""
+    changelog = Path("/tmp/test_run_default_tag_exists.md")
+    changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
+
+    calls = []
+    def recorder(cmd, **kw):
+        calls.append(cmd)
+        if cmd == ["git", "tag", "-l"]:
+            return MagicMock(returncode=0, stdout="v0.1.0\n")
+        if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
+            return MagicMock(returncode=0, stdout="main\n")
+        if cmd == ["git", "remote", "get-url", "origin"]:
+            return MagicMock(returncode=0, stdout="git@github.com:quanttide/repo.git\n")
+        if "view" in str(cmd):
+            return MagicMock(returncode=0, stdout="Release v0.1.0\n")
+        return MagicMock(returncode=0, stdout="")
+
+    monkeypatch.setattr("app.release.subprocess.run", recorder)
+    assert run("v0.1.0", changelog, yes=True) == 0
+    assert ["git", "tag", "v0.1.0"] not in calls
+    assert any("create" in c for c in calls)
+    changelog.unlink()
+
+
 def test_run_release_only(monkeypatch):
     """--release-only 只创建 GitHub Release，不打标签"""
     changelog = Path("/tmp/test_run_release_only.md")
@@ -312,6 +344,8 @@ def test_run_release_only(monkeypatch):
     calls = []
     def recorder(cmd, **kw):
         calls.append(cmd)
+        if cmd == ["git", "tag", "-l"]:
+            return MagicMock(returncode=0, stdout="v0.1.0\n")
         if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
             return MagicMock(returncode=0, stdout="main\n")
         if cmd == ["git", "remote", "get-url", "origin"]:
@@ -341,8 +375,8 @@ def test_run_release_only_fails_without_remote(monkeypatch):
     changelog.unlink()
 
 
-def test_run_release_only_skips_precheck_tag_check(monkeypatch):
-    """--release-only 预检查不因标签已存在而失败"""
+def test_run_release_only_requires_existing_tag(monkeypatch):
+    """--release-only 要求标签已存在（预检查通过）"""
     changelog = Path("/tmp/test_run_release_only_tag_exists.md")
     changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
 
@@ -360,23 +394,50 @@ def test_run_release_only_skips_precheck_tag_check(monkeypatch):
         return MagicMock(returncode=0, stdout="")
 
     monkeypatch.setattr("app.release.subprocess.run", recorder)
-    # 标签 v0.1.0 已存在，但 release_only=True 应该通过
     assert run("v0.1.0", changelog, release_only=True, yes=True) == 0
     changelog.unlink()
 
 
-def test_precheck_release_only_skips_tag_check(monkeypatch):
-    """--release-only 时不检查标签是否已存在"""
+def test_run_release_only_fails_if_tag_missing(monkeypatch):
+    """--release-only 标签不存在时预检查拒绝"""
+    changelog = Path("/tmp/test_run_release_only_tag_missing.md")
+    changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
+
+    monkeypatch.setattr("app.release.subprocess.run", mock_subprocess({
+        ("git", "tag", "-l"): MagicMock(stdout="v0.2.0\n"),
+        ("git", "status", "--porcelain"): MagicMock(stdout=""),
+        ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(stdout="main\n"),
+    }, default=MagicMock(returncode=0, stdout="")))
+
+    assert run("v0.1.0", changelog, release_only=True, yes=True) == 1
+    changelog.unlink()
+
+
+def test_precheck_release_only_requires_tag(monkeypatch):
+    """--release-only 时要求标签已存在"""
     monkeypatch.setattr("app.release.subprocess.run", mock_subprocess({
         ("git", "tag", "-l"): MagicMock(stdout="v0.1.0\n"),
         ("git", "status", "--porcelain"): MagicMock(stdout=""),
         ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(stdout="main\n"),
     }))
-    changelog = Path("/tmp/test_precheck_release_only.md")
+    changelog = Path("/tmp/test_precheck_release_only_tag_ok.md")
     changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
     errors = precheck("v0.1.0", changelog, release_only=True)
-    assert all("标签已存在" not in e for e in errors)
     assert len(errors) == 0
+    changelog.unlink()
+
+
+def test_precheck_release_only_fails_if_tag_missing(monkeypatch):
+    """--release-only 时标签不存在应报错"""
+    monkeypatch.setattr("app.release.subprocess.run", mock_subprocess({
+        ("git", "tag", "-l"): MagicMock(stdout="v0.2.0\n"),
+        ("git", "status", "--porcelain"): MagicMock(stdout=""),
+        ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(stdout="main\n"),
+    }))
+    changelog = Path("/tmp/test_precheck_release_only_tag_missing.md")
+    changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
+    errors = precheck("v0.1.0", changelog, release_only=True)
+    assert any("标签不存在" in e for e in errors)
     changelog.unlink()
 
 
