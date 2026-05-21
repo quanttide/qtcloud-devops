@@ -12,27 +12,14 @@
 | 6 | git remote 可达 | 从 `git remote get-url origin` 自动检测仓库 |
 | 7 | 用户可交互 | 发布确认需 TTY 交互，CI 需 `-y` 跳过 |
 
-## v0.2.0（计划）
+## 待规划（由用户决定）
 
-### CHANGELOG 路径智能检测
-
-- 默认查找 `pyproject.toml` 同层目录的 `CHANGELOG.md`，而非 cwd
-- 减少 `--changelog` 的使用场景
-
-### CLI 自检验证
-
-- `--check-pypi`：发布后验证 PyPI 是否成功
-- 发布后自动建议执行验证命令
-
-### CI Action 版本升级
-
-- 升级 `actions/checkout` 和 `actions/setup-python` 至支持 Node.js 24 的版本
-
-### 后续考虑
-
-- 契约检查集成到 `release` 预检查中
+- CHANGELOG 路径智能检测（自动查找 pyproject.toml 同层的 CHANGELOG.md）
+- CLI 自检验证（--check-pypi、发布后验证）
+- CI Action 版本升级（Node.js 20 弃用）
+- 契约检查集成到 release 预检查
 - `check` 命令：运行所有预定义契约检查
 - `init` 命令：在当前目录初始化 DevOps 契约
-- 支持非 GitHub 仓库（GitLab、Gitea 等）
+- 支持非 GitHub 仓库
 - 支持非 semver 版本策略
 - 放宽分支限制（可配置允许的分支列表）
