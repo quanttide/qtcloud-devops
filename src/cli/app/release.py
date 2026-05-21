@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 
-def precheck(version: str, changelog: Path) -> list[str]:
+def precheck(version: str, changelog: Path, release_only: bool = False) -> list[str]:
     errors = []
 
     if not re.match(
@@ -21,14 +21,15 @@ def precheck(version: str, changelog: Path) -> list[str]:
     else:
         errors.append(f"CHANGELOG.md 不存在: {changelog}")
 
-    result = subprocess.run(
-        ["git", "tag", "-l"],
-        capture_output=True,
-        text=True,
-    )
-    existing_tags = result.stdout.strip().split("\n")
-    if version in existing_tags:
-        errors.append(f"标签已存在: {version}")
+    if not release_only:
+        result = subprocess.run(
+            ["git", "tag", "-l"],
+            capture_output=True,
+            text=True,
+        )
+        existing_tags = result.stdout.strip().split("\n")
+        if version in existing_tags:
+            errors.append(f"标签已存在: {version}")
 
     result = subprocess.run(
         ["git", "status", "--porcelain"],
@@ -168,12 +169,27 @@ def run(
     changelog: Optional[Path] = None,
     repo: Optional[str] = None,
     dry_run: bool = False,
+    tag_only: bool = False,
+    release_only: bool = False,
     yes: bool = False,
 ):
     changelog = changelog or Path.cwd() / "CHANGELOG.md"
 
+    if tag_only and release_only:
+        print("错误: --tag-only 和 --release-only 不能同时使用")
+        return 1
+
+    if release_only and not repo:
+        print("错误: --release-only 需要 --repo 参数")
+        return 1
+
+    if not tag_only and not release_only and not repo:
+        print("提示: 未指定 --repo，将仅创建 Git 标签（无 GitHub Release）")
+        print("  使用 --repo 可在创建标签时同时创建 GitHub Release")
+        print("  使用 --tag-only 明确仅打标签；--release-only 单独创建 GitHub Release\n")
+
     # --- 🤖 规则：预检查 ---
-    errors = precheck(version, changelog)
+    errors = precheck(version, changelog, release_only=release_only)
     if errors:
         print("预检查失败:")
         for err in errors:
@@ -195,20 +211,24 @@ def run(
         return 0
 
     # --- 🤖 规则：执行发布 ---
-    if not create_tag(version):
-        return 1
+    tag_created = False
 
-    if not push_tag(version):
-        rollback_tag(version)
-        return 1
-
-    if repo:
-        if not create_release(version, notes or "", repo):
+    if not release_only:
+        if not create_tag(version):
+            return 1
+        if not push_tag(version):
             rollback_tag(version)
+            return 1
+        tag_created = True
+
+    if not tag_only and repo:
+        if not create_release(version, notes or "", repo):
+            if tag_created:
+                rollback_tag(version)
             return 1
 
     # --- 🤖 规则：发布后验证 ---
-    if repo:
+    if not tag_only and repo:
         print("\n--- 验证 ---")
         verify_release(version, repo)
 
