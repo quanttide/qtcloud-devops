@@ -9,11 +9,17 @@ runner = CliRunner()
 def test_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "VERSION" in result.stdout
+    assert "release" in result.stdout
+
+
+def test_release_help():
+    result = runner.invoke(app, ["release", "--help"])
+    assert result.exit_code == 0
+    assert "--version" in result.stdout
 
 
 def test_release_invalid_version():
-    result = runner.invoke(app, ["invalid"])
+    result = runner.invoke(app, ["release", "--version", "invalid"])
     assert result.exit_code != 0
 
 
@@ -26,7 +32,10 @@ def test_release_dry_run(monkeypatch):
             return MagicMock(returncode=0, stdout="main\n")
         return MagicMock(returncode=0, stdout="")
     monkeypatch.setattr("app.release.subprocess.run", mock_run)
-    result = runner.invoke(app, ["v0.1.0", "--changelog", str(changelog), "--dry-run"])
+    result = runner.invoke(app, [
+        "release", "--version", "v0.1.0",
+        "--changelog", str(changelog), "--dry-run",
+    ])
     assert result.exit_code == 0
     changelog.unlink()
 
@@ -50,4 +59,4 @@ def test_main_module_entry():
         cwd=str(root),
     )
     assert result.returncode == 0
-    assert "VERSION" in result.stdout
+    assert "release" in result.stdout
