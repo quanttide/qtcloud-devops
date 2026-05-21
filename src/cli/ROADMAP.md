@@ -22,6 +22,11 @@
 - 放宽分支限制（可配置允许的分支列表）
 - CI Action 版本升级（Node.js 20 弃用）
 
+### qtcloud-devops-cli 包维护
+
+- CLI 自检验证（发布后验证 PyPI 是否成功）
+- CI Action 版本升级（Node.js 20 弃用）
+
 ### 语言/框架契约（谨慎设计）
 
 - 通过契约显式声明项目语言、包类型（Python/Dart/Rust/…）
