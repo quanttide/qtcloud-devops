@@ -1,17 +1,5 @@
 # ROADMAP
 
-## 基本假设
-
-| # | 假设 | 说明 |
-|---|------|------|
-| 1 | GitHub 为中心 | 主开发在 GitHub，使用 `gh` CLI。GitLink 仅作镜像容灾 |
-| 2 | 有 CHANGELOG.md | 格式 `## [X.Y.Z]`，默认查找当前目录 |
-| 3 | semver 版本号 | 版本号 `vX.Y.Z` 或 `scope/vX.Y.Z` |
-| 4 | 工作区干净 | 发布前无未提交变更 |
-| 5 | 发布分支受限 | 仅 `main` / `master` / `release/*` 可发布 |
-| 6 | git remote 可达 | 从 `git remote get-url origin` 自动检测仓库 |
-| 7 | 用户可交互 | 发布确认需 TTY 交互，CI 需 `-y` 跳过 |
-
 ## 待规划（按优先级）
 
 ### P0 — 发布目标支持
@@ -32,3 +20,15 @@
 - 支持非 semver 版本策略
 - CI Action 版本升级（Node.js 20 弃用）
 - GitLink 镜像容灾同步（优先级较低，可手动维护）
+
+## 基本假设
+
+| # | 假设 | 说明 |
+|---|------|------|
+| 1 | GitHub 为中心 | 主开发在 GitHub，使用 `gh` CLI。GitLink 仅作镜像容灾 |
+| 2 | 有 CHANGELOG.md | 格式 `## [X.Y.Z]`，默认查找当前目录 |
+| 3 | semver 版本号 | 版本号 `vX.Y.Z` 或 `scope/vX.Y.Z` |
+| 4 | 工作区干净 | 发布前无未提交变更 |
+| 5 | 发布分支受限 | 仅 `main` / `master` / `release/*` 可发布 |
+| 6 | git remote 可达 | 从 `git remote get-url origin` 自动检测仓库 |
+| 7 | 用户可交互 | 发布确认需 TTY 交互，CI 需 `-y` 跳过 |
