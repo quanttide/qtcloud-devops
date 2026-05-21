@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["tests*"]
+
+[project]
+name = "qtcloud-devops-cli"
+version = "0.1.0"
+description = "DevOps CLI — 发布管理、契约检查与工作流自动化"
+requires-python = ">=3.12"
+dependencies = [
+    "typer",
+    "pydantic-settings",
+    "pyyaml",
+]
+
+[project.scripts]
+qtcloud-devops = "app.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pyyaml",
+]
