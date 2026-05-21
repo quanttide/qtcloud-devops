@@ -26,7 +26,8 @@ def release(
     """发布 Release — 预检查、打标签、推送、创建 GitHub Release"""
     from app.release import run
     from pathlib import Path
-    return run(version, Path(changelog), repo, dry_run, yes)
+    code = run(version, Path(changelog), repo, dry_run, yes)
+    raise typer.Exit(code=code)
 
 
 @app.command(hidden=True)
@@ -50,5 +51,5 @@ def main():
     return app()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     exit(main())
