@@ -43,11 +43,11 @@ src/cli/
 1. **更新版本号** → 改 `pyproject.toml`
 2. **写 CHANGELOG** → 更新 `CHANGELOG.md`
 3. **提交** → `chore: bump qtcloud-devops-cli to vX.Y.Z`
-4. **打 tag** → `devops/vX.Y.Z`
+4. **打 tag** → `cli/vX.Y.Z`
 5. **推送** → CI 自动发布
 
 ## 命名约定
 
 - 包名（PyPI）: `qtcloud-devops-cli`
 - 导入名: `app.*`
-- 仓库 tag 前缀: `devops/`
+- 仓库 tag 前缀: `cli/`
