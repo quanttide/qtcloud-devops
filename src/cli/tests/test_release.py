@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from app.release import (
     precheck, extract_notes, confirm_release,
     create_tag, push_tag, create_release, verify_release,
-    rollback_tag, run,
+    rollback_tag, run, get_remote_repo,
 )
 
 
@@ -188,6 +188,25 @@ def test_rollback_tag(monkeypatch):
     assert calls[1] == ["git", "push", "origin", "--delete", "v0.1.0"]
 
 
+def test_get_remote_repo_ssh(monkeypatch):
+    monkeypatch.setattr("app.release.subprocess.run", lambda *a, **kw: MagicMock(
+        returncode=0, stdout="git@github.com:quanttide/quanttide-platform.git\n"
+    ))
+    assert get_remote_repo() == "quanttide/quanttide-platform"
+
+
+def test_get_remote_repo_https(monkeypatch):
+    monkeypatch.setattr("app.release.subprocess.run", lambda *a, **kw: MagicMock(
+        returncode=0, stdout="https://github.com/quanttide/quanttide-platform\n"
+    ))
+    assert get_remote_repo() == "quanttide/quanttide-platform"
+
+
+def test_get_remote_repo_failure(monkeypatch):
+    monkeypatch.setattr("app.release.subprocess.run", lambda *a, **kw: MagicMock(returncode=1, stderr=""))
+    assert get_remote_repo() is None
+
+
 def test_run_dry_run(monkeypatch):
     monkeypatch.setattr("app.release.subprocess.run", git_precheck_ok())
     changelog = Path("/tmp/test_run_dry.md")
@@ -239,65 +258,9 @@ def test_run_push_tag_failure_triggers_rollback(monkeypatch):
     changelog.unlink()
 
 
-def test_run_create_release_failure_triggers_rollback(monkeypatch):
-    calls = []
-    def recorder(cmd, **kw):
-        calls.append(cmd)
-        if any(c == "create" for c in cmd):
-            return MagicMock(returncode=1, stderr="错误")
-        if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
-            return MagicMock(returncode=0, stdout="main\n")
-        return MagicMock(returncode=0, stdout="")
-
-    monkeypatch.setattr("app.release.subprocess.run", recorder)
-    changelog = Path("/tmp/test_run_rel_fail.md")
-    changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
-    assert run("v0.1.0", changelog, repo="quanttide/repo", yes=True) == 1
-    assert ["git", "tag", "-d", "v0.1.0"] in calls
-    assert ["git", "push", "origin", "--delete", "v0.1.0"] in calls
-    changelog.unlink()
-
-
-def test_run_full_success(monkeypatch):
-    changelog = Path("/tmp/test_run_success.md")
-    changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
-
-    def mock_run(cmd, **kw):
-        if "view" in str(cmd):
-            return MagicMock(returncode=0, stdout="Release v0.1.0\nURL: ...")
-        if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
-            return MagicMock(returncode=0, stdout="main\n")
-        return MagicMock(returncode=0, stdout="")
-
-    monkeypatch.setattr("app.release.subprocess.run", mock_run)
-    assert run("v0.1.0", changelog, repo="quanttide/repo", yes=True) == 0
-    changelog.unlink()
-
-
-def test_run_uses_default_changelog(monkeypatch):
-    monkeypatch.setattr("app.release.subprocess.run", lambda *a, **kw: MagicMock(returncode=0, stdout="main\n"))
-    assert run("v0.1.0", repo=None, dry_run=True) == 1
-
-
-def test_precheck_release_only_skips_tag_check(monkeypatch):
-    """--release-only 时不检查标签是否已存在"""
-    monkeypatch.setattr("app.release.subprocess.run", mock_subprocess({
-        ("git", "tag", "-l"): MagicMock(stdout="v0.1.0\n"),
-        ("git", "status", "--porcelain"): MagicMock(stdout=""),
-        ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(stdout="main\n"),
-    }))
-    # release_only=True 应该跳过标签存在检查
-    changelog = Path("/tmp/test_release_only_tag.md")
-    changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
-    errors = precheck("v0.1.0", changelog, release_only=True)
-    assert all("标签已存在" not in e for e in errors)
-    assert len(errors) == 0
-    changelog.unlink()
-
-
-def test_run_tag_only(monkeypatch):
-    """--tag-only 只打标签，不创建 GitHub Release"""
-    changelog = Path("/tmp/test_run_tag_only.md")
+def test_run_default_creates_tag_only(monkeypatch):
+    """默认行为：只打标签，不发 GitHub Release"""
+    changelog = Path("/tmp/test_run_default.md")
     changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
 
     calls = []
@@ -308,8 +271,7 @@ def test_run_tag_only(monkeypatch):
         return MagicMock(returncode=0, stdout="")
 
     monkeypatch.setattr("app.release.subprocess.run", recorder)
-    assert run("v0.1.0", changelog, tag_only=True, yes=True) == 0
-    # 验证打了标签、没调 gh release create
+    assert run("v0.1.0", changelog, yes=True) == 0
     assert ["git", "tag", "v0.1.0"] in calls
     assert not any("create" in c for c in calls)
     changelog.unlink()
@@ -325,26 +287,31 @@ def test_run_release_only(monkeypatch):
         calls.append(cmd)
         if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
             return MagicMock(returncode=0, stdout="main\n")
+        if cmd == ["git", "remote", "get-url", "origin"]:
+            return MagicMock(returncode=0, stdout="git@github.com:quanttide/repo.git\n")
         if "view" in str(cmd):
             return MagicMock(returncode=0, stdout="Release v0.1.0\nURL: ...")
         return MagicMock(returncode=0, stdout="")
 
     monkeypatch.setattr("app.release.subprocess.run", recorder)
-    assert run("v0.1.0", changelog, repo="quanttide/repo", release_only=True, yes=True) == 0
-    # 验证没打标签、调了 gh release create
+    assert run("v0.1.0", changelog, release_only=True, yes=True) == 0
     assert not any(cmd == ["git", "tag", "v0.1.0"] for cmd in calls)
     assert any("create" in c for c in calls)
     changelog.unlink()
 
 
-def test_run_tag_only_and_release_only_mutually_exclusive():
-    """--tag-only 和 --release-only 不能同时使用"""
-    assert run("v0.1.0", Path("/tmp"), tag_only=True, release_only=True) == 1
+def test_run_release_only_fails_without_remote(monkeypatch):
+    """--release-only 无法解析 remote 时报错"""
+    changelog = Path("/tmp/test_run_rel_no_remote.md")
+    changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
 
+    monkeypatch.setattr("app.release.subprocess.run", mock_subprocess({
+        ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(returncode=0, stdout="main\n"),
+        ("git", "remote", "get-url", "origin"): MagicMock(returncode=1, stderr=""),
+    }, default=MagicMock(returncode=0, stdout="")))
 
-def test_run_release_only_needs_repo():
-    """--release-only 需要 --repo"""
-    assert run("v0.1.0", Path("/tmp"), release_only=True) == 1
+    assert run("v0.1.0", changelog, release_only=True, yes=True) == 1
+    changelog.unlink()
 
 
 def test_run_release_only_skips_precheck_tag_check(monkeypatch):
@@ -359,11 +326,33 @@ def test_run_release_only_skips_precheck_tag_check(monkeypatch):
             return MagicMock(returncode=0, stdout="v0.1.0\n")
         if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
             return MagicMock(returncode=0, stdout="main\n")
+        if cmd == ["git", "remote", "get-url", "origin"]:
+            return MagicMock(returncode=0, stdout="git@github.com:quanttide/repo.git\n")
         if "view" in str(cmd):
             return MagicMock(returncode=0, stdout="Release v0.1.0\n")
         return MagicMock(returncode=0, stdout="")
 
     monkeypatch.setattr("app.release.subprocess.run", recorder)
-    # 标签 v0.1.0 已存在，但 release_only=True 应该通过预检查
-    assert run("v0.1.0", changelog, repo="quanttide/repo", release_only=True, yes=True) == 0
+    # 标签 v0.1.0 已存在，但 release_only=True 应该通过
+    assert run("v0.1.0", changelog, release_only=True, yes=True) == 0
     changelog.unlink()
+
+
+def test_precheck_release_only_skips_tag_check(monkeypatch):
+    """--release-only 时不检查标签是否已存在"""
+    monkeypatch.setattr("app.release.subprocess.run", mock_subprocess({
+        ("git", "tag", "-l"): MagicMock(stdout="v0.1.0\n"),
+        ("git", "status", "--porcelain"): MagicMock(stdout=""),
+        ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(stdout="main\n"),
+    }))
+    changelog = Path("/tmp/test_precheck_release_only.md")
+    changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
+    errors = precheck("v0.1.0", changelog, release_only=True)
+    assert all("标签已存在" not in e for e in errors)
+    assert len(errors) == 0
+    changelog.unlink()
+
+
+def test_run_uses_default_changelog(monkeypatch):
+    monkeypatch.setattr("app.release.subprocess.run", lambda *a, **kw: MagicMock(returncode=0, stdout="main\n"))
+    assert run("v0.1.0", dry_run=True) == 1

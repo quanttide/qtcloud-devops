@@ -4,6 +4,22 @@ from pathlib import Path
 from typing import Optional
 
 
+def get_remote_repo() -> Optional[str]:
+    """从 git remote 解析 owner/name。"""
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    url = result.stdout.strip()
+    m = re.search(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?$", url)
+    if m:
+        return m.group(1)
+    return None
+
+
 def precheck(version: str, changelog: Path, release_only: bool = False) -> list[str]:
     errors = []
 
@@ -167,28 +183,13 @@ def rollback_tag(version: str) -> None:
 def run(
     version: str,
     changelog: Optional[Path] = None,
-    repo: Optional[str] = None,
     dry_run: bool = False,
-    tag_only: bool = False,
     release_only: bool = False,
     yes: bool = False,
 ):
     changelog = changelog or Path.cwd() / "CHANGELOG.md"
 
-    if tag_only and release_only:
-        print("错误: --tag-only 和 --release-only 不能同时使用")
-        return 1
-
-    if release_only and not repo:
-        print("错误: --release-only 需要 --repo 参数")
-        return 1
-
-    if not tag_only and not release_only and not repo:
-        print("提示: 未指定 --repo，将仅创建 Git 标签（无 GitHub Release）")
-        print("  使用 --repo 可在创建标签时同时创建 GitHub Release")
-        print("  使用 --tag-only 明确仅打标签；--release-only 单独创建 GitHub Release\n")
-
-    # --- 🤖 规则：预检查 ---
+    # --- 预检查 ---
     errors = precheck(version, changelog, release_only=release_only)
     if errors:
         print("预检查失败:")
@@ -205,12 +206,13 @@ def run(
         print("✓ 预检查通过 (dry-run 模式，不执行)")
         return 0
 
-    # --- 🧠 AI 介入点：发布前确认 ---
+    # --- 发布前确认 ---
     if not confirm_release(version, notes, yes=yes):
         print("已取消发布")
         return 0
 
-    # --- 🤖 规则：执行发布 ---
+    # --- 执行发布 ---
+    repo = get_remote_repo()
     tag_created = False
 
     if not release_only:
@@ -220,17 +222,15 @@ def run(
             rollback_tag(version)
             return 1
         tag_created = True
+        print(f"✓ 标签 {version} 已创建并推送")
 
-    if not tag_only and repo:
-        if not create_release(version, notes or "", repo):
-            if tag_created:
-                rollback_tag(version)
+    if release_only:
+        if not repo:
+            print("错误: 无法从 git remote 解析 GitHub 仓库")
             return 1
+        if not create_release(version, notes or "", repo):
+            return 1
+        print(f"✓ GitHub Release {version} 已创建")
+        print(f"  https://github.com/{repo}/releases/tag/{version}")
 
-    # --- 🤖 规则：发布后验证 ---
-    if not tag_only and repo:
-        print("\n--- 验证 ---")
-        verify_release(version, repo)
-
-    print(f"\n✓ Release {version} 创建成功")
     return 0

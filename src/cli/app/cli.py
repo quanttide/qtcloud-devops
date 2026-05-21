@@ -4,11 +4,10 @@
 基于 devops-release 技能，提供预检查、发布前确认、执行发布、验证、回滚的全流程自动化。
 
 用法:
-    qtcloud-devops release --version v0.1.0 --repo quanttide/quanttide-platform
-    qtcloud-devops release --version v0.1.0 --tag-only
-    qtcloud-devops release --version v0.1.0 --release-only --repo quanttide/quanttide-platform
-    qtcloud-devops release --version v0.1.0 --dry-run
-    qtcloud-devops release --version v0.1.0 -y
+    qtcloud-devops release --version v0.1.0             # 仅创建 Git 标签
+    qtcloud-devops release --version v0.1.0 --release-only  # 仅创建 GitHub Release
+    qtcloud-devops release --version v0.1.0 --dry-run       # 仅检查
+    qtcloud-devops release --version v0.1.0 -y              # 跳过确认
 """
 
 import typer
@@ -26,24 +25,22 @@ def release(
     changelog: str = typer.Option(
         "CHANGELOG.md", "--changelog", help="CHANGELOG.md 路径"
     ),
-    repo: str = typer.Option(
-        None, "--repo", help="GitHub 仓库（如 quanttide/quanttide-platform）"
-    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="仅检查，不执行"),
-    tag_only: bool = typer.Option(
-        False, "--tag-only", help="仅创建 Git 标签，跳过 GitHub Release"
-    ),
     release_only: bool = typer.Option(
         False, "--release-only", help="仅创建 GitHub Release，跳过 Git 标签"
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认提示，直接发布"),
 ):
-    """发布 Release — 预检查、打标签、推送、创建 GitHub Release"""
+    """发布 Release。
+
+    默认行为：创建 Git 标签并推送。
+    加 --release-only：仅为已有标签创建 GitHub Release（从 git remote 自动检测仓库）。
+    """
     from pathlib import Path
 
     from app.release import run
 
-    code = run(version, Path(changelog), repo, dry_run, tag_only, release_only, yes)
+    code = run(version, Path(changelog), dry_run, release_only, yes)
     raise typer.Exit(code=code)
 
 
