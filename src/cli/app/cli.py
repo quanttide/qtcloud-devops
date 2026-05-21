@@ -26,6 +26,9 @@ def release(
         "CHANGELOG.md", "--changelog", help="CHANGELOG.md 路径"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="仅检查，不执行"),
+    tag_only: bool = typer.Option(
+        False, "--tag-only", help="仅创建 Git 标签（默认行为，显式声明意图）"
+    ),
     release_only: bool = typer.Option(
         False, "--release-only", help="仅创建 GitHub Release，跳过 Git 标签"
     ),
@@ -33,14 +36,14 @@ def release(
 ):
     """发布 Release。
 
-    默认行为：创建 Git 标签并推送。
+    默认行为：创建 Git 标签并推送（等价于 --tag-only）。
     加 --release-only：仅为已有标签创建 GitHub Release（从 git remote 自动检测仓库）。
     """
     from pathlib import Path
 
     from app.release import run
 
-    code = run(version, Path(changelog), dry_run, release_only, yes)
+    code = run(version, Path(changelog), dry_run, tag_only, release_only, yes)
     raise typer.Exit(code=code)
 
 

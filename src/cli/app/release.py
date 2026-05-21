@@ -184,10 +184,15 @@ def run(
     version: str,
     changelog: Optional[Path] = None,
     dry_run: bool = False,
+    tag_only: bool = False,
     release_only: bool = False,
     yes: bool = False,
 ):
     changelog = changelog or Path.cwd() / "CHANGELOG.md"
+
+    if tag_only and release_only:
+        print("错误: --tag-only 和 --release-only 不能同时使用")
+        return 1
 
     # --- 预检查 ---
     errors = precheck(version, changelog, release_only=release_only)

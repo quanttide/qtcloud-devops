@@ -258,6 +258,29 @@ def test_run_push_tag_failure_triggers_rollback(monkeypatch):
     changelog.unlink()
 
 
+def test_run_tag_only_explicit(monkeypatch):
+    """--tag-only 显式声明，行为与默认一致"""
+    changelog = Path("/tmp/test_run_tag_only_explicit.md")
+    changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
+
+    calls = []
+    def recorder(cmd, **kw):
+        calls.append(cmd)
+        if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
+            return MagicMock(returncode=0, stdout="main\n")
+        return MagicMock(returncode=0, stdout="")
+
+    monkeypatch.setattr("app.release.subprocess.run", recorder)
+    assert run("v0.1.0", changelog, tag_only=True, yes=True) == 0
+    assert ["git", "tag", "v0.1.0"] in calls
+    assert not any("create" in c for c in calls)
+    changelog.unlink()
+
+
+def test_run_tag_and_release_only_mutually_exclusive():
+    assert run("v0.1.0", Path("/tmp"), tag_only=True, release_only=True) == 1
+
+
 def test_run_default_creates_tag_only(monkeypatch):
     """默认行为：只打标签，不发 GitHub Release"""
     changelog = Path("/tmp/test_run_default.md")
