@@ -14,12 +14,18 @@
 
 ## 待规划（由用户决定）
 
+### devops 工具功能
+
 - CHANGELOG 路径智能检测（自动查找 pyproject.toml 同层的 CHANGELOG.md）
-- CLI 自检验证（--check-pypi、发布后验证）
-- CI Action 版本升级（Node.js 20 弃用）
-- 契约检查集成到 release 预检查
-- `check` 命令：运行所有预定义契约检查
-- `init` 命令：在当前目录初始化 DevOps 契约
 - GitLink 镜像容灾同步（发布时同步推送 tag 到 GitLink remote）
 - 支持非 semver 版本策略
 - 放宽分支限制（可配置允许的分支列表）
+- CI Action 版本升级（Node.js 20 弃用）
+
+### 语言/框架契约（谨慎设计）
+
+- 通过契约显式声明项目语言、包类型（Python/Dart/Rust/…）
+- `init` 命令：在当前目录初始化 DevOps 契约
+- `check` 命令：运行所有预定义契约检查
+- 集成到 release 预检查中
+- 发布行为（如推 PyPI/pub.dev）由契约派生而非硬编码
