@@ -4,7 +4,7 @@
 
 | # | 假设 | 说明 |
 |---|------|------|
-| 1 | GitHub 为中心 | 仓库托管在 GitHub，使用 `gh` CLI |
+| 1 | GitHub 为中心 | 主开发在 GitHub，使用 `gh` CLI。GitLink 仅作镜像容灾 |
 | 2 | 有 CHANGELOG.md | 格式 `## [X.Y.Z]`，默认查找当前目录 |
 | 3 | semver 版本号 | 版本号 `vX.Y.Z` 或 `scope/vX.Y.Z` |
 | 4 | 工作区干净 | 发布前无未提交变更 |
@@ -20,6 +20,6 @@
 - 契约检查集成到 release 预检查
 - `check` 命令：运行所有预定义契约检查
 - `init` 命令：在当前目录初始化 DevOps 契约
-- 支持非 GitHub 仓库
+- GitLink 镜像容灾同步（发布时同步推送 tag 到 GitLink remote）
 - 支持非 semver 版本策略
 - 放宽分支限制（可配置允许的分支列表）
