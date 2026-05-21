@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DevOps CLI — 发布管理、契约检查与工作流自动化。
+"""DevOps CLI — 发布管理、工作流自动化。
 
     >>> from app.cli import app
     >>> from typer.testing import CliRunner
@@ -10,7 +10,6 @@
 """
 
 import typer
-from app.config import settings
 
 app = typer.Typer()
 
@@ -28,23 +27,6 @@ def release(
     from pathlib import Path
     code = run(version, Path(changelog), repo, dry_run, yes)
     raise typer.Exit(code=code)
-
-
-@app.command(hidden=True)
-def contract_check(
-    contract_path: str = typer.Option(None, "--contract", "-c", help="契约文件路径"),
-):
-    """加载并检查 DevOps 契约"""
-    from app.contract import load_contract
-    from pathlib import Path
-
-    path = Path(contract_path) if contract_path else settings.contract_path
-    contract = load_contract(path)
-    print(f"✓ 契约加载成功: {path}")
-    print(f"  约束: {len(contract.get('contracts', []))} 条")
-    print(f"  边界: {len(contract.get('boundaries', []))} 条")
-    print(f"  检查: {len(contract.get('checks', []))} 条")
-    return 0
 
 
 def main():
