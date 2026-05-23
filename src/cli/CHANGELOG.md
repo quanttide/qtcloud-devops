@@ -1,10 +1,18 @@
 # CHANGELOG
 
+## [0.2.3] - 2026-05-24
+
+### Fixed
+
+- CI: wheel 用 `--auditwheel skip` 构建，上传到 GitHub Release 作为附件
+- CI: sdist 单独用 `uv build --sdist` 构建并发布到 PyPI
+- 版本从 0.2.2 升到 0.2.3 绕过 PyPI 文件重名限制
+
 ## [0.2.2] - 2026-05-24
 
 ### Fixed
 
-- CI: 改用 `PyO3/maturin-action@v1` + `manylinux: 2_28` 在 Docker 容器中构建 wheel，解决 GLIBC 版本过新导致 PyPI 拒绝 `linux_x86_64` 标签的问题
+- CI: 改用 `PyO3/maturin-action@v1` 构建 wheel，支持 manylinux
 
 ## [0.2.1] - 2026-05-24
 
