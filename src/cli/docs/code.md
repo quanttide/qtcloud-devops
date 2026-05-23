@@ -41,15 +41,30 @@ qtcloud-devops code status /path/to/repo
 
 | 状态 | 含义 | 建议 |
 |------|------|------|
-| Clean | 三方 commit 一致 | 无需操作 |
-| AheadOfParent | 本地有父仓库未记录的新提交 | `code sync <name>` |
-| BehindRemote | 远程有更新，本地落后 | `git submodule update --remote <name>` |
-| Detached | 游离 HEAD | `git checkout <name> <branch>` |
-| Dirty | 有未提交的修改 | 手动 commit 或 stash |
-| Orphaned | 父仓库记录的 commit 在远程已不存在 | 手动干预 |
-| Uninitialized | 尚未初始化 | `git submodule update --init <name>` |
+| **Clean** / 干净 | 三方 commit 一致 | 无需操作 |
+| **AheadOfParent** / 领先 | 本地有父仓库未记录的新提交 | `code sync <name>` |
+| **BehindRemote** / 落后 | 远程有更新，本地落后 | `git submodule update --remote <name>` |
+| **Detached** / 游离 | 游离 HEAD | `git checkout <name> <branch>` |
+| **Dirty** / 脏 | 有未提交的修改 | 手动 commit 或 stash |
+| **Orphaned** / 孤儿 | 父仓库记录的 commit 在远程已不存在 | 手动干预 |
+| **Uninitialized** / 未初始化 | 尚未初始化 | `git submodule update --init <name>` |
 
 远程不可达时跳过 Orphaned/BehindRemote 判定。
+
+#### Orphaned 状态详解
+
+`Orphaned`（孤儿）表示父仓库记录的 commit 在远程仓库中已经不存在了。这是唯一无法自动收敛的状态，需要人工干预。
+
+**常见原因**：
+
+| 场景 | 说明 |
+|------|------|
+| 子模块 rebase + force push | 开发者 rebase 后 `git push --force`，旧 commit 被丢弃。最常见的情况 |
+| squash merge PR | GitHub squash merge 把多个 commit 合并为一个，原 commit 消失 |
+| 子模块仓库被替换 | 子模块 URL 指向了新的仓库，旧 commit 历史不存在 |
+| 远程 gc 清理 | 远程仓库 git gc 清掉了未被引用的孤立 commit（极少见） |
+
+**如何处理**：找到子模块远程存在的一个接近的 commit，手动更新父仓库指针后重新同步。
 
 ### `sync` — 端到端子模块同步
 
