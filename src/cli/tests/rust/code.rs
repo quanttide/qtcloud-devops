@@ -96,8 +96,8 @@ fn test_integration_scan_submodule() {
 #[test]
 fn test_integration_scan_no_gitmodules() {
     let tmp = tempfile::tempdir().unwrap();
-    let state = repo_state_scan(tmp.path());
-    assert_eq!(state.total, 0);
+    let result = qtcloud_devops_cli::model::RepoState::scan(tmp.path());
+    assert!(result.is_err());
 }
 
 #[test]

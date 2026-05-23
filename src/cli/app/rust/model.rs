@@ -67,28 +67,18 @@ pub struct RepoState {
 
 impl RepoState {
     pub fn scan(root: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
-        let gitmodules_path = root.join(".gitmodules");
-        if !gitmodules_path.exists() {
-            return Ok(RepoState {
-                root_path: root.to_path_buf(),
-                submodules: vec![],
-                total: 0,
-                clean_count: 0,
-                needs_attention: vec![],
-                parent_dirty: false,
-            });
-        }
-
         let repo = match git2::Repository::open(root) {
             Ok(r) => r,
             Err(e) => return Err(format!("无法打开 Git 仓库 '{}': {}", root.display(), e).into()),
         };
+        let gitmodules_path = root.join(".gitmodules");
         let mut submodules = Vec::new();
 
-        let mut git_submodules = repo.submodules()?;
-        git_submodules.sort_by(|a, b| a.name().cmp(&b.name()));
+        if gitmodules_path.exists() {
+            let mut git_submodules = repo.submodules()?;
+            git_submodules.sort_by(|a, b| a.name().cmp(&b.name()));
 
-        for sm in &git_submodules {
+            for sm in &git_submodules {
             let name = sm.name().unwrap_or("unknown").to_string();
             let sm_path = sm.path();
             let full_sm_path = root.join(sm_path);
@@ -228,6 +218,7 @@ impl RepoState {
                 remote_unreachable,
             });
         }
+        } // end if gitmodules_path.exists()
 
         let total = submodules.len();
         let clean_count = submodules
@@ -718,9 +709,8 @@ mod tests {
     #[test]
     fn test_scan_no_gitmodules() {
         let tmp = tempfile::tempdir().unwrap();
-        let state = RepoState::scan(tmp.path()).unwrap();
-        assert_eq!(state.total, 0);
-        assert!(state.submodules.is_empty());
+        let result = RepoState::scan(tmp.path());
+        assert!(result.is_err());
     }
 
     #[test]
@@ -757,9 +747,8 @@ mod tests {
     #[test]
     fn test_scan_all_no_gitmodules() {
         let tmp = tempfile::tempdir().unwrap();
-        let (subs, agg) = RepoState::scan_all(tmp.path()).unwrap();
-        assert!(subs.is_empty());
-        assert_eq!(agg.total, 0);
+        let result = RepoState::scan_all(tmp.path());
+        assert!(result.is_err());
     }
 
     #[test]
