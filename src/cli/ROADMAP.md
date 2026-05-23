@@ -4,13 +4,16 @@
 
 ### Core — Rust 子模块管理引擎
 
-`packages/code/` Rust crate 已从 `examples/default` 迁入并完成适配。
+Rust 核心已从 `examples/default` 迁入并完成适配。代码结构从 `packages/code/` 重构为 `app/rust/` + `app/python/`。
 
 **交付物**：
-- `python.rs` pymodule 重命名为 `qtcloud_devops_code`，绑定 `scan_repo` / `sync_single` / `sync_all` / `retire_submodule`
-- `cargo build` + `cargo test` (22 tests) 通过
-- `app/code.py` 封装 native 调用，`app/cli.py` 注册 `code` 子命令（status / sync / retire）
-- `pyproject.toml` 分离：`src/cli/` 用 setuptools，`packages/code/` 用 maturin
+- `app/rust/python.rs`：`scan_repo` / `sync_single` / `sync_all` / `retire_submodule` 全部 4 个 pyfunction 绑定
+- `app/python/code.py`：Python 封装层，对接 Rust native 调用
+- `app/python/cli.py`：注册 `code` 子命令组（status / sync / retire）
+- `integrated_tests/`：17 个集成测试覆盖 CLI 结构、参数校验、错误处理
+- `tests/`：51 个单元测试覆盖 release 逻辑和 config
+- 编译：`cargo build` + `cargo test` (22 tests) 通过
+- 构建：maturin 单构建系统（`source-dir = "."`，module-name = `qtcloud_devops_cli`）
 
 ## 待规划（按优先级）
 
