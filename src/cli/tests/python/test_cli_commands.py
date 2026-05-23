@@ -76,3 +76,88 @@ def test_main_module_entry():
     )
     assert result.returncode == 0
     assert "release" in result.stdout
+
+
+class TestCodeStatusFormatting:
+    """code status 格式化输出"""
+
+    def _mock_status(self, monkeypatch, return_value):
+        monkeypatch.setattr(
+            "qtcloud_devops_cli.code.status", lambda path: return_value
+        )
+
+    def test_no_submodules(self, monkeypatch):
+        self._mock_status(monkeypatch, {
+            "root_path": "/repo", "parent_dirty": False,
+            "submodules": [], "total": 0, "clean_count": 0,
+            "needs_attention": [],
+        })
+        result = runner.invoke(app, ["code", "status", "/repo"])
+        assert "没有子模块" in result.stdout
+        assert "干净的" in result.stdout
+
+    def test_dirty_parent(self, monkeypatch):
+        self._mock_status(monkeypatch, {
+            "root_path": "/repo", "parent_dirty": True,
+            "submodules": [], "total": 0, "clean_count": 0,
+            "needs_attention": [],
+        })
+        result = runner.invoke(app, ["code", "status", "/repo"])
+        assert "有未提交的变更" in result.stdout
+
+    def test_clean_submodule(self, monkeypatch):
+        self._mock_status(monkeypatch, {
+            "root_path": "/repo", "parent_dirty": False,
+            "submodules": [{"name": "libs/a", "path": "libs/a", "url": "",
+                            "tracked_branch": "main",
+                            "parent_pointer": "", "local_head": "",
+                            "remote_head": "", "status": "Clean",
+                            "ahead_count": 0, "behind_count": 0,
+                            "remote_unreachable": False}],
+            "total": 1, "clean_count": 1, "needs_attention": [],
+        })
+        result = runner.invoke(app, ["code", "status", "/repo"])
+        assert "✅" in result.stdout
+        assert "Clean" in result.stdout
+
+    def test_dirty_submodule_with_ahead(self, monkeypatch):
+        self._mock_status(monkeypatch, {
+            "root_path": "/repo", "parent_dirty": False,
+            "submodules": [{"name": "libs/a", "path": "libs/a", "url": "",
+                            "tracked_branch": "main",
+                            "parent_pointer": "", "local_head": "",
+                            "remote_head": "", "status": "Dirty",
+                            "ahead_count": 3, "behind_count": 0,
+                            "remote_unreachable": False}],
+            "total": 1, "clean_count": 0,
+            "needs_attention": ["libs/a"],
+        })
+        result = runner.invoke(app, ["code", "status", "/repo"])
+        assert "🔴" in result.stdout
+        assert "Dirty" in result.stdout
+        assert "+3" in result.stdout
+
+    def test_all_status_icons(self, monkeypatch):
+        statuses = ["Clean", "Dirty", "AheadOfParent", "BehindRemote",
+                    "Detached", "Orphaned", "Uninitialized"]
+        icons = ["✅", "🔴", "⬆", "⬇", "⚠", "💀", "⚪"]
+        subs = [{"name": f"libs/{s}", "path": f"libs/{s}", "url": "",
+                 "tracked_branch": "main",
+                 "parent_pointer": "", "local_head": "", "remote_head": "",
+                 "status": s, "ahead_count": 0, "behind_count": 0,
+                 "remote_unreachable": False} for s in statuses]
+        self._mock_status(monkeypatch, {
+            "root_path": "/repo", "parent_dirty": False,
+            "submodules": subs, "total": 7, "clean_count": 1,
+            "needs_attention": [s["name"] for s in subs if s["status"] != "Clean"],
+        })
+        result = runner.invoke(app, ["code", "status", "/repo"])
+        for icon in icons:
+            assert icon in result.stdout, f"缺少图标 {icon}"
+        assert "需关注: " in result.stdout
+
+    def test_error_returns_exit_code_1(self, monkeypatch):
+        self._mock_status(monkeypatch, {"error": "test error"})
+        result = runner.invoke(app, ["code", "status", "/repo"])
+        assert result.exit_code != 0
+        assert "test error" in result.stderr
