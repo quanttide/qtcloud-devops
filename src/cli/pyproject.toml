@@ -1,10 +1,11 @@
 [build-system]
-requires = ["setuptools>=64"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
 
-[tool.setuptools.packages.find]
-include = ["app*"]
-exclude = ["tests*"]
+[tool.maturin]
+module-name = "qtcloud_devops_cli"
+source-dir = "."
+features = ["python"]
 
 [project]
 name = "qtcloud-devops-cli"

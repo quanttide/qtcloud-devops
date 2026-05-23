@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
-from app.config import Settings, settings
+
+from python.config import Settings, settings
 
 
 def test_settings_is_basemodel():

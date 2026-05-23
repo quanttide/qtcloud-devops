@@ -1,18 +1,18 @@
 [package]
-name = "qtcloud-devops-code"
+name = "qtcloud-devops-cli"
 version = "0.1.0"
 edition = "2021"
-description = "量潮DevOps云命令行工具Rust核心"
+description = "Rust core for qtcloud-devops CLI"
 authors = ["Guo-Zhang <zhangguo@quanttide.com>"]
 
 [lib]
-name = "qtcloud_devops_code"
-path = "src/lib.rs"
+name = "qtcloud_devops_cli"
+path = "app/rust/lib.rs"
 crate-type = ["cdylib", "lib"]
 
 [[bin]]
-name = "qtcloud-devops-code"
-path = "src/main.rs"
+name = "qtcloud-devops"
+path = "app/rust/main.rs"
 
 [dependencies]
 git2 = { version = "0.19", features = ["vendored-libgit2"] }

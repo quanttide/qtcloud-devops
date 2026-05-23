@@ -1,7 +1,9 @@
 from pathlib import Path
 from unittest.mock import MagicMock
+
 from typer.testing import CliRunner
-from app.cli import app
+
+from python.cli import app
 
 runner = CliRunner()
 
@@ -31,18 +33,27 @@ def test_release_dry_run(monkeypatch):
         if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
             return MagicMock(returncode=0, stdout="main\n")
         return MagicMock(returncode=0, stdout="")
-    monkeypatch.setattr("app.release.subprocess.run", mock_run)
-    result = runner.invoke(app, [
-        "release", "--version", "v0.1.0",
-        "--changelog", str(changelog), "--dry-run",
-    ])
+
+    monkeypatch.setattr("python.release.subprocess.run", mock_run)
+    result = runner.invoke(
+        app,
+        [
+            "release",
+            "--version",
+            "v0.1.0",
+            "--changelog",
+            str(changelog),
+            "--dry-run",
+        ],
+    )
     assert result.exit_code == 0
     changelog.unlink()
 
 
 def test_main_help(monkeypatch):
-    from app.cli import main
-    monkeypatch.setattr("sys.argv", ["app.cli", "--help"])
+    from python.cli import main
+
+    monkeypatch.setattr("sys.argv", ["python.cli", "--help"])
     try:
         main()
     except SystemExit as e:
@@ -52,10 +63,12 @@ def test_main_help(monkeypatch):
 def test_main_module_entry():
     import subprocess
     import sys
+
     root = Path(__file__).resolve().parent.parent
     result = subprocess.run(
-        [sys.executable, "-m", "app.cli", "--help"],
-        capture_output=True, text=True,
+        [sys.executable, "-m", "python.cli", "--help"],
+        capture_output=True,
+        text=True,
         cwd=str(root),
     )
     assert result.returncode == 0

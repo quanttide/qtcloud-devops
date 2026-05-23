@@ -27,7 +27,7 @@ def status(
     path: str = typer.Argument(".", help="仓库路径"),
 ):
     """扫描子模块状态（三路 commit 比对 + 7 种状态分类）"""
-    from app.code import status as _status
+    from python.code import status as _status
 
     result = _status(path)
     if "error" in result:
@@ -42,7 +42,7 @@ def sync(
     path: str = typer.Option(".", "--repo", "-r", help="仓库路径"),
 ):
     """同步子模块指针到父仓库"""
-    from app.code import sync as _sync
+    from python.code import sync as _sync
 
     result = _sync(name, path)
     if "error" in result:
@@ -57,7 +57,7 @@ def retire(
     path: str = typer.Option(".", "--repo", "-r", help="仓库路径"),
 ):
     """退役子模块（deinit + .gitmodules + index 清理）"""
-    from app.code import retire as _retire
+    from python.code import retire as _retire
 
     result = _retire(name, path)
     if "error" in result:
@@ -89,7 +89,7 @@ def release(
     """
     from pathlib import Path
 
-    from app.release import run
+    from python.release import run
 
     code = run(version, Path(changelog), dry_run, tag_only, release_only, yes)
     raise typer.Exit(code=code)
