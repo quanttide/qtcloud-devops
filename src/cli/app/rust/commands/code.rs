@@ -41,6 +41,26 @@ impl SubmoduleEditor for GitSubmoduleEditor {
             &[&parent],
         )?;
         println!("已同步子模块 '{}' 到父仓库", name);
+
+        // 推送当前分支到 origin（使用系统 git 命令，避免 git2 SSL 兼容问题）
+        let branch = repo
+            .head()
+            .ok()
+            .and_then(|r| r.shorthand().map(|s| s.to_string()))
+            .unwrap_or_default();
+        if !branch.is_empty() {
+            let output = std::process::Command::new("git")
+                .args(["push", "origin", &branch])
+                .current_dir(&self.root)
+                .output()
+                .map_err(|e| format!("无法执行 git push: {}", e))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!("警告: git push 失败: {}", stderr.trim());
+            } else {
+                println!("已推送 '{}' 到 origin", branch);
+            }
+        }
         Ok(())
     }
 
