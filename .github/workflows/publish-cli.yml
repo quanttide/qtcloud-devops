@@ -17,8 +17,9 @@ jobs:
       - name: build with manylinux
         uses: PyO3/maturin-action@v1
         with:
+          manylinux: 2_28
           command: build
-          args: --release --manylinux 2_28
+          args: --release
           working-directory: src/cli
       - name: publish
         run: uv publish
