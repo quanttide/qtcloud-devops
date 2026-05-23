@@ -60,4 +60,27 @@ tests/
 ├── python/             # Python 单元测试
 └── rust/               # Rust 集成测试（通过 Cargo.toml [[test]] 注册）
 integrated_tests/       # Python 集成测试（需要真实 git 仓库等外部依赖）
+
+## 测试覆盖率
+
+### Python
+
+```sh
+uv run pytest --cov=app/qtcloud_devops_cli --cov-report=term-missing
+```
+
+依赖 `pytest-cov`（已配置在 `[dependency-groups] dev` 中）。
+
+### Rust
+
+Cargo.toml 已配置 `[profile.coverage]` 和 `[package.metadata.coverage]`。
+
+使用 `cargo-llvm-cov`（推荐）：
+
+```sh
+cargo install cargo-llvm-cov
+cargo llvm-cov --lcov --output-path target/coverage/lcov.info
+# HTML 报告
+cargo llvm-cov --html --output-dir target/coverage
+```
 ```

@@ -25,6 +25,15 @@ pyo3 = { version = "0.23", features = ["extension-module"] }
 [dev-dependencies]
 tempfile = "3"
 
+[profile.coverage]
+inherits = "test"
+debug = 1
+
+[package.metadata.coverage]
+rust-toolchain = "stable"
+command = "cargo llvm-cov --all-features --lcov --output-path target/coverage/lcov.info"
+skip-features = ["python"]
+
 [features]
 default = ["cli"]
 python = []
