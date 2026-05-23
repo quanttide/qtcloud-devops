@@ -6,6 +6,7 @@ build-backend = "maturin"
 module-name = "qtcloud_devops_cli._native"
 source-dir = "."
 python-source = "src"
+manylinux = "2_28"
 features = ["python"]
 
 [project]
