@@ -14,12 +14,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: build with manylinux
+      - name: build with zig
         uses: PyO3/maturin-action@v1
         with:
-          manylinux: 2_28
           command: build
-          args: --release
+          args: --release --zig
           working-directory: src/cli
       - name: publish
         run: uv publish
