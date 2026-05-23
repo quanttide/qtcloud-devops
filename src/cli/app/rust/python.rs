@@ -67,3 +67,64 @@ fn qtcloud_devops_code(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()>
     m.add_function(wrap_pyfunction!(retire_submodule, m)?)?;
     Ok(())
 }
+
+#[cfg(test)]
+#[cfg(feature = "python")]
+mod tests {
+    use super::*;
+
+    // ---- resolve_path ----
+
+    #[test]
+    fn test_py_resolve_path_valid() {
+        let result = resolve_path(".");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_py_resolve_path_invalid() {
+        let result = resolve_path("/__kse_no_such_path__");
+        assert!(result.is_err());
+    }
+
+    // ---- state_to_dict ----
+
+    #[test]
+    fn test_state_to_dict_empty() {
+        let state = model::RepoState {
+            root_path: std::path::PathBuf::from("/tmp"),
+            submodules: vec![],
+            total: 0,
+            clean_count: 0,
+            needs_attention: vec![],
+        };
+        let result = state_to_dict(&state);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_state_to_dict_with_submodule() {
+        let sm = model::Submodule {
+            name: "libs/foo".into(),
+            path: std::path::PathBuf::from("libs/foo"),
+            url: "https://example.com/foo.git".into(),
+            tracked_branch: "main".into(),
+            parent_pointer: model::CommitHash("abc123".into()),
+            local_head: model::CommitHash("def456".into()),
+            remote_head: model::CommitHash("ghi789".into()),
+            status: model::SubmoduleStatus::Clean,
+            ahead_count: 0,
+            behind_count: 0,
+            remote_unreachable: false,
+        };
+        let state = model::RepoState {
+            root_path: std::path::PathBuf::from("/tmp"),
+            submodules: vec![sm],
+            total: 1,
+            clean_count: 1,
+            needs_attention: vec![],
+        };
+        let result = state_to_dict(&state);
+        assert!(result.is_ok());
+    }
+}

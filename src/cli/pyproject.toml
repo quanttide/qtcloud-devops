@@ -20,6 +20,10 @@ dependencies = [
 [project.scripts]
 qtcloud-devops = "app.cli:main"
 
+[tool.pytest.ini_options]
+testpaths = ["tests/python", "integrated_tests"]
+pythonpath = ["app"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",

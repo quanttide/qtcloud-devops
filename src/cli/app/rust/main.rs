@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
-use qtcloud_devops_code::commands::editor::GitSubmoduleEditor;
-use qtcloud_devops_code::commands::{HealthIssue, SubmoduleEditor};
-use qtcloud_devops_code::model;
+use qtcloud_devops_cli::commands::editor::GitSubmoduleEditor;
+use qtcloud_devops_cli::commands::{HealthIssue, SubmoduleEditor};
+use qtcloud_devops_cli::model;
 use std::path::PathBuf;
 use std::process;
 
@@ -50,11 +50,9 @@ enum CodeAction {
     },
 }
 
-fn resolve_path(path: &PathBuf) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|e| {
-        eprintln!("错误: 无法解析路径 '{}': {}", path.display(), e);
-        process::exit(1);
-    })
+fn resolve_path(path: &PathBuf) -> Result<PathBuf, String> {
+    std::fs::canonicalize(path)
+        .map_err(|e| format!("无法解析路径 '{}': {}", path.display(), e))
 }
 
 fn print_issues(issues: &[HealthIssue]) {
@@ -98,24 +96,24 @@ fn main() {
 
     match cli.command {
         Commands::Code { dry_run, action } => {
-            run_code(dry_run, action);
+            let result = run_code(dry_run, action);
+            if let Err(e) = result {
+                eprintln!("错误: {}", e);
+                process::exit(1);
+            }
         }
     }
 }
 
-fn run_code(dry_run: bool, action: CodeAction) {
+fn run_code(dry_run: bool, action: CodeAction) -> Result<(), String> {
     match action {
         CodeAction::Status { path } => {
-            let root = resolve_path(&path);
+            let root = resolve_path(&path)?;
             let editor = GitSubmoduleEditor::new(root.clone());
-            let state = model::RepoState::scan(&root).unwrap_or_else(|e| {
-                eprintln!("错误: {}", e);
-                process::exit(1);
-            });
-            let issues = editor.status().unwrap_or_else(|e| {
-                eprintln!("错误: {}", e);
-                process::exit(1);
-            });
+            let state = model::RepoState::scan(&root)
+                .map_err(|e| format!("{}", e))?;
+            let issues = editor.status()
+                .map_err(|e| format!("{}", e))?;
 
             println!("仓库: {}", state.root_path.display());
             println!("子模块总数: {}", state.total);
@@ -154,50 +152,213 @@ fn run_code(dry_run: bool, action: CodeAction) {
                 }
             }
             print_issues(&issues);
+            Ok(())
         }
 
         CodeAction::Sync {
             name: Some(n),
             repo,
         } => {
-            let root = resolve_path(&repo);
+            let root = resolve_path(&repo)?;
             if dry_run {
                 println!("[预览] 同步子模块 '{}' 到父仓库", n);
-                return;
+                return Ok(());
             }
             let editor = GitSubmoduleEditor::new(root);
-            exec(editor.sync_to_parent(&n));
+            editor.sync_to_parent(&n)
+                .map_err(|e| format!("同步子模块 '{}' 失败: {}", n, e))
         }
 
         CodeAction::Sync { name: None, repo } => {
-            let root = resolve_path(&repo);
+            let root = resolve_path(&repo)?;
             if dry_run {
                 println!("[预览] 同步所有子模块到父仓库");
-                return;
+                return Ok(());
             }
             let editor = GitSubmoduleEditor::new(root);
-            exec(editor.sync_all_to_parent());
+            editor.sync_all_to_parent()
+                .map_err(|e| format!("同步所有子模块失败: {}", e))
         }
 
         CodeAction::Retire { name, repo } => {
-            let root = resolve_path(&repo);
+            let root = resolve_path(&repo)?;
             if dry_run {
                 println!("[预览] 退役子模块 '{}'", name);
-                return;
+                return Ok(());
             }
             let editor = GitSubmoduleEditor::new(root);
-            exec(editor.retire_submodule(&name));
+            editor.retire_submodule(&name)
+                .map_err(|e| format!("退役子模块 '{}' 失败: {}", name, e))
         }
 
     }
 }
 
-fn exec<T>(result: Result<T, Box<dyn std::error::Error>>) {
-    match result {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("错误: {}", e);
-            process::exit(1);
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    // ---- resolve_path ----
+
+    #[test]
+    fn test_resolve_path_valid() {
+        let p = resolve_path(&std::env::current_dir().unwrap().join("Cargo.toml").into());
+        assert!(p.is_ok());
+        assert!(p.unwrap().is_absolute());
+    }
+
+    #[test]
+    fn test_resolve_path_invalid() {
+        let result = resolve_path(&PathBuf::from("/__nonexistent_path_12345__"));
+        assert!(result.is_err());
+    }
+
+    // ---- print_issues ----
+
+    #[test]
+    fn test_print_issues_empty() {
+        let issues = vec![];
+        print_issues(&issues);
+    }
+
+    #[test]
+    fn test_print_issues_non_empty() {
+        use qtcloud_devops_cli::commands::HealthIssue;
+        use qtcloud_devops_cli::model::SubmoduleStatus;
+        let issues = vec![HealthIssue {
+            submodule_name: "libs/foo".into(),
+            status: SubmoduleStatus::Dirty,
+            description: "有修改".into(),
+            suggested_action: "提交".into(),
+        }];
+        print_issues(&issues);
+    }
+
+    // ---- print_aggregate ----
+
+    #[test]
+    fn test_print_aggregate_all_zeros() {
+        let state = model::RepoState {
+            root_path: PathBuf::from("/tmp"),
+            submodules: vec![],
+            total: 0,
+            clean_count: 0,
+            needs_attention: vec![],
+        };
+        print_aggregate(&state);
+    }
+
+    #[test]
+    fn test_print_aggregate_with_variants() {
+        use qtcloud_devops_cli::model::{CommitHash, Submodule, SubmoduleStatus};
+        let submodules = vec![
+            Submodule {
+                name: "a".into(),
+                path: PathBuf::new(),
+                url: String::new(),
+                tracked_branch: "main".into(),
+                parent_pointer: CommitHash::default(),
+                local_head: CommitHash::default(),
+                remote_head: CommitHash::default(),
+                status: SubmoduleStatus::AheadOfParent,
+                ahead_count: 0,
+                behind_count: 0,
+                remote_unreachable: false,
+            },
+            Submodule {
+                name: "b".into(),
+                path: PathBuf::new(),
+                url: String::new(),
+                tracked_branch: "main".into(),
+                parent_pointer: CommitHash::default(),
+                local_head: CommitHash::default(),
+                remote_head: CommitHash::default(),
+                status: SubmoduleStatus::BehindRemote,
+                ahead_count: 0,
+                behind_count: 0,
+                remote_unreachable: false,
+            },
+            Submodule {
+                name: "c".into(),
+                path: PathBuf::new(),
+                url: String::new(),
+                tracked_branch: "main".into(),
+                parent_pointer: CommitHash::default(),
+                local_head: CommitHash::default(),
+                remote_head: CommitHash::default(),
+                status: SubmoduleStatus::Detached,
+                ahead_count: 0,
+                behind_count: 0,
+                remote_unreachable: false,
+            },
+            Submodule {
+                name: "d".into(),
+                path: PathBuf::new(),
+                url: String::new(),
+                tracked_branch: "main".into(),
+                parent_pointer: CommitHash::default(),
+                local_head: CommitHash::default(),
+                remote_head: CommitHash::default(),
+                status: SubmoduleStatus::Dirty,
+                ahead_count: 0,
+                behind_count: 0,
+                remote_unreachable: false,
+            },
+            Submodule {
+                name: "e".into(),
+                path: PathBuf::new(),
+                url: String::new(),
+                tracked_branch: "main".into(),
+                parent_pointer: CommitHash::default(),
+                local_head: CommitHash::default(),
+                remote_head: CommitHash::default(),
+                status: SubmoduleStatus::Orphaned,
+                ahead_count: 0,
+                behind_count: 0,
+                remote_unreachable: false,
+            },
+            Submodule {
+                name: "f".into(),
+                path: PathBuf::new(),
+                url: String::new(),
+                tracked_branch: "main".into(),
+                parent_pointer: CommitHash::default(),
+                local_head: CommitHash::default(),
+                remote_head: CommitHash::default(),
+                status: SubmoduleStatus::Uninitialized,
+                ahead_count: 0,
+                behind_count: 0,
+                remote_unreachable: false,
+            },
+            Submodule {
+                name: "g".into(),
+                path: PathBuf::new(),
+                url: String::new(),
+                tracked_branch: "main".into(),
+                parent_pointer: CommitHash::default(),
+                local_head: CommitHash::default(),
+                remote_head: CommitHash::default(),
+                status: SubmoduleStatus::Clean,
+                ahead_count: 0,
+                behind_count: 0,
+                remote_unreachable: false,
+            },
+        ];
+        let state = model::RepoState {
+            root_path: PathBuf::from("/tmp"),
+            submodules,
+            total: 7,
+            clean_count: 1,
+            needs_attention: vec![
+                "a".into(),
+                "b".into(),
+                "c".into(),
+                "d".into(),
+                "e".into(),
+                "f".into(),
+            ],
+        };
+        print_aggregate(&state);
     }
 }

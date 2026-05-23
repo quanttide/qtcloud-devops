@@ -329,6 +329,74 @@ fn count_between_opt(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+
+    fn git_init(repo_path: &std::path::Path) {
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+    }
+
+    fn git_commit(repo_path: &std::path::Path, msg: &str) {
+        std::fs::write(repo_path.join("file"), msg).unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", msg])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+    }
+
+    /// Create a parent repo with a submodule at `libs/sub`.
+    fn setup_repo_with_submodule(tmp: &std::path::Path) -> std::path::PathBuf {
+        let parent = tmp.join("parent");
+        let sub = tmp.join("sub");
+
+        std::fs::create_dir_all(&sub).unwrap();
+        git_init(&sub);
+        git_commit(&sub, "init sub");
+
+        std::fs::create_dir_all(&parent).unwrap();
+        git_init(&parent);
+        std::fs::write(parent.join("README.md"), "# parent").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init parent"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "add submodule"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        parent
+    }
 
     // ---- SubmoduleStatus ----
 
@@ -523,6 +591,167 @@ mod tests {
         assert_eq!(agg.clean, 1);
         assert_eq!(agg.dirty, 1);
         assert_eq!(agg.orphaned, 1);
+    }
+
+    #[test]
+    fn test_aggregate_status_all_variants() {
+        let make_sm = |status: SubmoduleStatus| Submodule {
+            name: String::new(),
+            path: PathBuf::new(),
+            url: String::new(),
+            tracked_branch: "main".into(),
+            parent_pointer: CommitHash::default(),
+            local_head: CommitHash::default(),
+            remote_head: CommitHash::default(),
+            status,
+            ahead_count: 0,
+            behind_count: 0,
+            remote_unreachable: false,
+        };
+        let sms = vec![
+            make_sm(SubmoduleStatus::Clean),
+            make_sm(SubmoduleStatus::AheadOfParent),
+            make_sm(SubmoduleStatus::BehindRemote),
+            make_sm(SubmoduleStatus::Detached),
+            make_sm(SubmoduleStatus::Dirty),
+            make_sm(SubmoduleStatus::Orphaned),
+            make_sm(SubmoduleStatus::Uninitialized),
+        ];
+        let agg = AggregateStatus::from_submodules(&sms);
+        assert_eq!(agg.total, 7);
+        assert_eq!(agg.clean, 1);
+        assert_eq!(agg.ahead_of_parent, 1);
+        assert_eq!(agg.behind_remote, 1);
+        assert_eq!(agg.detached, 1);
+        assert_eq!(agg.dirty, 1);
+        assert_eq!(agg.orphaned, 1);
+        assert_eq!(agg.uninitialized, 1);
+    }
+
+    // ---- parse_oid ----
+
+    #[test]
+    fn test_parse_oid_valid() {
+        let oid = parse_oid(&CommitHash(
+            "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0".into(),
+        ));
+        assert!(oid.is_some());
+    }
+
+    #[test]
+    fn test_parse_oid_invalid() {
+        let oid = parse_oid(&CommitHash("not-a-hex-string".into()));
+        assert!(oid.is_none());
+    }
+
+    #[test]
+    fn test_parse_oid_empty() {
+        let oid = parse_oid(&CommitHash(String::new()));
+        assert!(oid.is_none());
+    }
+
+    // ---- count_between_opt ----
+
+    #[test]
+    fn test_count_between_opt_both_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        git_init(tmp.path());
+        let repo = git2::Repository::open(tmp.path()).unwrap();
+        assert_eq!(count_between_opt(&repo, None, None), 0);
+    }
+
+    #[test]
+    fn test_count_between_opt_some_and_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        git_init(tmp.path());
+        let repo = git2::Repository::open(tmp.path()).unwrap();
+        let oid = git2::Oid::from_str(
+            "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+        )
+        .ok();
+        assert_eq!(count_between_opt(&repo, oid, None), 0);
+        assert_eq!(count_between_opt(&repo, None, oid), 0);
+    }
+
+    #[test]
+    fn test_count_between_opt_equal_oids() {
+        let tmp = tempfile::tempdir().unwrap();
+        git_init(tmp.path());
+        git_commit(tmp.path(), "c1");
+        let repo = git2::Repository::open(tmp.path()).unwrap();
+        let head = repo.head().unwrap().target().unwrap();
+        assert_eq!(count_between_opt(&repo, Some(head), Some(head)), 0);
+    }
+
+    #[test]
+    fn test_count_between_opt_from_to() {
+        let tmp = tempfile::tempdir().unwrap();
+        git_init(tmp.path());
+        git_commit(tmp.path(), "c1");
+        let repo = git2::Repository::open(tmp.path()).unwrap();
+        let c1 = repo.head().unwrap().target().unwrap();
+        git_commit(tmp.path(), "c2");
+        let c2 = repo.head().unwrap().target().unwrap();
+        // from=c1, to=c2 => 1 commit between them
+        assert_eq!(count_between_opt(&repo, Some(c1), Some(c2)), 1);
+    }
+
+    // ---- RepoState::scan ----
+
+    #[test]
+    fn test_scan_no_gitmodules() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = RepoState::scan(tmp.path()).unwrap();
+        assert_eq!(state.total, 0);
+        assert!(state.submodules.is_empty());
+    }
+
+    #[test]
+    fn test_scan_git_repo_but_no_submodules() {
+        let tmp = tempfile::tempdir().unwrap();
+        git_init(tmp.path());
+        git_commit(tmp.path(), "initial");
+        let state = RepoState::scan(tmp.path()).unwrap();
+        assert_eq!(state.total, 0);
+        assert!(state.submodules.is_empty());
+    }
+
+    #[test]
+    fn test_scan_non_git_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join(".gitmodules"), "").unwrap();
+        // .gitmodules exists but not a git repo → error
+        let result = RepoState::scan(tmp.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scan_with_submodule() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = setup_repo_with_submodule(tmp.path());
+        let state = RepoState::scan(&parent).unwrap();
+        assert_eq!(state.total, 1);
+        assert_eq!(state.submodules[0].name, "libs/sub");
+        assert_eq!(state.submodules[0].path, std::path::Path::new("libs/sub"));
+    }
+
+    // ---- RepoState::scan_all ----
+
+    #[test]
+    fn test_scan_all_no_gitmodules() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (subs, agg) = RepoState::scan_all(tmp.path()).unwrap();
+        assert!(subs.is_empty());
+        assert_eq!(agg.total, 0);
+    }
+
+    #[test]
+    fn test_scan_all_with_submodule() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = setup_repo_with_submodule(tmp.path());
+        let (subs, agg) = RepoState::scan_all(&parent).unwrap();
+        assert_eq!(subs.len(), 1);
+        assert_eq!(agg.total, 1);
     }
 
     // ---- RepoState ----

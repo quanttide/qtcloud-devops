@@ -61,15 +61,18 @@ def test_main_help(monkeypatch):
 
 
 def test_main_module_entry():
+    import os
     import subprocess
     import sys
 
-    root = Path(__file__).resolve().parent.parent
+    root = Path(__file__).resolve().parent.parent.parent
+    env = {**os.environ, "PYTHONPATH": str(root / "app")}
     result = subprocess.run(
         [sys.executable, "-m", "python.cli", "--help"],
         capture_output=True,
         text=True,
         cwd=str(root),
+        env=env,
     )
     assert result.returncode == 0
     assert "release" in result.stdout

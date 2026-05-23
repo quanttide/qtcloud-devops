@@ -125,6 +125,63 @@ impl SubmoduleEditor for GitSubmoduleEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+
+    fn git_init(repo_path: &std::path::Path) {
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+    }
+
+    fn git_commit(repo_path: &std::path::Path, msg: &str) {
+        std::fs::write(repo_path.join("file"), msg).unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", msg])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+    }
+
+    fn setup_repo_with_submodule(tmp: &std::path::Path) -> std::path::PathBuf {
+        let parent = tmp.join("parent");
+        let sub = tmp.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        git_init(&sub);
+        git_commit(&sub, "init sub");
+        std::fs::create_dir_all(&parent).unwrap();
+        git_init(&parent);
+        git_commit(&parent, "init parent");
+        Command::new("git")
+            .args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "add submodule"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        parent
+    }
+
+    // ---- describe_issue ----
 
     #[test]
     fn test_describe_issue_ahead_of_parent() {
@@ -172,6 +229,96 @@ mod tests {
     #[should_panic(expected = "unreachable")]
     fn test_describe_issue_clean_panics() {
         describe_issue(&SubmoduleStatus::Clean);
+    }
+
+    // ---- GitSubmoduleEditor ----
+
+    #[test]
+    fn test_editor_new_and_root() {
+        let p = PathBuf::from("/tmp/test-editor");
+        let editor = GitSubmoduleEditor::new(p.clone());
+        assert_eq!(editor.root(), p);
+    }
+
+    #[test]
+    fn test_editor_sync_to_parent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = setup_repo_with_submodule(tmp.path());
+        let editor = GitSubmoduleEditor::new(parent);
+        let result = editor.sync_to_parent("libs/sub");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_editor_sync_to_parent_nonexistent() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
+        let editor = GitSubmoduleEditor::new(tmp.path().to_path_buf());
+        let result = editor.sync_to_parent("no-such-module");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_editor_sync_all_to_parent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = setup_repo_with_submodule(tmp.path());
+        let editor = GitSubmoduleEditor::new(parent);
+        let result = editor.sync_all_to_parent();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_editor_sync_all_to_parent_no_submodules() {
+        let tmp = tempfile::tempdir().unwrap();
+        git_init(tmp.path());
+        git_commit(tmp.path(), "initial");
+        let editor = GitSubmoduleEditor::new(tmp.path().to_path_buf());
+        let result = editor.sync_all_to_parent();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_editor_retire_submodule() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = setup_repo_with_submodule(tmp.path());
+        let editor = GitSubmoduleEditor::new(parent.clone());
+        let result = editor.retire_submodule("libs/sub");
+        assert!(result.is_ok());
+        // verify .gitmodules no longer has the submodule entry
+        let gitmodules = parent.join(".gitmodules");
+        assert!(!gitmodules.exists()
+            || !std::fs::read_to_string(&gitmodules)
+                .unwrap()
+                .contains("libs/sub"));
+    }
+
+    #[test]
+    fn test_editor_retire_submodule_nonexistent() {
+        let tmp = tempfile::tempdir().unwrap();
+        git_init(tmp.path());
+        git_commit(tmp.path(), "initial");
+        let editor = GitSubmoduleEditor::new(tmp.path().to_path_buf());
+        let result = editor.retire_submodule("no-such-module");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_editor_status() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = setup_repo_with_submodule(tmp.path());
+        let editor = GitSubmoduleEditor::new(parent);
+        let issues = editor.status().unwrap();
+        // initially the submodule should be clean
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn test_editor_status_with_gitmodules_but_no_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join(".gitmodules"), "").unwrap();
+        let editor = GitSubmoduleEditor::new(tmp.path().to_path_buf());
+        let result = editor.status();
+        assert!(result.is_err());
     }
 }
 

@@ -52,3 +52,12 @@ qtcloud-devops release --version v0.1.0 --release-only  # 仅 GitHub Release
 - 创建标签失败：返回错误码 1
 - 推送标签失败：自动回滚本地标签
 - GitHub Release 创建失败：若之前创建了标签则自动回滚
+
+## 测试目录结构
+
+```
+tests/
+├── python/             # Python 单元测试
+└── rust/               # Rust 集成测试（通过 Cargo.toml [[test]] 注册）
+integrated_tests/       # Python 集成测试（需要真实 git 仓库等外部依赖）
+```

@@ -23,5 +23,47 @@ pub trait SubmoduleEditor {
 
     /// 核心贡献：三路 commit 比对 + 7 种状态分类
     fn status(&self) -> Result<Vec<HealthIssue>, Box<dyn std::error::Error>>;
+}
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_health_issue_builder() {
+        let issue = HealthIssue {
+            submodule_name: "libs/foo".into(),
+            status: SubmoduleStatus::Dirty,
+            description: "有未提交的修改".into(),
+            suggested_action: "提交或 stash".into(),
+        };
+        assert_eq!(issue.submodule_name, "libs/foo");
+        assert_eq!(issue.status, SubmoduleStatus::Dirty);
+    }
+
+    #[test]
+    fn test_health_issue_clone() {
+        let a = HealthIssue {
+            submodule_name: "a".into(),
+            status: SubmoduleStatus::Clean,
+            description: "d".into(),
+            suggested_action: "s".into(),
+        };
+        let b = a.clone();
+        assert_eq!(a.submodule_name, b.submodule_name);
+        assert_eq!(a.status, b.status);
+    }
+
+    #[test]
+    fn test_health_issue_debug() {
+        let issue = HealthIssue {
+            submodule_name: "m".into(),
+            status: SubmoduleStatus::Orphaned,
+            description: "x".into(),
+            suggested_action: "y".into(),
+        };
+        let debug = format!("{:?}", issue);
+        assert!(debug.contains("Orphaned"));
+        assert!(debug.contains("m"));
+    }
 }
