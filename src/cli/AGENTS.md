@@ -7,6 +7,22 @@
 - 基本假设放在末尾，不随版本迭代删除
 - 新增需求先定优先级再放入对应分组
 
+## 开发规范
+
+### 单元测试覆盖率 100%
+
+所有公开发布的公共函数和模块必须达到 100% 单元测试行覆盖率。
+
+- Python：`uv run pytest --cov=app/python --cov-report=term-missing --cov-fail-under=100`
+- Rust：`cargo llvm-cov --fail-uncovered` 或 `cargo tarpaulin --fail-uncovered 100`
+
+**例外**：
+- `__init__.py`（空文件）
+- 纯类型定义（`pydantic` Settings 等，无业务逻辑的 `__init__.py`）
+- CI 配置、入口脚本
+
+集成测试（`integrated_tests/`）不要求覆盖率，但单元测试（`tests/`）必须全覆盖。
+
 ## 提交消息
 
 - `feat:` — 新功能
@@ -55,25 +71,20 @@ qtcloud-devops release --version v0.1.0 --release-only  # 仅 GitHub Release
 
 ## 测试目录结构
 
-```
-tests/
-├── python/             # Python 单元测试
-└── rust/               # Rust 集成测试（通过 Cargo.toml [[test]] 注册）
-integrated_tests/       # Python 集成测试（需要真实 git 仓库等外部依赖）
+tests/              ← Python 单元测试
+integrated_tests/   ← Python 集成测试（需要真实 git 仓库等外部依赖）
 
 ## 测试覆盖率
 
 ### Python
 
 ```sh
-uv run pytest --cov=app/qtcloud_devops_cli --cov-report=term-missing
+uv run pytest --cov=app/python --cov-report=term-missing --cov-fail-under=100
 ```
 
 依赖 `pytest-cov`（已配置在 `[dependency-groups] dev` 中）。
 
 ### Rust
-
-Cargo.toml 已配置 `[profile.coverage]` 和 `[package.metadata.coverage]`。
 
 使用 `cargo-llvm-cov`（推荐）：
 
@@ -83,4 +94,10 @@ cargo llvm-cov --lcov --output-path target/coverage/lcov.info
 # HTML 报告
 cargo llvm-cov --html --output-dir target/coverage
 ```
+
+也可使用 `cargo-tarpaulin`：
+
+```sh
+cargo install cargo-tarpaulin
+cargo tarpaulin --out Html
 ```
