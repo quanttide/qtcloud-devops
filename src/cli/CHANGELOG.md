@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.2.2] - 2026-05-24
+
+### Fixed
+
+- CI: 改用 `PyO3/maturin-action` 构建 wheel，支持 manylinux Docker 容器编译
+- 修复 `linux_x86_64` 标签不被 PyPI 接受的问题
+
 ## [0.2.1] - 2026-05-24
 
 ### Fixed
