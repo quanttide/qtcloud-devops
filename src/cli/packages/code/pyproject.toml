@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+module-name = "qtcloud_devops_code"
+features = ["python"]
+
+[project]
+name = "qtcloud-devops-code"
+version = "0.1.0"
+description = "Rust core for qtcloud-devops CLI — submodule management"
+requires-python = ">=3.12"

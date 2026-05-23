@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use kse_core::commands::editor::GitSubmoduleEditor;
-use kse_core::commands::SubmoduleEditor;
-use kse_core::model::{RepoState, SubmoduleStatus};
+use qtcloud_devops_code::commands::editor::GitSubmoduleEditor;
+use qtcloud_devops_code::commands::SubmoduleEditor;
+use qtcloud_devops_code::model::{RepoState, SubmoduleStatus};
 
 fn init_repo(path: &Path) -> git2::Repository {
     let repo = git2::Repository::init(path).unwrap();

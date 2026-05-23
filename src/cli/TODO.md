@@ -38,50 +38,33 @@
 - [x] 包名 `qtcloud-devops-code`，lib 名 `qtcloud_devops_code`
 - [x] `version = "0.1.0"`，`authors` 已设置
 
-**`packages/code/src/python.rs`**（需要手动修改）：
-- [ ] 重命名 pymodule：`fn kse_core` → `fn qtcloud_devops_code`
-  - 当前仍为 `fn kse_core`，Python 导入时会找不到模块
-- [ ] 新增 `sync_single(name: String, path: String)` pyfunction
-  - 调用 `GitSubmoduleEditor::new(root).sync_to_parent(&name)`
-- [ ] 新增 `sync_all(path: String)` pyfunction
-  - 调用 `GitSubmoduleEditor::new(root).sync_all_to_parent()`
-- [ ] 新增 `retire_submodule(name: String, path: String)` pyfunction
-  - 调用 `GitSubmoduleEditor::new(root).retire_submodule(&name)`
-- [ ] 确认 `cargo build` 通过
+**`packages/code/src/python.rs`**：
+- [x] 重命名 pymodule：`fn kse_core` → `fn qtcloud_devops_code`
+- [x] 新增 `sync_single` / `sync_all` / `retire_submodule` pyfunction
+- [x] `cargo build` + `cargo test`（22 tests）通过
 
 ### Step 3：配置 maturin 构建
 
-- [x] `pyproject.toml` 已配置 maturin（`source-dir = "packages/code"`，`features = ["python"]`）
-- [x] `[project.optional-dependencies] code = ["maturin>=1.0"]` 已添加
-- [x] `lib.rs` 中 `#[cfg(feature = "python")] pub mod python;` 已启用
-- [ ] 验证 `pip install -e .[code]` 自动编译 Rust（需 python.rs 修改完成后）
-- [ ] 验证 `python -c "from qtcloud_devops.code import scan_repo"` 导入成功
+- [x] `packages/code/pyproject.toml` 已配置 maturin
+- [x] `src/cli/pyproject.toml` 用 setuptools（分离构建）
+- [x] 验证 `python -c "from qtcloud_devops_code import scan_repo, sync_single, sync_all, retire_submodule"` 成功
 
 ### Step 4：新增 app/code.py
 
 - [x] `app/code.py` 已创建，封装 `status()` / `sync()` / `retire()` 三个函数
-- [x] `app/code.py` 包含 Rust native 模块不可用时的降级提示
-- [ ] `python.rs` 绑定补全后，验证 `qtcloud-devops code status` 可用
+- [x] 验证 `qtcloud-devops code status` 可用
 
 ### Step 5：更新文档
 
-- [x] `AGENTS.md` 已分离开发环境信息到 `CONTRIBUTING.md`
-- [x] `CONTRIBUTING.md` 已创建（含 Rust 工具链、构建、测试说明）
-- [ ] 更新 `README.md`：
-  - 添加 `code` 子命令说明
-  - 添加 Rust 依赖的安装说明
+- [x] `README.md` 已更新（安装说明、项目结构、code 子命令用法）
+- [x] `CONTRIBUTING.md` 已创建（Rust 工具链、构建、测试说明）
 
 ### Step 6：清理 examples/default
 
-**前置确认**：
-- [ ] 确认 `examples/default` 的 CI/workflow 不再被引用
-- [ ] 确认 `docs/` 和 `README` 不包含 `examples/default` 路径
-- [ ] 确认 `AGENTS.md` 已指向 `packages/code`（已指向）
-
-**执行**：
-- [ ] `examples/default/README.md` 添加废弃说明，指向 `packages/code`
-- [ ] `examples/default/ROADMAP.md` 添加迁移指引
-- [ ] 移除 `examples/default` 子模块（`git submodule deinit examples/default && git rm examples/default`）
+**已执行**：
+- [x] `examples/default/README.md` 添加废弃说明
+- [x] `examples/default/ROADMAP.md` 添加迁移指引
+- [ ] 移除 `examples/default` 子模块（需确认不再引用后执行 `git submodule deinit examples/default && git rm examples/default`）
 
 ---
 

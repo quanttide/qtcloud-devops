@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
-use kse_core::commands::editor::GitSubmoduleEditor;
-use kse_core::commands::{HealthIssue, SubmoduleEditor};
-use kse_core::model;
+use qtcloud_devops_code::commands::editor::GitSubmoduleEditor;
+use qtcloud_devops_code::commands::{HealthIssue, SubmoduleEditor};
+use qtcloud_devops_code::model;
 use std::path::PathBuf;
 use std::process;
 

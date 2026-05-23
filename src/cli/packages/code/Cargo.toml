@@ -26,5 +26,6 @@ pyo3 = { version = "0.23", features = ["extension-module"] }
 tempfile = "3"
 
 [features]
+default = ["python"]
+python = []
 cli = []
-# Python 绑定为默认启用，cli 模式可单独指定 --no-default-features --features cli 以减小体积
