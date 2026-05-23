@@ -22,7 +22,24 @@ impl SubmoduleEditor for GitSubmoduleEditor {
         let repo = git2::Repository::open(&self.root)?;
         let sm = repo.find_submodule(name)?;
         let sm_path = sm.path();
+        let full_sm_path = self.root.join(sm_path);
 
+        // 1. 推送子模块自身的 commit 到子模块的 remote
+        if full_sm_path.exists() {
+            let output = std::process::Command::new("git")
+                .args(["push", "origin"])
+                .current_dir(&full_sm_path)
+                .output()
+                .map_err(|e| format!("无法在子模块内执行 git push: {}", e))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!("警告: 子模块 '{}' push 失败: {}", name, stderr.trim());
+            } else {
+                println!("已推送子模块 '{}' 到 remote", name);
+            }
+        }
+
+        // 2. 更新父仓库的子模块指针
         let mut index = repo.index()?;
         index.add_path(sm_path)?;
         index.write()?;
@@ -42,7 +59,7 @@ impl SubmoduleEditor for GitSubmoduleEditor {
         )?;
         println!("已同步子模块 '{}' 到父仓库", name);
 
-        // 推送当前分支到 origin（使用系统 git 命令，避免 git2 SSL 兼容问题）
+        // 3. 推送父仓库到 origin
         let branch = repo
             .head()
             .ok()
