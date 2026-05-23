@@ -18,7 +18,11 @@ def status(path: str = ".") -> dict[str, Any]:
         return {
             "error": "Rust native module not available (install with `pip install -e packages/code`)"
         }
-    return _native.scan_repo(path)
+    try:
+        result = _native.scan_repo(path)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def sync(name: str | None, path: str = ".") -> dict[str, Any]:
@@ -26,9 +30,14 @@ def sync(name: str | None, path: str = ".") -> dict[str, Any]:
         return {
             "error": "Rust native module not available (install with `pip install -e packages/code`)"
         }
-    if name:
-        return _native.sync_single(name, path)
-    return _native.sync_all(path)
+    try:
+        if name:
+            _native.sync_single(name, path)
+        else:
+            _native.sync_all(path)
+        return {"status": "ok"}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def retire(name: str, path: str = ".") -> dict[str, Any]:
@@ -36,4 +45,8 @@ def retire(name: str, path: str = ".") -> dict[str, Any]:
         return {
             "error": "Rust native module not available (install with `pip install -e packages/code`)"
         }
-    return _native.retire_submodule(name, path)
+    try:
+        _native.retire_submodule(name, path)
+        return {"status": "ok"}
+    except Exception as e:
+        return {"error": str(e)}
