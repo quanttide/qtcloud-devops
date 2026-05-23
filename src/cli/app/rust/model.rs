@@ -62,6 +62,7 @@ pub struct RepoState {
     pub total: usize,
     pub clean_count: usize,
     pub needs_attention: Vec<String>,
+    pub parent_dirty: bool,
 }
 
 impl RepoState {
@@ -74,6 +75,7 @@ impl RepoState {
                 total: 0,
                 clean_count: 0,
                 needs_attention: vec![],
+                parent_dirty: false,
             });
         }
 
@@ -238,12 +240,27 @@ impl RepoState {
             .map(|s| s.name.clone())
             .collect();
 
+        let parent_dirty = repo
+            .statuses(Some(
+                git2::StatusOptions::new()
+                    .include_untracked(true)
+                    .recurse_untracked_dirs(true),
+            ))
+            .map(|statuses| {
+                statuses
+                    .iter()
+                    .filter(|e| e.path().map_or(true, |p| !std::path::Path::new(p).starts_with(".gitmodules")))
+                    .any(|e| e.status() != git2::Status::CURRENT)
+            })
+            .unwrap_or(false);
+
         Ok(RepoState {
             root_path: root.to_path_buf(),
             submodules,
             total,
             clean_count,
             needs_attention,
+            parent_dirty,
         })
     }
 
@@ -764,6 +781,7 @@ mod tests {
             total: 0,
             clean_count: 0,
             needs_attention: vec![],
+            parent_dirty: false,
         };
         assert_eq!(state.total, 0);
     }

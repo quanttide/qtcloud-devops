@@ -97,6 +97,7 @@ mod tests {
             total: 0,
             clean_count: 0,
             needs_attention: vec![],
+            parent_dirty: false,
         };
         let result = state_to_dict(&state);
         assert!(result.is_ok());
@@ -123,6 +124,7 @@ mod tests {
             total: 1,
             clean_count: 1,
             needs_attention: vec![],
+            parent_dirty: false,
         };
         let result = state_to_dict(&state);
         assert!(result.is_ok());
