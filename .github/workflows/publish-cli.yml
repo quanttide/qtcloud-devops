@@ -18,7 +18,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --auditwheel
+          args: --release --auditwheel repair
           working-directory: src/cli
       - name: publish
         run: uv publish
