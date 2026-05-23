@@ -4,12 +4,27 @@ DevOps CLI — 发布管理、契约检查与工作流自动化。
 
 ## 安装
 
+### 前置依赖
+
+- Python 3.12+，包管理器 uv
+- **Rust 工具链**（`code` 子命令需要）：`rustup` + `cargo`
+- **libgit2**：`sudo apt install libgit2-dev`（Ubuntu）或 `brew install libgit2`（macOS）
+
+### 安装 CLI
+
 ```bash
 cd apps/qtcloud-devops
 pip install -e src/cli
 ```
 
-依赖：Python 3.12+，包管理器 uv。
+### 安装 code 子命令（带 Rust 原生模块）
+
+```bash
+cd apps/qtcloud-devops/src/cli
+pip install -e .[code]
+```
+
+这会通过 maturin 自动编译 `packages/code/` 下的 Rust crate。
 
 ## 项目结构
 

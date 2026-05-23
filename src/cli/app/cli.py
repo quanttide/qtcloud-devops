@@ -14,10 +14,56 @@
 import typer
 
 app = typer.Typer()
+code_app = typer.Typer()
+app.add_typer(code_app, name="code", help="Git 子模块管理命令")
 
 
 @app.callback()
 def main_callback() -> None: ...
+
+
+@code_app.command()
+def status(
+    path: str = typer.Argument(".", help="仓库路径"),
+):
+    """扫描子模块状态（三路 commit 比对 + 7 种状态分类）"""
+    from app.code import status as _status
+
+    result = _status(path)
+    if "error" in result:
+        typer.echo(f"错误: {result['error']}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(result)
+
+
+@code_app.command()
+def sync(
+    name: str | None = typer.Argument(None, help="子模块名称（省略则同步全部）"),
+    path: str = typer.Option(".", "--repo", "-r", help="仓库路径"),
+):
+    """同步子模块指针到父仓库"""
+    from app.code import sync as _sync
+
+    result = _sync(name, path)
+    if "error" in result:
+        typer.echo(f"错误: {result['error']}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(result)
+
+
+@code_app.command()
+def retire(
+    name: str = typer.Argument(..., help="子模块名称"),
+    path: str = typer.Option(".", "--repo", "-r", help="仓库路径"),
+):
+    """退役子模块（deinit + .gitmodules + index 清理）"""
+    from app.code import retire as _retire
+
+    result = _retire(name, path)
+    if "error" in result:
+        typer.echo(f"错误: {result['error']}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(result)
 
 
 @app.command()

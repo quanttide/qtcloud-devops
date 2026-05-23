@@ -17,6 +17,21 @@
 
 ## CLI 设计规则
 
+### `code` 子命令行为
+
+```
+qtcloud-devops code status [path]                # 三路 commit 比对 + 聚合统计
+qtcloud-devops code sync [name] [--repo path]    # 同步子模块指针到父仓库
+qtcloud-devops code retire <name> [--repo path]  # 退役子模块
+```
+
+### 规则
+
+- `status`：路径默认为当前目录 `.`
+- `sync`：`name` 省略时同步全部子模块
+- `retire`：`name` 为必填参数
+- 所有命令通过 `app/code.py` 封装 Rust native 调用，错误处理在该层完成
+
 ### release 命令行为
 
 ```

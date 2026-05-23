@@ -1,0 +1,11 @@
+*~
+.DS_Store
+.idea/
+*.iml
+*.pyc
+__pycache__/
+src-tauri/target/
+*.swo
+*.swp
+/target
+.vscode/
