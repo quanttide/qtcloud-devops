@@ -357,6 +357,117 @@ mod tests {
         let result = editor.status();
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_editor_retire_with_multiple_submodules() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = tmp.path().join("parent");
+        let sub1 = tmp.path().join("sub1");
+        let sub2 = tmp.path().join("sub2");
+        std::fs::create_dir_all(&sub1).unwrap();
+        git_init(&sub1);
+        git_commit(&sub1, "init");
+        std::fs::create_dir_all(&sub2).unwrap();
+        git_init(&sub2);
+        git_commit(&sub2, "init");
+        std::fs::create_dir_all(&parent).unwrap();
+        git_init(&parent);
+        git_commit(&parent, "init");
+        Command::new("git")
+            .args(["submodule", "add", &sub1.to_string_lossy(), "libs/sub1"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["submodule", "add", &sub2.to_string_lossy(), "libs/sub2"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "add submodules"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        let editor = GitSubmoduleEditor::new(parent.clone());
+        let result = editor.retire_submodule("libs/sub1");
+        assert!(result.is_ok());
+        let gitmodules = parent.join(".gitmodules");
+        let content = std::fs::read_to_string(&gitmodules).unwrap();
+        assert!(!content.contains("libs/sub1"));
+        assert!(content.contains("libs/sub2"));
+    }
+
+    #[test]
+    fn test_editor_sync_with_remote_push() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bare = tmp.path().join("bare");
+        Command::new("git")
+            .args(["init", "--bare", &bare.to_string_lossy()])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        let sub = tmp.path().join("sub");
+        Command::new("git")
+            .args(["clone", &bare.to_string_lossy(), &sub.to_string_lossy()])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        git_init(&sub);
+        git_commit(&sub, "init");
+        Command::new("git")
+            .args(["push", "origin", "main"])
+            .current_dir(&sub)
+            .output()
+            .unwrap();
+        let parent = tmp.path().join("parent");
+        std::fs::create_dir_all(&parent).unwrap();
+        git_init(&parent);
+        git_commit(&parent, "init parent");
+        // Add a remote to parent so push can succeed
+        Command::new("git")
+            .args(["remote", "add", "origin", &bare.to_string_lossy()])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "add submodule"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        // Commit in submodule to make it ahead
+        git_commit(&sub, "ahead");
+        Command::new("git")
+            .args(["push", "origin", "main"])
+            .current_dir(&sub)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["fetch", "origin"])
+            .current_dir(&parent.join("libs/sub"))
+            .output()
+            .unwrap();
+        let editor = GitSubmoduleEditor::new(parent);
+        // This should succeed: submodule push → parent commit → parent push
+        let result = editor.sync_to_parent("libs/sub");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_editor_status_with_dirty_submodule() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = setup_repo_with_submodule(tmp.path());
+        let sm_path = parent.join("libs/sub");
+        std::fs::write(sm_path.join("new-file"), "content").unwrap();
+        let editor = GitSubmoduleEditor::new(parent);
+        let issues = editor.status().unwrap();
+        assert!(!issues.is_empty());
+        assert_eq!(issues[0].status, SubmoduleStatus::Dirty);
+    }
 }
 
 pub(crate) fn describe_issue(status: &SubmoduleStatus) -> (String, String) {

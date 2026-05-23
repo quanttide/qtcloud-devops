@@ -14,3 +14,31 @@
 | **Action secret** | publish workflow 依赖 `PYPI_API_TOKEN` secret，未配置时静默失败 | 发布后手动检查 CI run 状态 |
 | **Node.js 版本** | actions/checkout@v4 和 setup-python@v5 使用 Node.js 20，2026-09 后将移除 | 关注 GitHub Actions 更新，及时升级 action 版本 |
 | **Breaking change 标记** | CHANGELOG 有 breaking changes 时是否需要大版本 | 人工审查 CHANGELOG |
+
+## 测试覆盖率
+
+### Python（pytest-cov）
+
+```
+app/qtcloud_devops_cli/cli.py        56/58   97%
+app/qtcloud_devops_cli/code.py       27/32   84%
+app/qtcloud_devops_cli/config.py      4/4   100%
+app/qtcloud_devops_cli/release.py   137/145  94%
+总计                               224/239  94%
+```
+
+未覆盖：`code.py` 的 `except ImportError`（native 模块不可用）、`release.py` 的远程操作失败分支。
+
+### Rust（cargo-tarpaulin --lib）
+
+```
+app/rust/commands/code.rs  103/108  95.4%
+app/rust/model.rs          150/156  96.2%
+总计                      253/264  95.8%
+```
+
+未覆盖：revwalk 错误、子仓库打开失败、deinit 失败等边缘错误路径。
+
+### 测试总数
+
+Python 88 + Rust 64 = **152** 个测试。
