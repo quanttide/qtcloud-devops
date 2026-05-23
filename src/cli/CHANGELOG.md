@@ -1,5 +1,32 @@
 # CHANGELOG
 
+## [0.2.0] - 2026-05-24
+
+Rust 原生子模块管理引擎（`code` 命令）。
+
+### Added
+
+- `code status` 命令：三路 commit 比对 + 7 种子模块状态分类，格式化表格输出
+- `code sync` 命令：端到端子模块同步（推送子模块 → 更新父指针 → 推送父仓库）
+- `code retire` 命令：自动化反注册（deinit + .gitmodules + index 清理）
+- `code status` 输出 `parent_dirty` 字段，无子模块时退化到普通 git 状态检测
+- Rust 64 个测试（48 单元 + 6 二进制 + 10 集成），Python 88 个测试
+- 覆盖率（Python 94%, Rust 95.8%）记录到 STATUS.md
+- 子模组管理文档 docs/code.md
+
+### Changed
+
+- Python 包名 `python` → `qtcloud_devops_cli`，native 模块改为 `._native` 子模块
+- `app/` 目录重组为 `src/`，Rust 代码移至 `src/` 根目录
+- `sync` 从只更新本地指针改为完整端到端同步（含 push）
+- 测试目录分组：`tests/python/`、`tests/rust/`、`integrated_tests/`
+
+### Fixed
+
+- `code.py` sync/retire 函数改为 try/except 返回 dict（之前返回 None 导致 TypeError）
+- `#[pymodule]` 函数名与 `module-name` 不匹配导致的 ImportError
+- 子模块 orphaned 判定中 `merge_base` 无共同祖先时应为 orphaned
+
 ## [0.1.0] - 2026-05-22
 
 CLI 接口重构与文档体系建立。
