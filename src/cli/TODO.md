@@ -14,9 +14,13 @@
   ```
   packages/code/
   ├── Cargo.toml
+  ├── Cargo.lock
+  ├── rustfmt.toml
+  ├── .gitignore
   ├── src/
   │   ├── main.rs
   │   ├── lib.rs
+  │   ├── python.rs          ← PyO3 绑定层
   │   ├── model/
   │   │   └── mod.rs
   │   └── commands/
@@ -28,38 +32,67 @@
       └── user-guide.md
   ```
 
-### Step 2：调整 Cargo.toml
+### Step 2：调整 Cargo.toml + python.rs
 
-- [ ] `pyo3` 改为默认依赖（移除 optional），确认 `crate-type = ["cdylib", "lib"]`
-- [ ] 更新包名为 `qtcloud-devops-code`，lib 名为 `qtcloud_devops_code`
-- [ ] 更新 `version` 字段为 `0.1.0`
-- [ ] 更新 `authors` 字段
+**Cargo.toml**（源 `examples/default` 已满足，核实即可）：
+- [x] `pyo3` 为默认依赖（非 optional），`crate-type = ["cdylib", "lib"]`
+- [x] 包名 `qtcloud-devops-code`，lib 名 `qtcloud_devops_code`
+- [x] `version = "0.1.0"`，`authors` 已设置
+
+**`src/python.rs`**（需主动修改）：
+- [ ] 重命名 pymodule：`fn kse_core` → `fn qtcloud_devops_code`
+- [ ] 新增 `sync_single(name, path)` pyfunction（调用 `editor.sync_to_parent`）
+- [ ] 新增 `sync_all(path)` pyfunction（调用 `editor.sync_all_to_parent`）
+- [ ] 新增 `retire_submodule(name, path)` pyfunction（调用 `editor.retire_submodule`）
 - [ ] 确认 `cargo build` 通过
 
 ### Step 3：配置 maturin 构建
 
-- [ ] 在项目根 `pyproject.toml` 中添加 maturin 配置：
+- [ ] 在 `src/cli/pyproject.toml` 中添加 maturin 配置（替换 setuptools）：
   ```toml
+  [build-system]
+  requires = ["setuptools>=64", "maturin>=1.0"]
+  build-backend = "maturin"
+
   [tool.maturin]
   module-name = "qtcloud_devops.code"
-  source-dir = "packages/code"
+  source-dir = "../../packages/code"
+  features = ["python"]
   ```
 - [ ] 在 `pyproject.toml` 的 `[project]` 中添加可选依赖组：
   ```toml
   [project.optional-dependencies]
   code = ["maturin>=1.0"]
   ```
+- [ ] 确认 `lib.rs` 中 `#[cfg(feature = "python")] pub mod python;` 已启用（源中已存在）
 - [ ] 验证 `pip install -e .[code]` 自动编译 Rust
-- [ ] 验证 `python -c "from qtcloud_devops import code"` 导入成功
+- [ ] 验证 `python -c "from qtcloud_devops.code import scan_repo"` 导入成功
 
 ### Step 4：新增 app/code.py
 
 - [ ] 创建 `app/__init__.py`（如不存在）
-- [ ] 创建 `app/code.py`，暴露三个命令：
+- [ ] 创建 `app/code.py`，封装 Rust native 调用：
+
+  | Rust pyfunction | Python 封装 | CLI 命令 |
+  |-----------------|-------------|----------|
+  | `scan_repo(path)` | `def status(path: str) -> dict` | `qtcloud-devops code status [path]` |
+  | `sync_single(name, path)` | `def sync(name: str, path: str) -> dict` | `qtcloud-devops code sync <name> [repo]` |
+  | `sync_all(path)` | (sync 的 name=None 分支) | `qtcloud-devops code sync [repo]` |
+  | `retire_submodule(name, path)` | `def retire(name: str, path: str) -> dict` | `qtcloud-devops code retire <name> [repo]` |
+
   ```python
-  def status(path: str) -> dict: ...
-  def sync(name: str | None, path: str) -> dict: ...
-  def retire(name: str, path: str) -> dict: ...
+  import qtcloud_devops.code as _native
+
+  def status(path: str) -> dict:
+      return _native.scan_repo(path)
+
+  def sync(name: str | None, path: str) -> dict:
+      if name:
+          return _native.sync_single(name, path)
+      return _native.sync_all(path)
+
+  def retire(name: str, path: str) -> dict:
+      return _native.retire_submodule(name, path)
   ```
 - [ ] 在 `app/code.py` 中封装 Rust 调用的错误处理：
   - Rust 崩溃 → 返回友好错误信息
@@ -77,7 +110,7 @@
 
 - [ ] 更新 `AGENTS.md`：
   - 添加 Rust 开发环境要求（rustup, cargo）
-  - 添加构建说明（`pip install -e .[rust]`）
+  - 添加构建说明（`pip install -e .[code]`）
   - 添加目录结构说明
 - [ ] 更新 `README.md`：
   - 添加 `code` 子命令说明

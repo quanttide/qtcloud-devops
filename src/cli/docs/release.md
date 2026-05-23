@@ -1,6 +1,4 @@
-# 命令参考
-
-## release
+# release 命令
 
 发布 Git Release。
 

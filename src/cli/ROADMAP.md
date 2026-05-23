@@ -12,9 +12,13 @@
 app/cli.py (Typer)
   └── app/code.py              ← 新增，封装 native 调用
         └── packages/code/      ← Rust crate，编译为 cdylib
-              ├── status()   → 三路 commit 比对 + 聚合统计
-              ├── sync()     → 同步子模块指针到父仓库
-              └── retire()   → 退役子模块
+              ├── src/python.rs ← PyO3 绑定层
+              │     ├── scan_repo()  → status
+              │     ├── sync_single / sync_all → sync
+              │     └── retire()     → retire
+              ├── src/lib.rs    ← crate 入口
+              ├── src/model/    ← 核心模型（SubmoduleStatus, RepoState）
+              └── src/commands/ ← SubmoduleEditor trait + GitSubmoduleEditor impl
 ```
 
 **步骤**：
@@ -22,9 +26,9 @@ app/cli.py (Typer)
 | # | 任务 | 预期产物 |
 |---|------|----------|
 | 1 | 从 `examples/default` 复制 Rust 代码到 `packages/code` | `packages/code/` 目录完整 |
-| 2 | 调整 `Cargo.toml`（包名 `qtcloud-devops-code`，lib 名 `qtcloud_devops_code`） | `cargo build` 通过 |
-| 3 | 配置 maturin 构建（`pyproject.toml` 中指定 `module-name`） | `pip install -e .` 自动编译 Rust |
-| 4 | 新增 `app/code.py`：status / sync / retire 命令 | `qtcloud-devops code status` 可用 |
+| 2 | 调整 `src/python.rs`（重命名 pymodule `kse_core` → `qtcloud_devops_code`；新增 sync/retire 绑定）；Cargo.toml 包名/lib 名已正确，核实即可 | `cargo build` 通过 |
+| 3 | 配置 maturin 构建（`pyproject.toml`：`source-dir = "../../packages/code"`，`features = ["python"]`） | `pip install -e .[code]` 自动编译 Rust |
+| 4 | 新增 `app/code.py` 封装 native 调用 + `app/cli.py` 注册子命令 | `qtcloud-devops code status` 可用 |
 | 5 | 更新文档和 AGENTS.md | 明确 Rust 开发环境需求 |
 | 6 | 清理 `examples/default`（标记废弃或移除） | 职责集中到 qtcloud-devops |
 
