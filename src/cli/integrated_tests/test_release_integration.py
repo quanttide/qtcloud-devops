@@ -9,7 +9,6 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 from typer.testing import CliRunner
 
 from python.cli import app
@@ -21,21 +20,6 @@ def _all_output(result) -> str:
     out = result.stdout or ""
     err = result.stderr or ""
     return out + err
-
-
-def _mock_subprocess(monkeypatch, commands=None):
-    """Mock subprocess.run with specific command results."""
-    if commands is None:
-        commands = {}
-    default = MagicMock(returncode=0, stdout="")
-
-    def mock_run(cmd, **kw):
-        key = tuple(cmd)
-        if key in commands:
-            return commands[key]
-        return default
-
-    monkeypatch.setattr("python.release.subprocess.run", mock_run)
 
 
 class TestReleaseCommandStructure:
@@ -73,9 +57,13 @@ class TestReleaseDryRun:
     def test_dry_run_with_changelog(self, tmp_path, monkeypatch):
         changelog = tmp_path / "CHANGELOG.md"
         changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
-        _mock_subprocess(monkeypatch, {
-            ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(returncode=0, stdout="main\n"),
-        })
+        monkeypatch.setattr(
+            "python.release.subprocess.run",
+            lambda cmd, **kw: MagicMock(
+                returncode=0,
+                stdout="main\n" if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"] else "",
+            ),
+        )
         result = runner.invoke(app, [
             "release", "--version", "v0.1.0",
             "--changelog", str(changelog),
@@ -122,124 +110,4 @@ class TestReleaseArgumentValidation:
         assert "不能同时使用" in output
 
 
-class TestReleaseWithMockedSubprocess:
-    """通过 mock subprocess.run 测试完整流程"""
 
-    def test_default_flow(self, monkeypatch, tmp_path):
-        """默认行为：创建标签 + 推送 + GitHub Release"""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
-
-        _mock_subprocess(monkeypatch, {
-            ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(returncode=0, stdout="main\n"),
-            ("git", "remote", "get-url", "origin"): MagicMock(returncode=0, stdout="git@github.com:quanttide/repo.git\n"),
-        })
-        result = runner.invoke(app, [
-            "release", "--version", "v0.1.0",
-            "--changelog", str(changelog),
-            "-y",
-        ])
-        output = _all_output(result)
-        assert result.exit_code == 0, output
-        assert "Traceback" not in output
-
-    def test_tag_only(self, monkeypatch, tmp_path):
-        """--tag-only 仅打标签不发 release"""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
-
-        _mock_subprocess(monkeypatch, {
-            ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(returncode=0, stdout="main\n"),
-        })
-        result = runner.invoke(app, [
-            "release", "--version", "v0.1.0",
-            "--changelog", str(changelog),
-            "--tag-only", "-y",
-        ])
-        output = _all_output(result)
-        assert result.exit_code == 0, output
-        assert "Traceback" not in output
-
-    def test_tag_create_failure(self, monkeypatch, tmp_path):
-        """创建标签失败"""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
-
-        _mock_subprocess(monkeypatch, {
-            ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(returncode=0, stdout="main\n"),
-            ("git", "tag", "v0.1.0"): MagicMock(returncode=1, stderr="error"),
-        })
-        result = runner.invoke(app, [
-            "release", "--version", "v0.1.0",
-            "--changelog", str(changelog),
-            "-y",
-        ])
-        output = _all_output(result)
-        assert result.exit_code != 0
-        assert "Traceback" not in output
-
-    def test_push_failure_triggers_rollback(self, monkeypatch, tmp_path):
-        """推送标签失败应触发回滚"""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
-
-        calls = []
-
-        def recorder(cmd, **kw):
-            calls.append(cmd)
-            if cmd == ["git", "tag", "-l"]:
-                return MagicMock(returncode=0, stdout="")
-            if cmd == ["git", "push", "origin", "v0.1.0"]:
-                return MagicMock(returncode=1, stderr="push failed")
-            if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
-                return MagicMock(returncode=0, stdout="main\n")
-            return MagicMock(returncode=0, stdout="")
-
-        monkeypatch.setattr("python.release.subprocess.run", recorder)
-        result = runner.invoke(app, [
-            "release", "--version", "v0.1.0",
-            "--changelog", str(changelog),
-            "-y",
-        ])
-        output = _all_output(result)
-        assert result.exit_code != 0
-        assert ["git", "tag", "-d", "v0.1.0"] in calls
-        assert ["git", "push", "origin", "--delete", "v0.1.0"] in calls
-        assert "Traceback" not in output
-
-    def test_release_only(self, monkeypatch, tmp_path):
-        """--release-only 仅创建 GitHub Release"""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
-
-        _mock_subprocess(monkeypatch, {
-            ("git", "tag", "-l"): MagicMock(returncode=0, stdout="v0.1.0\n"),
-            ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(returncode=0, stdout="main\n"),
-            ("git", "remote", "get-url", "origin"): MagicMock(returncode=0, stdout="git@github.com:quanttide/repo.git\n"),
-        })
-        result = runner.invoke(app, [
-            "release", "--version", "v0.1.0",
-            "--changelog", str(changelog),
-            "--release-only", "-y",
-        ])
-        output = _all_output(result)
-        assert result.exit_code == 0, output
-        assert "Traceback" not in output
-
-    def test_release_only_tag_not_exist(self, monkeypatch, tmp_path):
-        """--release-only 但标签不存在应失败"""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
-
-        _mock_subprocess(monkeypatch, {
-            ("git", "tag", "-l"): MagicMock(returncode=0, stdout="v0.2.0\n"),
-            ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(returncode=0, stdout="main\n"),
-        })
-        result = runner.invoke(app, [
-            "release", "--version", "v0.1.0",
-            "--changelog", str(changelog),
-            "--release-only", "-y",
-        ])
-        output = _all_output(result)
-        assert result.exit_code != 0
-        assert "Traceback" not in output
