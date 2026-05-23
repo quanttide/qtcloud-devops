@@ -1,14 +1,9 @@
-"""Python wrapper for qtcloud-devops Rust native code module.
-
-Maps to the `qtcloud_devops.code` native module compiled by maturin.
-"""
-
 from __future__ import annotations
 
 from typing import Any
 
 try:
-    import qtcloud_devops_cli as _native
+    from qtcloud_devops_cli import _native
 except ImportError:
     _native = None
 

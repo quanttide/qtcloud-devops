@@ -60,7 +60,7 @@ fn retire_submodule(name: String, path: String) -> PyResult<PyObject> {
 }
 
 #[pymodule]
-fn qtcloud_devops_cli(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _native(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(scan_repo, m)?)?;
     m.add_function(wrap_pyfunction!(sync_single, m)?)?;
     m.add_function(wrap_pyfunction!(sync_all, m)?)?;

@@ -1,7 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from python.release import (
+from qtcloud_devops_cli.release import (
     confirm_release,
     create_release,
     create_tag,
@@ -51,7 +51,7 @@ def test_precheck_changelog_not_found():
 def test_precheck_default_does_not_check_tag_exists(monkeypatch):
     """默认模式不检查标签是否存在"""
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         mock_subprocess(
             {
                 ("git", "status", "--porcelain"): MagicMock(stdout=""),
@@ -68,7 +68,7 @@ def test_precheck_default_does_not_check_tag_exists(monkeypatch):
 
 def test_precheck_dirty_workspace(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         mock_subprocess(
             {
                 ("git", "tag", "-l"): MagicMock(stdout=""),
@@ -85,7 +85,7 @@ def test_precheck_dirty_workspace(monkeypatch):
 
 def test_precheck_wrong_branch(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         mock_subprocess(
             {
                 ("git", "tag", "-l"): MagicMock(stdout=""),
@@ -101,7 +101,7 @@ def test_precheck_wrong_branch(monkeypatch):
 
 
 def test_precheck_no_changelog_content(monkeypatch):
-    monkeypatch.setattr("python.release.subprocess.run", git_precheck_ok())
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", git_precheck_ok())
     changelog = Path("/tmp/test_precheck_no_content.md")
     changelog.write_text("# CHANGELOG\n\n## [0.2.0]\n\n内容\n")
     errors = precheck("v9.9.9", changelog)
@@ -110,7 +110,7 @@ def test_precheck_no_changelog_content(monkeypatch):
 
 
 def test_precheck_all_pass(monkeypatch):
-    monkeypatch.setattr("python.release.subprocess.run", git_precheck_ok())
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", git_precheck_ok())
     changelog = Path("/tmp/test_precheck_pass.md")
     changelog.write_text("# CHANGELOG\n\n## [0.2.0]\n\n内容\n")
     errors = precheck("v0.2.0", changelog)
@@ -176,14 +176,14 @@ def test_confirm_release_keyboard_interrupt(monkeypatch):
 
 def test_create_tag_success(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run", lambda *a, **kw: MagicMock(returncode=0)
+        "qtcloud_devops_cli.release.subprocess.run", lambda *a, **kw: MagicMock(returncode=0)
     )
     assert create_tag("v0.1.0") is True
 
 
 def test_create_tag_failure(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         lambda *a, **kw: MagicMock(returncode=1, stderr="错误"),
     )
     assert create_tag("v0.1.0") is False
@@ -191,14 +191,14 @@ def test_create_tag_failure(monkeypatch):
 
 def test_push_tag_success(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run", lambda *a, **kw: MagicMock(returncode=0)
+        "qtcloud_devops_cli.release.subprocess.run", lambda *a, **kw: MagicMock(returncode=0)
     )
     assert push_tag("v0.1.0") is True
 
 
 def test_push_tag_failure(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         lambda *a, **kw: MagicMock(returncode=1, stderr="错误"),
     )
     assert push_tag("v0.1.0") is False
@@ -206,14 +206,14 @@ def test_push_tag_failure(monkeypatch):
 
 def test_create_release_success(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run", lambda *a, **kw: MagicMock(returncode=0)
+        "qtcloud_devops_cli.release.subprocess.run", lambda *a, **kw: MagicMock(returncode=0)
     )
     assert create_release("v0.1.0", "notes", "quanttide/repo") is True
 
 
 def test_create_release_failure(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         lambda *a, **kw: MagicMock(returncode=1, stderr="错误"),
     )
     assert create_release("v0.1.0", "notes", "quanttide/repo") is False
@@ -221,20 +221,20 @@ def test_create_release_failure(monkeypatch):
 
 def test_verify_release_success(monkeypatch):
     mock = MagicMock(returncode=0, stdout="Release v0.1.0\nURL: ...")
-    monkeypatch.setattr("python.release.subprocess.run", lambda *a, **kw: mock)
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", lambda *a, **kw: mock)
     assert verify_release("v0.1.0", "quanttide/repo") is True
 
 
 def test_verify_release_failure(monkeypatch):
     mock = MagicMock(returncode=1, stderr="not found")
-    monkeypatch.setattr("python.release.subprocess.run", lambda *a, **kw: mock)
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", lambda *a, **kw: mock)
     assert verify_release("v0.1.0", "quanttide/repo") is False
 
 
 def test_rollback_tag(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         lambda cmd, **kw: calls.append(cmd) or MagicMock(stdout=""),
     )
     rollback_tag("v0.1.0")
@@ -244,7 +244,7 @@ def test_rollback_tag(monkeypatch):
 
 def test_get_remote_repo_ssh(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         lambda *a, **kw: MagicMock(
             returncode=0, stdout="git@github.com:quanttide/quanttide-platform.git\n"
         ),
@@ -254,7 +254,7 @@ def test_get_remote_repo_ssh(monkeypatch):
 
 def test_get_remote_repo_https(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         lambda *a, **kw: MagicMock(
             returncode=0, stdout="https://github.com/quanttide/quanttide-platform\n"
         ),
@@ -264,14 +264,14 @@ def test_get_remote_repo_https(monkeypatch):
 
 def test_get_remote_repo_failure(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         lambda *a, **kw: MagicMock(returncode=1, stderr=""),
     )
     assert get_remote_repo() is None
 
 
 def test_run_dry_run(monkeypatch):
-    monkeypatch.setattr("python.release.subprocess.run", git_precheck_ok())
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", git_precheck_ok())
     changelog = Path("/tmp/test_run_dry.md")
     changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
     assert run("v0.1.0", changelog, dry_run=True) == 0
@@ -283,7 +283,7 @@ def test_run_dry_run_with_errors():
 
 
 def test_run_cancelled(monkeypatch):
-    monkeypatch.setattr("python.release.subprocess.run", git_precheck_ok())
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", git_precheck_ok())
     monkeypatch.setattr("builtins.input", lambda _: "n")
     changelog = Path("/tmp/test_run_cancel.md")
     changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
@@ -293,7 +293,7 @@ def test_run_cancelled(monkeypatch):
 
 def test_run_create_tag_failure(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         mock_subprocess(
             {
                 ("git", "tag", "-l"): MagicMock(stdout=""),
@@ -324,7 +324,7 @@ def test_run_push_tag_failure_triggers_rollback(monkeypatch):
             return MagicMock(returncode=0, stdout="main\n")
         return MagicMock(returncode=0, stdout="")
 
-    monkeypatch.setattr("python.release.subprocess.run", recorder)
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", recorder)
     changelog = Path("/tmp/test_run_push_fail.md")
     changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
     assert run("v0.1.0", changelog, yes=True) == 1
@@ -348,7 +348,7 @@ def test_run_tag_only_explicit(monkeypatch):
             return MagicMock(returncode=0, stdout="main\n")
         return MagicMock(returncode=0, stdout="")
 
-    monkeypatch.setattr("python.release.subprocess.run", recorder)
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", recorder)
     assert run("v0.1.0", changelog, tag_only=True, yes=True) == 0
     assert ["git", "tag", "v0.1.0"] in calls
     assert not any("create" in c for c in calls)
@@ -378,7 +378,7 @@ def test_run_default_creates_tag_and_release(monkeypatch):
             return MagicMock(returncode=0, stdout="Release v0.1.0\n")
         return MagicMock(returncode=0, stdout="")
 
-    monkeypatch.setattr("python.release.subprocess.run", recorder)
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", recorder)
     assert run("v0.1.0", changelog, yes=True) == 0
     assert ["git", "tag", "v0.1.0"] in calls
     assert any("create" in c for c in calls)
@@ -404,7 +404,7 @@ def test_run_default_skips_tag_if_exists(monkeypatch):
             return MagicMock(returncode=0, stdout="Release v0.1.0\n")
         return MagicMock(returncode=0, stdout="")
 
-    monkeypatch.setattr("python.release.subprocess.run", recorder)
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", recorder)
     assert run("v0.1.0", changelog, yes=True) == 0
     assert ["git", "tag", "v0.1.0"] not in calls
     assert any("create" in c for c in calls)
@@ -430,7 +430,7 @@ def test_run_release_only(monkeypatch):
             return MagicMock(returncode=0, stdout="Release v0.1.0\nURL: ...")
         return MagicMock(returncode=0, stdout="")
 
-    monkeypatch.setattr("python.release.subprocess.run", recorder)
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", recorder)
     assert run("v0.1.0", changelog, release_only=True, yes=True) == 0
     assert not any(cmd == ["git", "tag", "v0.1.0"] for cmd in calls)
     assert any("create" in c for c in calls)
@@ -443,7 +443,7 @@ def test_run_release_only_fails_without_remote(monkeypatch):
     changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
 
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         mock_subprocess(
             {
                 ("git", "rev-parse", "--abbrev-ref", "HEAD"): MagicMock(
@@ -480,7 +480,7 @@ def test_run_release_only_requires_existing_tag(monkeypatch):
             return MagicMock(returncode=0, stdout="Release v0.1.0\n")
         return MagicMock(returncode=0, stdout="")
 
-    monkeypatch.setattr("python.release.subprocess.run", recorder)
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", recorder)
     assert run("v0.1.0", changelog, release_only=True, yes=True) == 0
     changelog.unlink()
 
@@ -491,7 +491,7 @@ def test_run_release_only_fails_if_tag_missing(monkeypatch):
     changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
 
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         mock_subprocess(
             {
                 ("git", "tag", "-l"): MagicMock(stdout="v0.2.0\n"),
@@ -511,7 +511,7 @@ def test_run_release_only_fails_if_tag_missing(monkeypatch):
 def test_precheck_release_only_requires_tag(monkeypatch):
     """--release-only 时要求标签已存在"""
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         mock_subprocess(
             {
                 ("git", "tag", "-l"): MagicMock(stdout="v0.1.0\n"),
@@ -532,7 +532,7 @@ def test_precheck_release_only_requires_tag(monkeypatch):
 def test_precheck_release_only_fails_if_tag_missing(monkeypatch):
     """--release-only 时标签不存在应报错"""
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         mock_subprocess(
             {
                 ("git", "tag", "-l"): MagicMock(stdout="v0.2.0\n"),
@@ -552,7 +552,7 @@ def test_precheck_release_only_fails_if_tag_missing(monkeypatch):
 
 def test_run_uses_default_changelog(monkeypatch):
     monkeypatch.setattr(
-        "python.release.subprocess.run",
+        "qtcloud_devops_cli.release.subprocess.run",
         lambda *a, **kw: MagicMock(returncode=0, stdout="main\n"),
     )
     assert run("v0.1.0", dry_run=True) == 1

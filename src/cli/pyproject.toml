@@ -3,8 +3,9 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
-module-name = "qtcloud_devops_cli"
+module-name = "qtcloud_devops_cli._native"
 source-dir = "."
+python-source = "app"
 features = ["python"]
 
 [project]
@@ -18,11 +19,10 @@ dependencies = [
 ]
 
 [project.scripts]
-qtcloud-devops = "app.cli:main"
+qtcloud-devops = "qtcloud_devops_cli.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python", "integrated_tests"]
-pythonpath = ["app"]
 
 [dependency-groups]
 dev = [

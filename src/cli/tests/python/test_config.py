@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
 
-from python.config import Settings, settings
+from qtcloud_devops_cli.config import Settings, settings
 
 
 def test_settings_is_basemodel():

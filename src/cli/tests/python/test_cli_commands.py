@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 from typer.testing import CliRunner
 
-from python.cli import app
+from qtcloud_devops_cli.cli import app
 
 runner = CliRunner()
 
@@ -34,7 +34,7 @@ def test_release_dry_run(monkeypatch):
             return MagicMock(returncode=0, stdout="main\n")
         return MagicMock(returncode=0, stdout="")
 
-    monkeypatch.setattr("python.release.subprocess.run", mock_run)
+    monkeypatch.setattr("qtcloud_devops_cli.release.subprocess.run", mock_run)
     result = runner.invoke(
         app,
         [
@@ -51,9 +51,9 @@ def test_release_dry_run(monkeypatch):
 
 
 def test_main_help(monkeypatch):
-    from python.cli import main
+    from qtcloud_devops_cli.cli import main
 
-    monkeypatch.setattr("sys.argv", ["python.cli", "--help"])
+    monkeypatch.setattr("sys.argv", ["qtcloud_devops_cli.cli", "--help"])
     try:
         main()
     except SystemExit as e:
@@ -68,7 +68,7 @@ def test_main_module_entry():
     root = Path(__file__).resolve().parent.parent.parent
     env = {**os.environ, "PYTHONPATH": str(root / "app")}
     result = subprocess.run(
-        [sys.executable, "-m", "python.cli", "--help"],
+        [sys.executable, "-m", "qtcloud_devops_cli.cli", "--help"],
         capture_output=True,
         text=True,
         cwd=str(root),

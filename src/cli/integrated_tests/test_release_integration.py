@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 from typer.testing import CliRunner
 
-from python.cli import app
+from qtcloud_devops_cli.cli import app
 
 runner = CliRunner()
 
@@ -58,7 +58,7 @@ class TestReleaseDryRun:
         changelog = tmp_path / "CHANGELOG.md"
         changelog.write_text("# CHANGELOG\n\n## [0.1.0]\n\n内容\n")
         monkeypatch.setattr(
-            "python.release.subprocess.run",
+            "qtcloud_devops_cli.release.subprocess.run",
             lambda cmd, **kw: MagicMock(
                 returncode=0,
                 stdout="main\n" if cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"] else "",

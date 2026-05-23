@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from python.cli import app
+from qtcloud_devops_cli.cli import app
 
 runner = CliRunner()
 
