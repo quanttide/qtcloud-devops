@@ -1,5 +1,18 @@
 # TODO
 
+## 开发中
+
+### Orphaned 状态拆分
+
+- [ ] 分析 Orphaned 的细分场景（rebase force push、squash merge、仓库替换、gc 清理）
+- [ ] 定义子状态枚举（新增 `SubmoduleStatus` 变体或补充字段）
+- [ ] 更新 `RepoState::scan()` 判定逻辑，区分不同场景
+- [ ] 更新 `describe_issue()` 为各子状态提供针对性建议
+- [ ] 更新 `docs/code.md` 状态表和 Orphaned 说明
+- [ ] 更新集成测试覆盖各子状态
+
+---
+
 ## P0 — 发布目标支持
 
 - [ ] PyPI 发布集成

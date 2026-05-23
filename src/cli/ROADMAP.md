@@ -1,5 +1,17 @@
 # ROADMAP
 
+## 开发中
+
+### Orphaned 状态拆分
+
+当前 `Orphaned` 是一个笼统的状态，涵盖多种根本不同的场景（rebase force push、squash merge、仓库替换等）。需要拆分为更精确的子状态，以便工具给出针对性的修复建议。
+
+**待办**：
+- 分析 Orphaned 的细分场景，定义子状态
+- 更新 `SubmoduleStatus` 枚举
+- 更新 `RepoState::scan()` 判定逻辑
+- 更新文档和状态表
+
 ## 已完成
 
 ### Core — Rust 子模块管理引擎
