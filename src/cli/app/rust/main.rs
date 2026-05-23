@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use qtcloud_devops_cli::commands::editor::GitSubmoduleEditor;
+use qtcloud_devops_cli::commands::code::GitSubmoduleEditor;
 use qtcloud_devops_cli::commands::{HealthIssue, SubmoduleEditor};
 use qtcloud_devops_cli::model;
 use std::path::PathBuf;

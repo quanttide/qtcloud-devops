@@ -63,24 +63,24 @@ fn repo_state_scan(root: &std::path::Path) -> qtcloud_devops_cli::model::RepoSta
 }
 
 fn editor_sync(root: &std::path::Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let editor = qtcloud_devops_cli::commands::editor::GitSubmoduleEditor::new(root.to_path_buf());
+    let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(root.to_path_buf());
     editor.sync_to_parent(name)
 }
 
 fn editor_sync_all(root: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
-    let editor = qtcloud_devops_cli::commands::editor::GitSubmoduleEditor::new(root.to_path_buf());
+    let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(root.to_path_buf());
     editor.sync_all_to_parent()
 }
 
 fn editor_retire(root: &std::path::Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let editor = qtcloud_devops_cli::commands::editor::GitSubmoduleEditor::new(root.to_path_buf());
+    let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(root.to_path_buf());
     editor.retire_submodule(name)
 }
 
 fn editor_status(
     root: &std::path::Path,
 ) -> Result<Vec<qtcloud_devops_cli::commands::HealthIssue>, Box<dyn std::error::Error>> {
-    let editor = qtcloud_devops_cli::commands::editor::GitSubmoduleEditor::new(root.to_path_buf());
+    let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(root.to_path_buf());
     editor.status()
 }
 

@@ -31,5 +31,5 @@ python = []
 cli = []
 
 [[test]]
-name = "rust_integration"
-path = "tests/rust/integration.rs"
+name = "code"
+path = "tests/rust/code.rs"

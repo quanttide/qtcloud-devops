@@ -1,4 +1,4 @@
-use crate::commands::editor::GitSubmoduleEditor;
+use crate::commands::code::GitSubmoduleEditor;
 use crate::commands::SubmoduleEditor;
 use crate::model;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
