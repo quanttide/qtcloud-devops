@@ -14,10 +14,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: install uv
-        run: pip install uv
-      - name: build
-        run: uv build
+      - name: build with manylinux
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --manylinux 2_28
+          working-directory: src/cli
       - name: publish
         run: uv publish
         env:
