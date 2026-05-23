@@ -33,7 +33,43 @@ def status(
     if "error" in result:
         typer.echo(f"错误: {result['error']}", err=True)
         raise typer.Exit(code=1)
-    typer.echo(result)
+
+    dirty = "⚠ 有未提交的变更" if result.get("parent_dirty") else "✓ 干净的"
+    typer.echo(f"仓库: {result['root_path']}  ({dirty})")
+    typer.echo("")
+
+    subs = result.get("submodules", [])
+    if not subs:
+        typer.echo("  没有子模块")
+        return
+
+    attention = result.get("needs_attention", [])
+    typer.echo(f"子模块: {result['total']} 个 ({result['clean_count']} Clean", nl=False)
+    if attention:
+        typer.echo(f", 需关注: {', '.join(attention)}", nl=False)
+    typer.echo(")")
+    typer.echo("")
+
+    for s in subs:
+        diff = ""
+        if s["ahead_count"] > 0 and s["behind_count"] > 0:
+            diff = f"+{s['ahead_count']}/-{s['behind_count']}"
+        elif s["ahead_count"] > 0:
+            diff = f"+{s['ahead_count']}"
+        elif s["behind_count"] > 0:
+            diff = f"-{s['behind_count']}"
+
+        status_icon = {
+            "Clean": "✅",
+            "Dirty": "🔴",
+            "AheadOfParent": "⬆",
+            "BehindRemote": "⬇",
+            "Detached": "⚠",
+            "Orphaned": "💀",
+            "Uninitialized": "⚪",
+        }.get(s["status"], "  ")
+
+        typer.echo(f"  {status_icon} {s['name']:30s} {s['status']:20s} {diff}")
 
 
 @code_app.command()
