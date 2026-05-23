@@ -7,12 +7,12 @@ authors = ["Guo-Zhang <zhangguo@quanttide.com>"]
 
 [lib]
 name = "qtcloud_devops_cli"
-path = "app/rust/lib.rs"
+path = "src/lib.rs"
 crate-type = ["cdylib", "lib"]
 
 [[bin]]
 name = "qtcloud-devops"
-path = "app/rust/main.rs"
+path = "src/main.rs"
 
 [dependencies]
 git2 = { version = "0.19", features = ["vendored-libgit2"] }
