@@ -6,12 +6,7 @@ Git 子模块管理工具，作为 `qtcloud-devops` CLI 的 `code` 子命令集�
 
 ## 安装
 
-```bash
-# 构建 Rust 核心
-cd packages/code
-cargo build --release
-export PATH="$PWD/target/release:$PATH"
-```
+Rust 核心已集成在 CLI 包中，通过 maturin 自动编译。无需手动构建。
 
 ## CLI 快速参考
 
