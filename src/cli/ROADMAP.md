@@ -1,5 +1,33 @@
 # ROADMAP
 
+## 开发中
+
+### Core — Rust 子模块管理引擎（当前迭代）
+
+将 `quanttide-example-of-devops` 仓库中的子模块管理 Rust crate 迁移到 `packages/code`，通过 pyo3 绑定集成到 CLI。
+
+**架构**：
+
+```
+app/cli.py (Typer)
+  └── app/code.py              ← 新增，封装 native 调用
+        └── packages/code/      ← Rust crate，编译为 cdylib
+              ├── status()   → 三路 commit 比对 + 聚合统计
+              ├── sync()     → 同步子模块指针到父仓库
+              └── retire()   → 退役子模块
+```
+
+**步骤**：
+
+| # | 任务 | 预期产物 |
+|---|------|----------|
+| 1 | 从 `examples/default` 复制 Rust 代码到 `packages/code` | `packages/code/` 目录完整 |
+| 2 | 调整 `Cargo.toml`（包名 `qtcloud-devops-code`，lib 名 `qtcloud_devops_code`） | `cargo build` 通过 |
+| 3 | 配置 maturin 构建（`pyproject.toml` 中指定 `module-name`） | `pip install -e .` 自动编译 Rust |
+| 4 | 新增 `app/code.py`：status / sync / retire 命令 | `qtcloud-devops code status` 可用 |
+| 5 | 更新文档和 AGENTS.md | 明确 Rust 开发环境需求 |
+| 6 | 清理 `examples/default`（标记废弃或移除） | 职责集中到 qtcloud-devops |
+
 ## 待规划（按优先级）
 
 ### P0 — 发布目标支持
