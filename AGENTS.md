@@ -91,7 +91,7 @@ preflight 不通过不发布。
    publish -v cli/v0.3.2 -y     ← 正式发布
 
 ✅ rc 失败时：
-   直接 stage 下一个，不 cancel
+   直接 stage 下一个，不 cancel（旧 tag 保留作为记录）
    stage -v cli/v0.3.2-rc.2     ← 递增 rc 序号
 
 ❌ 错误做法（跳过 rc）：
@@ -134,7 +134,7 @@ qtcloud-devops code retire <name> [--repo path]  # 退役子模块
 ```bash
 qtcloud-devops stage -v <version>        # 标记版本，进入 Staged 状态
 qtcloud-devops publish -v <version> [-y] # Staged → Published（标签 + GitHub Release）
-qtcloud-devops cancel -v <version>       # Staged → Cancelled
+qtcloud-devops cancel -v <version>       # Staged → Cancelled（审计用途，不清理 tag）
 qtcloud-devops retire -v <version>       # Published → Retired
 ```
 
