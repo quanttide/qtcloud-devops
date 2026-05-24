@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## [0.3.0-rc.6] - 2026-05-24
+
+修复 maturin wheel 构建（pyproject.toml 回到项目根目录），Windows 构建添加 build.rs。
+
 ## [0.3.0-rc.5] - 2026-05-24
 
 修复 pyo3 无条件编译问题（macOS 构建失败），CI 重测。

@@ -29,7 +29,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: install uv
-        working-directory: src/cli/packages/python
         run: pip install uv
       - name: download package from build
         uses: actions/download-artifact@v4
@@ -39,7 +38,7 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
       - name: publish to PyPI
-        working-directory: src/cli/packages/python
-        run: uv publish
+        working-directory: src/cli
+        run: uv publish packages/python/dist
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}

@@ -29,7 +29,7 @@ if [ "$CARGO_VERSION" != "$EXPECTED" ]; then
 fi
 
 # Validate pyproject.toml
-PYPROJECT="packages/python/pyproject.toml"
+PYPROJECT="pyproject.toml"
 if [ -f "$PYPROJECT" ]; then
   PY_VERSION=$(grep '^version = ' "$PYPROJECT" | head -1 | sed 's/version = "\(.*\)"/\1/')
   if [ -n "$PY_VERSION" ] && [ "$PY_VERSION" != "$EXPECTED" ]; then

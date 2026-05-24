@@ -4,14 +4,14 @@ build-backend = "maturin"
 
 [tool.maturin]
 module-name = "qtcloud_devops_cli._native"
-source-dir = "../.."
-python-source = "."
+source-dir = "."
+python-source = "packages/python"
 manylinux = "2_28"
 features = ["python"]
 
 [project]
 name = "qtcloud-devops-cli"
-version = "0.3.0-rc.5"
+version = "0.3.0-rc.6"
 description = "DevOps CLI — 发布管理 & 子模块管理"
 requires-python = ">=3.12"
 dependencies = []

@@ -64,17 +64,21 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: src/cli/packages/python
+        working-directory: src/cli
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: install uv
-        run: pip install uv
-      - name: build wheel & sdist
-        run: uv build
+      - name: install maturin
+        run: pip install maturin
+      - name: build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --out packages/python/dist --auditwheel skip
+          working-directory: src/cli
       - name: upload package
         uses: actions/upload-artifact@v4
         with:

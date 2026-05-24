@@ -2,24 +2,16 @@
 
 当前已知但暂不修复的问题。
 
-## M1 — maturin sdist 构建失败
+## M1 — maturin sdist 构建失败（已修复）
 
 **现象**
 `uv build` 执行时 `maturin pep517 write-sdist` 返回 exit status 1，构建 sdist 失败。wheel 构建正常。
 
 **原因**
-`pyo3` 从无条件依赖改为 optional（`dep:pyo3`）后，maturin 的 sdist 构建流程可能在某些配置下找不到 pyo3 依赖。具体触发条件待排查。
+`pyproject.toml` 位于 `packages/python/` 时，maturin 找不到 `source-dir` 对应的 `Cargo.toml`。
 
-**影响**
-- PyPI 发布时 wheel 正常，sdist 不可用
-- CI 的 `build-package` job 失败
-
-**替代方案**
-- PyPI 发布依赖 wheel，sdist 影响较小
-- 可通过 `--sdist` 参数跳过或单独构建
-
-**状态**
-待排查。影响 v0.3.0 发布流程。
+**修复**
+将 `pyproject.toml` 移回项目根目录（`src/cli/pyproject.toml`），`python-source = "packages/python"`。maturin 从项目根目录构建时能正确解析所有路径。
 
 ---
 
