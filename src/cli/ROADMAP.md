@@ -82,27 +82,6 @@ qtcloud-devops release          qtcloud-devops stage -v v0.1.0     ← 标记版
 
 **风格**：与现有 `release` 命令组一致——Rust 实现、状态驱动、原子操作。
 
-## 已完成
-
-### Core — Rust 子模块管理引擎
-
-Rust 核心已从 `examples/default` 迁入并完成适配。代码结构从 `packages/code/` 重构为 `src/` + `src/qtcloud_devops_cli/`。
-
-**交付物**：
-- `src/python.rs`：`scan_repo` / `sync_single` / `sync_all` / `retire_submodule` 全部 4 个 pyfunction 绑定
-- `src/qtcloud_devops_cli/code.py`：Python 封装层，对接 Rust native 调用
-- `src/qtcloud_devops_cli/cli.py`：注册 `code` 子命令组（status / sync / retire）
-- `integrated_tests/`：17 个集成测试覆盖 CLI 结构、参数校验、错误处理
-- `tests/`：51 个单元测试覆盖 release 逻辑和 config
-- 编译：`cargo build` + `cargo test` (22 tests) 通过
-- 构建：maturin 单构建系统（`source-dir = "."`，module-name = `qtcloud_devops_cli`）
-
-### v0.2.3 — 发布到 PyPI
-
-- 项目已发布到 PyPI（`qtcloud-devops-cli`）
-- release 命令为纯 Python 实现
-- 配置使用 pydantic-settings
-
 ## 待规划
 
 ### P0 — 发布目标支持
