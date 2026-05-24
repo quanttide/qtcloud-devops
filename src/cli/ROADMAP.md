@@ -1,6 +1,10 @@
 # ROADMAP
 
-## v0.3.x — code 命令体验修复
+## v0.3.1 — release status ✅
+
+新增 `release status` 命令，查看发布状态。
+
+## v0.3.2 — code 命令体验修复（当前）
 
 基于 `v0.3.0` 实际使用体验（17 个子模块全流程实测），修复 `code status` 和 `code sync` 的核心问题。
 

@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [0.3.1] - 2026-05-25
+
+### Added
+
+- `release status` 命令：从 journal 查询发布状态
+
+### Changed
+
+- `release-status` → `release status`（`Release` 子命令组）
+
 ## [0.3.0] - 2026-05-24
 
 ### Added
