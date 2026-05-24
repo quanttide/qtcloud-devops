@@ -8,9 +8,6 @@ jobs:
   publish:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: src/cli
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,25 +17,20 @@ jobs:
         with:
           python-version: "3.12"
       - name: install uv
+        working-directory: src/cli/packages/python
         run: pip install uv
-      - name: download binaries from build
-        uses: actions/download-artifact@v4
-        with:
-          pattern: qtcloud-devops-*
-          path: ${{ github.workspace }}/src/cli/binaries
-          merge-multiple: true
-          github-token: ${{ github.token }}
-          run-id: ${{ github.event.workflow_run.id }}
       - name: download package from build
         uses: actions/download-artifact@v4
         with:
           name: dist
-          path: ${{ github.workspace }}/src/cli/dist
+          path: ${{ github.workspace }}/src/cli/packages/python/dist
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
       - name: publish to PyPI
+        working-directory: src/cli/packages/python
         run: uv publish
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
       - name: publish to crates.io
+        working-directory: src/cli
         run: cargo publish --token ${{ secrets.CRATES_API_TOKEN }}

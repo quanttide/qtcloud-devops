@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: src/cli
+        working-directory: src/cli/packages/python
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -82,6 +82,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: ${{ github.workspace }}/src/cli/dist/*
+          path: ${{ github.workspace }}/src/cli/packages/python/dist/*
 
 
