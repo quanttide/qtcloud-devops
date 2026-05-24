@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [0.3.1] - 2026-05-25
+## [0.3.2] - 2026-05-25
 
 ### Added
 
@@ -9,6 +9,12 @@
 ### Changed
 
 - `release-status` → `release status`（`Release` 子命令组）
+
+### Fixed
+
+- Python 构建修复：`python.rs` 适配新的 `model::code` 模块结构
+
+## [0.3.1] - 2026-05-25（CI 失败，未发布）
 
 ## [0.3.0] - 2026-05-24
 
