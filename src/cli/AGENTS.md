@@ -38,7 +38,7 @@ push 之前，运行预验证脚本：
 ```bash
 cargo build --release                    # 确认编译通过
 cargo test                               # 确认测试通过
-cargo publish --dry-run                  # 确认 crates.io 发布可行
+cargo publish --dry-run --registry crates-io  # 确认 crates.io 发布可行
 maturin build --release --out dist       # 确认 wheel 构建可行
 ```
 
