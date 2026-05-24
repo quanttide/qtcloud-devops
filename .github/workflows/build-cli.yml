@@ -20,15 +20,8 @@ jobs:
       - name: extract version from tag
         id: version
         run: echo "value=${GITHUB_REF_NAME#cli/}" >> $GITHUB_OUTPUT
-      - name: validate version matches Cargo.toml
-        run: |
-          CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          TAG_VERSION="${{ steps.version.outputs.value }}"
-          TAG_VERSION="${TAG_VERSION#v}"
-          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
-            echo "tag version $TAG_VERSION != Cargo.toml version $CARGO_VERSION"
-            exit 1
-          fi
+      - name: validate version
+        run: ./scripts/validate-version.sh "${{ github.ref_name }}"
       - name: run tests
         run: cargo test
 
