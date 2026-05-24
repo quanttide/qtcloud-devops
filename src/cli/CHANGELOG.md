@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## [0.3.0] - 2026-05-24
+
+### Added
+
+- 发布状态机：`stage` / `publish` / `cancel` / `retire` 四个命令（BREAKING）
+- 事件溯源持久化：`.quanttide/devops/release-journal.jsonl` 追加写
+- 多平台 CI 构建（Linux x86_64 / macOS arm64 / Windows x86_64）
+- 发布 CI（build-cli → publish-crate + publish-pypi）
+- `scripts/preflight.sh`、`scripts/validate-version.sh`、`scripts/validate-changelog.sh`
+- 安装文档、发布教程、BUGS.md
+
+### Changed
+
+- 纯 Rust CLI，移除 Python 入口（BREAKING：`release --version` → `stage -v` + `publish -v`）
+- PyPI 包降级为 native 库分发渠道
+- `pyo3` 从无条件依赖改为 optional（`python` feature）
+- Cargo.toml / pyproject.toml 构建配置分离
+- `src/qtcloud_devops_cli/` → `packages/python/`
+- AGENTS.md 补充发布纪律
+
+### Fixed
+
+- git 命令通过 `git -C <repo_path>` 执行，不再污染 CWD
+- Windows 构建：添加 `build.rs` 链接 `advapi32`
+- macOS 构建：`pyo3` optional 修复
+- CI 版本校验：tag 版本正确比对 Cargo.toml + pyproject.toml
+
+---
+
 ## [0.3.0-rc.8] - 2026-05-24
 
 修复 crates.io license, PyPI dist path: --allow-dirty, maturin build direct（pyproject.toml 回到项目根目录），Windows 构建添加 build.rs。
