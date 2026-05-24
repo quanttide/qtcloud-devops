@@ -2,7 +2,7 @@
 
 ## 职责
 
-围绕项目规划文件的命令。扫描 BUGS、ROADMAP、TODO 等项目管理文件，生成变更摘要或进度报告。
+围绕项目规划文件的命令。扫描 BUGS、ROADMAP、TODO、STATUS、CHANGELOG 等项目管理文件，生成变更摘要或进度报告。
 
 ## 动机
 
