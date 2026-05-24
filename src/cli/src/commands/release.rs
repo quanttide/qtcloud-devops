@@ -68,8 +68,16 @@ pub fn confirm_release(version: &str, yes: bool) -> bool {
     input == "y" || input == "yes"
 }
 
-pub fn create_tag(version: &str) -> bool {
-    match Command::new("git").args(["tag", version]).output() {
+fn git_args(args: &[&str], repo_path: &Path) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C");
+    cmd.arg(repo_path);
+    cmd.args(args);
+    cmd
+}
+
+pub fn create_tag(version: &str, repo_path: &Path) -> bool {
+    match git_args(&["tag", version], repo_path).output() {
         Ok(out) if out.status.success() => true,
         Ok(out) => {
             eprintln!("创建标签失败: {}", String::from_utf8_lossy(&out.stderr).trim());
@@ -82,8 +90,8 @@ pub fn create_tag(version: &str) -> bool {
     }
 }
 
-pub fn push_tag(version: &str) -> bool {
-    match Command::new("git").args(["push", "origin", version]).output() {
+pub fn push_tag(version: &str, repo_path: &Path) -> bool {
+    match git_args(&["push", "origin", version], repo_path).output() {
         Ok(out) if out.status.success() => true,
         Ok(out) => {
             eprintln!("推送标签失败: {}", String::from_utf8_lossy(&out.stderr).trim());
@@ -96,11 +104,8 @@ pub fn push_tag(version: &str) -> bool {
     }
 }
 
-pub fn get_remote_repo() -> Option<String> {
-    let result = Command::new("git")
-        .args(["remote", "get-url", "origin"])
-        .output()
-        .ok()?;
+pub fn get_remote_repo(repo_path: &Path) -> Option<String> {
+    let result = git_args(&["remote", "get-url", "origin"], repo_path).output().ok()?;
     if !result.status.success() {
         return None;
     }
@@ -131,9 +136,9 @@ pub fn create_release(version: &str, notes: &str, repo: &str) -> bool {
     }
 }
 
-pub fn rollback_tag(version: &str) {
-    Command::new("git").args(["tag", "-d", version]).output().ok();
-    Command::new("git").args(["push", "origin", "--delete", version]).output().ok();
+pub fn rollback_tag(version: &str, repo_path: &Path) {
+    git_args(&["tag", "-d", version], repo_path).output().ok();
+    git_args(&["push", "origin", "--delete", version], repo_path).output().ok();
     println!("↻ 标签 {} 已回滚", version);
 }
 
