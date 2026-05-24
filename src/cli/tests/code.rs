@@ -3,13 +3,8 @@ use std::process::Command;
 
 use qtcloud_devops_cli::commands::SubmoduleEditor;
 
-/// Helper: init a git repo with user config
 fn git_init(repo: &std::path::Path) {
-    Command::new("git")
-        .args(["init"])
-        .current_dir(repo)
-        .output()
-        .unwrap();
+    Command::new("git").args(["init"]).current_dir(repo).output().unwrap();
     Command::new("git")
         .args(["config", "user.email", "test@test.com"])
         .current_dir(repo)
@@ -58,10 +53,6 @@ fn setup_repo_with_submodule(tmp: &std::path::Path) -> PathBuf {
     parent
 }
 
-fn repo_state_scan(root: &std::path::Path) -> qtcloud_devops_cli::model::RepoState {
-    qtcloud_devops_cli::model::RepoState::scan(root).unwrap()
-}
-
 fn editor_sync(root: &std::path::Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(root.to_path_buf());
     editor.sync_to_parent(name)
@@ -77,18 +68,11 @@ fn editor_retire(root: &std::path::Path, name: &str) -> Result<(), Box<dyn std::
     editor.retire_submodule(name)
 }
 
-fn editor_status(
-    root: &std::path::Path,
-) -> Result<Vec<qtcloud_devops_cli::commands::HealthIssue>, Box<dyn std::error::Error>> {
-    let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(root.to_path_buf());
-    editor.status()
-}
-
 #[test]
 fn test_integration_scan_submodule() {
     let tmp = tempfile::tempdir().unwrap();
     let parent = setup_repo_with_submodule(tmp.path());
-    let state = repo_state_scan(&parent);
+    let state = qtcloud_devops_cli::model::RepoState::scan(&parent).unwrap();
     assert_eq!(state.total, 1);
     assert_eq!(state.submodules[0].name, "libs/sub");
 }
@@ -96,16 +80,14 @@ fn test_integration_scan_submodule() {
 #[test]
 fn test_integration_scan_no_gitmodules() {
     let tmp = tempfile::tempdir().unwrap();
-    let result = qtcloud_devops_cli::model::RepoState::scan(tmp.path());
-    assert!(result.is_err());
+    assert!(qtcloud_devops_cli::model::RepoState::scan(tmp.path()).is_err());
 }
 
 #[test]
 fn test_integration_sync_submodule() {
     let tmp = tempfile::tempdir().unwrap();
     let parent = setup_repo_with_submodule(tmp.path());
-    let result = editor_sync(&parent, "libs/sub");
-    assert!(result.is_ok());
+    assert!(editor_sync(&parent, "libs/sub").is_ok());
 }
 
 #[test]
@@ -113,16 +95,14 @@ fn test_integration_sync_nonexistent() {
     let tmp = tempfile::tempdir().unwrap();
     git_init(tmp.path());
     git_commit(tmp.path(), "init");
-    let result = editor_sync(tmp.path(), "no-such-module");
-    assert!(result.is_err());
+    assert!(editor_sync(tmp.path(), "no-such-module").is_err());
 }
 
 #[test]
 fn test_integration_sync_all() {
     let tmp = tempfile::tempdir().unwrap();
     let parent = setup_repo_with_submodule(tmp.path());
-    let result = editor_sync_all(&parent);
-    assert!(result.is_ok());
+    assert!(editor_sync_all(&parent).is_ok());
 }
 
 #[test]
@@ -130,16 +110,14 @@ fn test_integration_sync_all_no_submodules() {
     let tmp = tempfile::tempdir().unwrap();
     git_init(tmp.path());
     git_commit(tmp.path(), "init");
-    let result = editor_sync_all(tmp.path());
-    assert!(result.is_ok());
+    assert!(editor_sync_all(tmp.path()).is_ok());
 }
 
 #[test]
 fn test_integration_retire_submodule() {
     let tmp = tempfile::tempdir().unwrap();
     let parent = setup_repo_with_submodule(tmp.path());
-    let result = editor_retire(&parent, "libs/sub");
-    assert!(result.is_ok());
+    editor_retire(&parent, "libs/sub").unwrap();
     assert!(
         !parent.join(".gitmodules").exists()
             || !std::fs::read_to_string(parent.join(".gitmodules"))
@@ -153,22 +131,21 @@ fn test_integration_retire_nonexistent() {
     let tmp = tempfile::tempdir().unwrap();
     git_init(tmp.path());
     git_commit(tmp.path(), "init");
-    let result = editor_retire(tmp.path(), "no-such-module");
-    assert!(result.is_err());
+    assert!(editor_retire(tmp.path(), "no-such-module").is_err());
 }
 
 #[test]
 fn test_integration_status_clean_submodule() {
     let tmp = tempfile::tempdir().unwrap();
     let parent = setup_repo_with_submodule(tmp.path());
-    let issues = editor_status(&parent).unwrap();
-    assert!(issues.is_empty());
+    let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(parent);
+    assert!(editor.status().unwrap().is_empty());
 }
 
 #[test]
 fn test_integration_status_not_a_repo() {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::write(tmp.path().join(".gitmodules"), "").unwrap();
-    let result = editor_status(tmp.path());
-    assert!(result.is_err());
+    let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(tmp.path().to_path_buf());
+    assert!(editor.status().is_err());
 }

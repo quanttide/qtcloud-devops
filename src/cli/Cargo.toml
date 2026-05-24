@@ -43,4 +43,8 @@ cli = []
 
 [[test]]
 name = "code"
-path = "tests/rust/code.rs"
+path = "tests/code.rs"
+
+[[test]]
+name = "release"
+path = "tests/release.rs"
