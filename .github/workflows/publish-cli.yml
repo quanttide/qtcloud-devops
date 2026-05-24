@@ -11,28 +11,25 @@ jobs:
         working-directory: src/cli
     steps:
       - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: install uv
         run: pip install uv
-      - name: build wheel
-        uses: PyO3/maturin-action@v1
-        with:
-          command: build
-          args: --release --auditwheel skip
-          working-directory: src/cli
-      - name: upload wheel to release
+      - name: build wheel & sdist
+        run: uv build
+      - name: upload artifacts to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: src/cli/target/wheels/*.whl
+          file: src/cli/dist/*
           tag: ${{ github.ref_name }}
           overwrite: true
           file_glob: true
-      - name: build sdist & publish to PyPI
-        run: |
-          uv build --sdist
-          uv publish dist/*.tar.gz
+      - name: publish to PyPI
+        run: uv publish
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+      - name: publish to crates.io
+        run: cargo publish --token ${{ secrets.CRATES_API_TOKEN }}
