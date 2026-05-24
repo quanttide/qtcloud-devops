@@ -1,6 +1,6 @@
 [package]
 name = "qtcloud-devops-cli"
-version = "0.3.0-rc.1"
+version = "0.3.0-rc.2"
 edition = "2021"
 description = "Rust core for qtcloud-devops CLI"
 authors = ["Guo-Zhang <zhangguo@quanttide.com>"]

@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## [0.3.0-rc.2] - 2026-05-24
+
+重测 CI，移除 build 流程中的 `cargo test`（测试独立为 test CI，不阻塞发布）。
+
 ## [0.3.0-rc.1] - 2026-05-24
 
 测试 CI 构建与发布流程（build-cli → publish-crate / publish-pypi）。无功能变更。
