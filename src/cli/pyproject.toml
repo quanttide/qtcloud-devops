@@ -11,22 +11,7 @@ features = ["python"]
 
 [project]
 name = "qtcloud-devops-cli"
-version = "0.2.3"
-description = "DevOps CLI — 发布管理"
+version = "0.3.0"
+description = "DevOps CLI — 发布管理 & 子模块管理"
 requires-python = ">=3.12"
-dependencies = [
-    "typer",
-    "pydantic-settings",
-]
-
-[project.scripts]
-qtcloud-devops = "qtcloud_devops_cli.cli:main"
-
-[tool.pytest.ini_options]
-testpaths = ["tests/python", "integrated_tests"]
-
-[dependency-groups]
-dev = [
-    "pytest>=9.0.3",
-    "pytest-cov>=7.1.0",
-]
+dependencies = []

@@ -8,7 +8,7 @@ use std::process;
 #[derive(Parser)]
 #[command(
     name = "qtcloud-devops",
-    about = "量潮DevOps实验室 — Git 子模块管理工具",
+    about = "量潮DevOps实验室 — Git 子模块管理 & 发布管理",
     version
 )]
 struct Cli {
@@ -25,6 +25,28 @@ enum Commands {
 
         #[command(subcommand)]
         action: CodeAction,
+    },
+    /// 将版本标记为 Staged 状态
+    Stage {
+        #[arg(short = 'v', long)]
+        version: String,
+    },
+    /// 将 Staged 版本正式发布上线
+    Publish {
+        #[arg(short = 'v', long)]
+        version: String,
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+    /// 取消 Staged 版本的发布
+    Cancel {
+        #[arg(short = 'v', long)]
+        version: String,
+    },
+    /// 将已发布的版本标记为退役
+    Retire {
+        #[arg(short = 'v', long)]
+        version: String,
     },
 }
 
@@ -91,17 +113,44 @@ fn print_aggregate(state: &model::RepoState) {
     }
 }
 
+fn repo_path() -> PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
 fn main() {
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Code { dry_run, action } => {
-            let result = run_code(dry_run, action);
-            if let Err(e) = result {
-                eprintln!("错误: {}", e);
-                process::exit(1);
+    let result = match cli.command {
+        Commands::Code { dry_run, action } => run_code(dry_run, action),
+        Commands::Stage { version } => {
+            match qtcloud_devops_cli::commands::stage::run(&version, &repo_path()) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("{}", e)),
             }
         }
+        Commands::Publish { version, yes } => {
+            match qtcloud_devops_cli::commands::publish::run(&version, &repo_path(), yes) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("{}", e)),
+            }
+        }
+        Commands::Cancel { version } => {
+            match qtcloud_devops_cli::commands::cancel::run(&version, &repo_path()) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("{}", e)),
+            }
+        }
+        Commands::Retire { version } => {
+            match qtcloud_devops_cli::commands::retire::run(&version, &repo_path()) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("{}", e)),
+            }
+        }
+    };
+
+    if let Err(e) = result {
+        eprintln!("错误: {}", e);
+        process::exit(1);
     }
 }
 

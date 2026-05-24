@@ -2,7 +2,7 @@
 
 ## 概述
 
-qtcloud-devops-cli 是量潮科技的 DevOps 命令行工具，当前提供发布管理（release）和代码管理（code）两个子命令。基于 Typer 框架构建。
+qtcloud-devops-cli 是量潮科技的 DevOps 命令行工具，提供子模块管理（code）和发布管理（stage/publish/cancel/retire）能力。纯 Rust 实现，通过 pip / cargo install / GitHub Releases 分发。
 
 ## 设计原则
 
