@@ -21,41 +21,26 @@ cancel  →  Cancelled  — 取消发布
 retire  →  Retired    — 退役版本（不可逆）
 ```
 
-## 预检查
-
-publish 时自动检查：
-
-```
-✓ 版本号格式（vX.Y.Z 或 scope/vX.Y.Z）
-✓ CHANGELOG.md 是否包含目标版本
-✓ 工作区是否干净
-✓ 是否在可发布分支（main / master / release/*）
-```
-
-全部通过后才执行。任何一步失败自动回滚标签。
-
-## 子模块适配
-
-量潮使用子模块组织多仓库。进入子模块目录执行，自动使用子模块 remote：
+## 安装
 
 ```bash
-cd apps/qtcloud-devops/src/cli
-qtcloud-devops stage -v cli/v0.3.0
+pip install qtcloud-devops-cli
 ```
 
-不同子模块的语言和 tag 前缀不同，但流程一致。
+也支持 `cargo install qtcloud-devops-cli` 和 GitHub Releases。详见 [安装指南](src/cli/docs/install.md)。
 
-## 发布流程
+## 回滚
 
-1. 写 CHANGELOG（格式参考已有版本）
-2. 提交推送
-3. `qtcloud-devops stage -v v0.X.Y`
-4. `qtcloud-devops publish -v v0.X.Y -y`
+| 失败点 | 行为 |
+|--------|------|
+| 创建标签失败 | 无副作用 |
+| 推送标签失败 | 删除本地标签 |
+| GitHub Release 失败 | 删除本地和远程标签 |
 
 ## 详细文档
 
 | 文档 | 说明 |
 |------|------|
-| [release](src/cli/docs/release.md) | 发布命令详解、迁移指南 |
-| [code](src/cli/docs/code.md) | 子模块管理命令详解 |
-| [install](src/cli/docs/install.md) | 安装方式说明 |
+| [发布教程](release.md) | 完整发布流程（版本号 → 提交 → 发布 → 验证） |
+| [发布命令](src/cli/docs/release.md) | stage / publish / cancel / retire 命令详解 |
+| [子模块管理](src/cli/docs/code.md) | code status / sync / retire |
