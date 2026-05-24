@@ -1,6 +1,6 @@
 use crate::commands::code::GitSubmoduleEditor;
 use crate::commands::SubmoduleEditor;
-use crate::model;
+use crate::model::code;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::path::PathBuf;
@@ -11,7 +11,7 @@ fn resolve_path(path: &str) -> PyResult<PathBuf> {
         .map_err(|e| PyValueError::new_err(format!("无法解析路径 '{}': {}", path, e)))
 }
 
-fn state_to_dict(state: &model::RepoState) -> PyResult<PyObject> {
+fn state_to_dict(state: &code::RepoState) -> PyResult<PyObject> {
     let json_str = serde_json::to_string_pretty(state)
         .map_err(|e| PyRuntimeError::new_err(format!("序列化失败: {}", e)))?;
     Python::with_gil(|py| {
@@ -24,7 +24,7 @@ fn state_to_dict(state: &model::RepoState) -> PyResult<PyObject> {
 #[pyfunction]
 fn scan_repo(path: String) -> PyResult<PyObject> {
     let canonical = resolve_path(&path)?;
-    let state = model::RepoState::scan(&canonical)
+    let state = code::RepoState::scan(&canonical)
         .map_err(|e| PyRuntimeError::new_err(format!("扫描仓库失败: {}", e)))?;
     state_to_dict(&state)
 }
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn test_state_to_dict_empty() {
-        let state = model::RepoState {
+        let state = code::RepoState {
             root_path: std::path::PathBuf::from("/tmp"),
             submodules: vec![],
             total: 0,
@@ -118,7 +118,7 @@ mod tests {
             behind_count: 0,
             remote_unreachable: false,
         };
-        let state = model::RepoState {
+        let state = code::RepoState {
             root_path: std::path::PathBuf::from("/tmp"),
             submodules: vec![sm],
             total: 1,
