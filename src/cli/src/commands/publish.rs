@@ -24,14 +24,14 @@ pub fn run(
         return Err("已取消发布".into());
     }
 
-    let tag_ok = crate::commands::release::create_tag(version);
+    let tag_ok = crate::commands::release::create_tag(version, repo_path);
     if !tag_ok {
         return Err(format!("创建标签 {} 失败", version).into());
     }
 
-    let push_ok = crate::commands::release::push_tag(version);
+    let push_ok = crate::commands::release::push_tag(version, repo_path);
     if !push_ok {
-        crate::commands::release::rollback_tag(version);
+        crate::commands::release::rollback_tag(version, repo_path);
         return Err(format!("推送标签 {} 失败", version).into());
     }
     println!("✓ 标签 {} 已创建并推送", version);
@@ -39,14 +39,14 @@ pub fn run(
     let changelog_path = repo_path.join("CHANGELOG.md");
     let notes = crate::commands::release::extract_notes(version, &changelog_path);
 
-    if let Some(repo) = crate::commands::release::get_remote_repo() {
+    if let Some(repo) = crate::commands::release::get_remote_repo(repo_path) {
         let release_ok = crate::commands::release::create_release(
             version,
             notes.as_deref().unwrap_or(""),
             &repo,
         );
         if !release_ok {
-            crate::commands::release::rollback_tag(version);
+            crate::commands::release::rollback_tag(version, repo_path);
             return Err("创建 GitHub Release 失败".into());
         }
         println!("✓ GitHub Release {} 已创建", version);

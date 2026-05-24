@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use qtcloud_devops_cli::model::release::{
     FileStorage, ReleaseRecord, ReleaseStatus, Storage,
 };
@@ -15,6 +17,65 @@ fn make_record(version: &str, status: ReleaseStatus) -> ReleaseRecord {
         created_at: now.clone(),
         updated_at: now,
     }
+}
+
+fn git_init(repo: &std::path::Path) {
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "t@t"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "t"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+}
+
+fn git_commit(repo: &std::path::Path) {
+    let mut f = std::fs::File::create(repo.join("f")).unwrap();
+    writeln!(f, "x").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "x"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+}
+
+#[test]
+fn test_release_create_tag_uses_repo_path() {
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    git_commit(dir.path());
+
+    // create_tag should run in dir, not CWD
+    let tag = "v999.999.999-test-repo-path";
+    assert!(qtcloud_devops_cli::commands::release::create_tag(tag, dir.path()));
+
+    let output = std::process::Command::new("git")
+        .args(["-C", dir.path().to_str().unwrap(), "tag", "-l"])
+        .output()
+        .unwrap();
+    let tags = String::from_utf8_lossy(&output.stdout);
+    assert!(tags.contains(tag));
+
+    // verify tag did NOT leak to CWD
+    let cwd_tags = std::process::Command::new("git")
+        .args(["tag", "-l"])
+        .output()
+        .unwrap();
+    let cwd_tags = String::from_utf8_lossy(&cwd_tags.stdout);
+    assert!(!cwd_tags.contains(tag));
 }
 
 #[test]

@@ -12,9 +12,9 @@ pub fn run(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::error
         return Err(Box::new(TransitionError::NotStaged(version.to_string())));
     }
 
-    crate::commands::release::rollback_tag(version);
+    crate::commands::release::rollback_tag(version, repo_path);
 
-    if let Some(repo) = crate::commands::release::get_remote_repo() {
+    if let Some(repo) = crate::commands::release::get_remote_repo(repo_path) {
         std::process::Command::new("gh")
             .args(["release", "delete", version, "--repo", &repo, "--yes"])
             .output()
