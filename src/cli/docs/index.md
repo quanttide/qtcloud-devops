@@ -1,56 +1,42 @@
-# qtcloud-devops-cli 设计文档
+# qtcloud-devops-cli
 
-## 概述
+量潮科技 DevOps 命令行工具。纯 Rust 实现。
 
-qtcloud-devops-cli 是量潮科技的 DevOps 命令行工具，提供子模块管理（`code`）和发布管理（`stage`/`publish`/`cancel`/`retire`）能力。纯 Rust 实现，通过 pip / cargo install / GitHub Releases 分发。
-
-## 设计原则
-
-### 发布管理：状态机而非脚本
-
-发布流程建模为有限状态机，四个命令对应合法状态转换：
-
-```
-stage  →  Staged     — 标记版本，准备发布
-publish →  Published  — 创建标签 + GitHub Release
-cancel  →  Cancelled  — 取消发布，回滚制品
-retire  →  Retired    — 标记退役，终态不可逆
-```
-
-非法操作（如未 stage 就 publish、退役后再 stage）在模型层拒绝。
-
-### 事件溯源（Event Sourcing）
-
-每次状态变更追加记录到 `.quanttide/devops/release-journal.jsonl`，启动时回放所有事件重建当前状态。单一事实来源，不存在"快照 vs 日志"不一致的问题。
-
-### 仓库自动检测
-
-仓库名通过 `get_remote_repo()` 从 `git remote get-url origin` 自动解析：
-
-| 当前目录 | remote origin | 解析结果 |
-|---------|--------------|---------|
-| 主仓库根目录 | `quanttide/quanttide-platform` | 主仓库 |
-| `apps/qtcloud-devops`（子模块） | `quanttide/qtcloud-devops` | 子模块自身 |
+## 安装
 
 ```bash
-cd apps/qtcloud-devops/src/cli
-qtcloud-devops stage -v cli/v0.3.0   # 自动使用子模块 remote
+pip install qtcloud-devops-cli
 ```
 
-### 回滚策略
+详见 [安装文档](install.md)。
 
-| 失败点 | 行为 |
-|--------|------|
-| 创建标签失败 | 无副作用，直接返回错误 |
-| 推送标签失败 | 删除本地标签 |
-| GitHub Release 创建失败 | 删除本地和远程标签 |
+## 快速开始
 
-## 分发方式
+```bash
+# 查看 Git 子模块状态
+qtcloud-devops code status
 
-| 渠道 | 命令 | 适用场景 |
-|------|------|---------|
-| PyPI | `pip install qtcloud-devops-cli` | CI / 大多数开发者，最低门槛 |
-| crates.io | `cargo install qtcloud-devops-cli` | Rust 开发者，获得最新提交 |
-| GitHub Releases | 下载预编译二进制 | 无法使用 pip/cargo 的环境 |
+# 发布新版本
+qtcloud-devops stage -v v1.0.0
+qtcloud-devops publish -v v1.0.0 -y
+```
 
-PyPI 包通过 maturin 构建，`_native.so` 为构建副产品，不主动维护。
+## 文档
+
+| 文档 | 说明 |
+|------|------|
+| [code](code.md) | Git 子模块管理（status / sync / retire） |
+| [release](release.md) | 发布管理（stage / publish / cancel / retire） |
+| [install](install.md) | 安装方式说明 |
+
+## 子命令一览
+
+| 命令 | 功能 |
+|------|------|
+| `code status` | 扫描子模块状态（7 种状态分类） |
+| `code sync [name]` | 同步子模块指针到父仓库 |
+| `code retire <name>` | 退役子模块 |
+| `stage -v <version>` | 标记版本为 Staged |
+| `publish -v <version> [-y]` | 发布上线（标签 + GitHub Release） |
+| `cancel -v <version>` | 取消发布 |
+| `retire -v <version>` | 退役版本 |
