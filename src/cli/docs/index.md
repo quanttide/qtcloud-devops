@@ -2,69 +2,55 @@
 
 ## 概述
 
-qtcloud-devops-cli 是量潮科技的 DevOps 命令行工具，提供子模块管理（code）和发布管理（stage/publish/cancel/retire）能力。纯 Rust 实现，通过 pip / cargo install / GitHub Releases 分发。
+qtcloud-devops-cli 是量潮科技的 DevOps 命令行工具，提供子模块管理（`code`）和发布管理（`stage`/`publish`/`cancel`/`retire`）能力。纯 Rust 实现，通过 pip / cargo install / GitHub Releases 分发。
 
 ## 设计原则
 
-### 发布操作为独立步骤
+### 发布管理：状态机而非脚本
 
-Git 标签和 GitHub Release 是两个独立操作，允许分开执行：
-
-- **默认**：标签 + GitHub Release 一步完成，适用于常规发布
-- **`--tag-only`**：仅创建并推送 Git 标签，适用于需要先发标签后补 Release 的场景
-- **`--release-only`**：仅为已有标签创建 GitHub Release，适用于 tag 已存在需要补 Release 的场景
-
-三者关系：
+发布流程建模为有限状态机，四个命令对应合法状态转换：
 
 ```
-默认（无 flag）= --tag-only + --release-only
---tag-only       = 跳过 --release-only
---release-only   = 跳过 --tag-only
+stage  →  Staged     — 标记版本，准备发布
+publish →  Published  — 创建标签 + GitHub Release
+cancel  →  Cancelled  — 取消发布，回滚制品
+retire  →  Retired    — 标记退役，终态不可逆
 ```
 
-### Tag 已存在的处理策略
+非法操作（如未 stage 就 publish、退役后再 stage）在模型层拒绝。
 
-| 模式 | Tag 不存在 | Tag 已存在 |
-|------|-----------|-----------|
-| 默认 | 创建 tag + 发 release | 跳过 tag，继续发 release |
-| `--tag-only` | 创建 tag | 跳过，静默成功 |
-| `--release-only` | 拒绝（错误） | 直接发 release |
+### 事件溯源（Event Sourcing）
 
-这种设计避免了你遇到的"标签已存在无法补 Release"的问题——默认模式幂等，`--release-only` 专门为补发场景设计。
+每次状态变更追加记录到 `.quanttide/devops/release-journal.jsonl`，启动时回放所有事件重建当前状态。单一事实来源，不存在"快照 vs 日志"不一致的问题。
 
 ### 仓库自动检测
 
-仓库名通过 `get_remote_repo()` 函数从 `git remote get-url origin` 自动解析，支持 SSH（`git@github.com:owner/name.git`）和 HTTPS（`https://github.com/owner/name`）两种格式。
+仓库名通过 `get_remote_repo()` 从 `git remote get-url origin` 自动解析：
 
-这简化了 CLI 参数，避免调用者每次都要手动输入仓库名。
+| 当前目录 | remote origin | 解析结果 |
+|---------|--------------|---------|
+| 主仓库根目录 | `quanttide/quanttide-platform` | 主仓库 |
+| `apps/qtcloud-devops`（子模块） | `quanttide/qtcloud-devops` | 子模块自身 |
 
-`get_remote_repo()` 的返回值取决于当前工作目录所在的 Git 仓库：
-
-| 当前目录 | 所属 Git 仓库 | remote origin | 解析结果 |
-|---------|--------------|---------------|---------|
-| 根目录 （主仓库） | quanttide-platform | `quanttide/quanttide-platform` | 主仓库 |
-| `apps/qtcloud-devops` | qtcloud-devops 子模块 | `quanttide/qtcloud-devops` | 子模块自身 |
-| `apps/qtcloud-devops/src/cli` | 同上（向上查找到 qtcloud-devops） | `quanttide/qtcloud-devops` | 子模块自身 |
-
-所以子模块发布时只需 `cd apps/qtcloud-devops/src/cli && qtcloud-devops release`，命令自动使用子模块的 remote。
-
-## 错误处理与回滚
+```bash
+cd apps/qtcloud-devops/src/cli
+qtcloud-devops stage -v cli/v0.3.0   # 自动使用子模块 remote
+```
 
 ### 回滚策略
 
 | 失败点 | 行为 |
 |--------|------|
-| 创建标签失败 | 直接返回错误，无副作用 |
+| 创建标签失败 | 无副作用，直接返回错误 |
 | 推送标签失败 | 删除本地标签 |
-| GitHub Release 创建失败 | 若之前创建了 tag 则删除 tag 和远程 tag |
+| GitHub Release 创建失败 | 删除本地和远程标签 |
 
-所有回滚都是自动的（在函数内部通过 `rollback_tag()` 完成），调用者无需额外处理。
+## 分发方式
 
-### 预检查项
+| 渠道 | 命令 | 适用场景 |
+|------|------|---------|
+| PyPI | `pip install qtcloud-devops-cli` | CI / 大多数开发者，最低门槛 |
+| crates.io | `cargo install qtcloud-devops-cli` | Rust 开发者，获得最新提交 |
+| GitHub Releases | 下载预编译二进制 | 无法使用 pip/cargo 的环境 |
 
-- 版本号格式（`vX.Y.Z` 或 `scope/vX.Y.Z`）
-- CHANGELOG.md 是否存在且包含目标版本
-- Tag 是否已存在（`--release-only` 时要求必须存在，否则不检查）
-- 工作区是否干净
-- 当前是否在可发布分支（main / master / release/*）
-
+PyPI 包通过 maturin 构建，`_native.so` 为构建副产品，不主动维护。

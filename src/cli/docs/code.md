@@ -6,7 +6,7 @@ Git 子模块管理工具，作为 `qtcloud-devops` CLI  的 `code` 子命令集
 
 ## 安装
 
-Rust 核心已集成在 CLI 包中，通过 maturin 自动编译。无需手动构建。
+通过 `pip install qtcloud-devops-cli` 或 `cargo install qtcloud-devops-cli` 安装。详见 [安装文档](install.md)。
 
 ## CLI 快速参考
 
