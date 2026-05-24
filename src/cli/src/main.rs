@@ -48,8 +48,17 @@ enum Commands {
         #[arg(short = 'v', long)]
         version: String,
     },
+    /// 发布管理命令集
+    Release {
+        #[command(subcommand)]
+        action: ReleaseAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReleaseAction {
     /// 查看发布状态
-    ReleaseStatus,
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -140,9 +149,11 @@ fn main() {
             qtcloud_devops_cli::commands::release::retire(&version, &repo_path())
                 .map(|_| ()).map_err(|e| format!("{}", e))
         }
-        Commands::ReleaseStatus => {
-            qtcloud_devops_cli::commands::release::release_status(&repo_path())
-                .map(|_| ()).map_err(|e| format!("{}", e))
+        Commands::Release { action } => match action {
+            ReleaseAction::Status => {
+                qtcloud_devops_cli::commands::release::release_status(&repo_path())
+                    .map(|_| ()).map_err(|e| format!("{}", e))
+            }
         }
     };
 
