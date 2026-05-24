@@ -41,7 +41,20 @@
 - [ ] 失败的子模块显式标记：`✗ push: 权限不足 · 已跳过`
 - 涉及：`src/commands/code.rs` 输出逻辑
 
-## v0.4.0 — 发布目标支持
+## v0.4.0 — 发布流程重构 & 发布目标支持
+
+### 发布流程重构
+
+当前 `publish` 同时做两件事：打 tag 和创建 GitHub Release。如果 CI 失败，tag 和 Release 已存在 remote 无法撤回。
+
+改进方向：`stage` 负责标记和推送 tag，`publish` 负责 CI 通过后创建 Release。
+
+- [ ] 拆解：`stage` 推送 tag 并触发 CI
+- [ ] 拆解：`publish` 不做 tag，只创建 GitHub Release
+- [ ] CI 通过后自动触发 `publish`（或人手动执行）
+- [ ] CI 失败时 `cancel` 删除 remote tag
+
+### 发布目标支持
 
 - **pub.dev 发布集成**：release 命令支持发布到 pub.dev
 - **发布目标抽象**：从 PyPI/pub.dev 的具体实现中提取"发布目标"模型
