@@ -75,11 +75,11 @@ jobs:
         run: pip install maturin
       - name: build wheel
         working-directory: src/cli
-        run: maturin build --release --out packages/python/dist --auditwheel skip
+        run: maturin build --release --out dist --auditwheel skip
       - name: upload package
         uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: ${{ github.workspace }}/src/cli/packages/python/dist/*
+          path: ${{ github.workspace }}/src/cli/dist/*
 
 

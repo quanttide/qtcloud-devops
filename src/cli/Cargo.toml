@@ -1,9 +1,11 @@
 [package]
 name = "qtcloud-devops-cli"
-version = "0.3.0-rc.7"
+version = "0.3.0-rc.8"
 edition = "2021"
 description = "量潮DevOps云命令行工具"
 authors = ["Guo-Zhang <zhangguo@quanttide.com>"]
+license = "MIT"
+repository = "https://github.com/quanttide/qtcloud-devops"
 
 [lib]
 name = "qtcloud_devops_cli"

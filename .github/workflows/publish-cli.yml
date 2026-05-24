@@ -34,11 +34,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dist
-          path: ${{ github.workspace }}/src/cli/packages/python/dist
+          path: ${{ github.workspace }}/src/cli/dist
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
       - name: publish to PyPI
         working-directory: src/cli
-        run: uv publish packages/python/dist
+        run: uv publish
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}

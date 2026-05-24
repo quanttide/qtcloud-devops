@@ -60,6 +60,28 @@ qtcloud-devops release          qtcloud-devops stage -v v0.1.0     ← 标记版
    - `docs/release.md` 更新为 Rust CLI 用法，标注 BREAKING 变更
    - `docs/index.md` 更新构建/安装说明
 
+## v0.3.1 — release status
+
+新增 `release status` 命令，查看当前项目的发布状态。每次操作开始和结束时执行一次，形成操作前后的状态对比。
+
+**功能**：
+- 当前版本号
+- 最新发布记录
+- 未发布的变更摘要
+- 预发布版本列表
+
+## v0.4.0 — plan / build / test
+
+以 `release` 命令组为蓝本，新增三个命令组，覆盖完整开发工作流：
+
+| 命令 | 职责 |
+|------|------|
+| `plan` | 围绕特殊文件的规划命令。扫描 CHANGELOG.md、pyproject.toml、版本标记等，自动生成发布计划或变更摘要 |
+| `build` | 围绕 CI 的构建命令。触发或查询 CI 构建状态，与 GitHub Actions 等 CI 系统交互 |
+| `test` | 围绕测试的测试命令。运行测试套件并报告结果，支持过滤和摘要输出 |
+
+**风格**：与现有 `release` 命令组一致——Rust 实现、状态驱动、原子操作。
+
 ## 已完成
 
 ### Core — Rust 子模块管理引擎
