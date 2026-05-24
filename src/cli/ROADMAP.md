@@ -1,52 +1,103 @@
 # ROADMAP
 
-## 开发中
+## v0.3.0 — 纯 Rust CLI，移除 Python 入口 `[BREAKING]`
 
-### Orphaned 状态拆分
+用 Rust 重写 `release` 逻辑，移除 Python CLI 入口，使 `qtcloud-devops` 成为纯 Rust CLI 工具。PyPI 包保留为 native library 分发渠道（通过 `_native.so` 暴露 scan_repo / sync / retire）。
 
-当前 `Orphaned` 是一个笼统的状态，涵盖多种根本不同的场景（rebase force push、squash merge、仓库替换等）。需要拆分为更精确的子状态，以便工具给出针对性的修复建议。
+### 动机
 
-**待办**：
-- 分析 Orphaned 的细分场景，定义子状态
-- 更新 `SubmoduleStatus` 枚举
-- 更新 `RepoState::scan()` 判定逻辑
-- 更新文档和状态表
+- 当前 `release` 命令是纯 Python，与 Rust 实现的子模块管理引擎架构不一致
+- Python 入口（`cli.py`）是多余的间接层——用户始终通过 Rust 二进制使用工具
+- 维护两套 CLI 框架（Typer + clap）和两种构建系统增加认知负担
+
+### BREAKING：CLI 接口变更
+
+```
+之前                             之后
+─────────────────────           ─────────────────────
+qtcloud-devops release          qtcloud-devops stage -v v0.1.0     ← 标记版本
+  --version v0.1.0              qtcloud-devops publish -v v0.1.0   ← 发布上线
+  [--tag-only]                  qtcloud-devops cancel -v v0.1.0    ← 取消
+  [--release-only]              qtcloud-devops retire -v v0.1.0    ← 退役
+  [--dry-run]
+  [-y]
+```
+
+- 删除 `release` 命令，只提供 `stage`/`publish`/`cancel`/`retire` 四个子命令
+- `release --version v0.1.0 -y` → `qtcloud-devops stage -v v0.1.0 && qtcloud-devops publish -v v0.1.0 -y`
+- `release --tag-only` 无直接等价（`stage` 不打标签，`publish` 始终打标签），用户需手动 `git tag`
+
+### 待办
+
+1. **Rust 重写 release 逻辑**
+   - 实现状态机模型：`ReleaseRecord`、`ReleaseEntry`、`ReleaseStatus`、`Storage` trait、`FileStorage`（基于 `release-journal.jsonl` 事件溯源）
+   - 实现四个命令：`stage`（标记版本）、`publish`（发布上线）、`cancel`（取消）、`retire`（退役）
+   - `release` 命令**删除**（v0.2.x 用户改为 `stage && publish` 组合）
+   - 整合断言检查（git 工作区干净、合法分支等）到 Rust 层
+   - 注册子命令到 `src/main.rs`
+
+2. **移除 Python CLI 入口**
+   - 删除 `src/qtcloud_devops_cli/release.py`
+   - 更新 `pyproject.toml`：移除 `[project.scripts]` 入口点
+
+3. **清理 Python 封装层**
+   - 删除 `src/qtcloud_devops_cli/code.py`、`config.py`、`cli.py`
+   - `__init__.py` 只保留一行注释
+   - `_native.so` 作为 maturin 构建副产品保留，**不主动维护也不删除**
+
+4. **保留 PyPI 分发**
+   - `_native` 库通过 maturin 构建，保留 `python` feature
+   - GitHub Releases 分发 Rust 二进制 + `cargo install` 作为额外安装方式
+   - 双渠道：`pip install` 给 Python 开发者，`cargo install` / GitHub Releases 给 Rust 开发者
+
+5. **测试迁移**
+   - `tests/python/` 下所有测试**全部删除**（逻辑由 Rust 单元测试覆盖）
+   - `integrated_tests/` 中依赖 Python CLI 的用例**全部删除**
+   - Rust 单元测试覆盖全部 release 逻辑路径（目标 ≥ 40 个新测试）
+   - 验收标准：`cargo test` 全部通过，无 Python 测试残留
+
+6. **文档更新**
+   - `docs/release.md` 更新为 Rust CLI 用法，标注 BREAKING 变更
+   - `docs/index.md` 更新构建/安装说明
 
 ## 已完成
 
 ### Core — Rust 子模块管理引擎
 
-Rust 核心已从 `examples/default` 迁入并完成适配。代码结构从 `packages/code/` 重构为 `app/rust/` + `app/python/`。
+Rust 核心已从 `examples/default` 迁入并完成适配。代码结构从 `packages/code/` 重构为 `src/` + `src/qtcloud_devops_cli/`。
 
 **交付物**：
-- `app/rust/python.rs`：`scan_repo` / `sync_single` / `sync_all` / `retire_submodule` 全部 4 个 pyfunction 绑定
-- `app/python/code.py`：Python 封装层，对接 Rust native 调用
-- `app/python/cli.py`：注册 `code` 子命令组（status / sync / retire）
+- `src/python.rs`：`scan_repo` / `sync_single` / `sync_all` / `retire_submodule` 全部 4 个 pyfunction 绑定
+- `src/qtcloud_devops_cli/code.py`：Python 封装层，对接 Rust native 调用
+- `src/qtcloud_devops_cli/cli.py`：注册 `code` 子命令组（status / sync / retire）
 - `integrated_tests/`：17 个集成测试覆盖 CLI 结构、参数校验、错误处理
 - `tests/`：51 个单元测试覆盖 release 逻辑和 config
 - 编译：`cargo build` + `cargo test` (22 tests) 通过
 - 构建：maturin 单构建系统（`source-dir = "."`，module-name = `qtcloud_devops_cli`）
 
-## 待规划（按优先级）
+### v0.2.3 — 发布到 PyPI
+
+- 项目已发布到 PyPI（`qtcloud-devops-cli`）
+- release 命令为纯 Python 实现
+- 配置使用 pydantic-settings
+
+## 待规划
 
 ### P0 — 发布目标支持
 
-先做具体实现，从实现中提炼模型。
-
-- **PyPI 发布集成**：release 命令支持发布到 PyPI（版本校验、构建、发布、验证）
 - **pub.dev 发布集成**：release 命令支持发布到 pub.dev
-- **发布目标抽象**：从 PyPI/pub.dev 的具体实现中提取"发布目标"模型，支持通过契约声明灵活配置
+- **发布目标抽象**：从 PyPI/pub.dev 的具体实现中提取"发布目标"模型
 
 ### P1 — 体验修复
 
-- **CHANGELOG 路径智能检测**：自动查找 pyproject.toml 同层的 CHANGELOG.md，减少 `--changelog` 使用场景
+- **Orphaned 状态拆分**（推迟自"开发中"）：将 `Orphaned` 拆分为更精确的子状态（rebase force push、squash merge、仓库替换等），更新 `RepoState::scan()` 判定逻辑和 `describe_issue()` 建议
 
 ### P2 — 配置扩展
 
 - 放宽分支限制（可配置允许的分支列表）
 - 支持非 semver 版本策略
 - CI Action 版本升级（Node.js 20 弃用）
-- GitLink 镜像容灾同步（优先级较低，可手动维护）
+- GitLink 镜像容灾同步
 
 ## 基本假设
 
