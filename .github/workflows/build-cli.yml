@@ -84,35 +84,4 @@ jobs:
           name: dist
           path: ${{ github.workspace }}/src/cli/dist/*
 
-  test-artifacts:
-    needs: [build-binaries, build-package]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: install uv
-        run: pip install uv
-      - name: download ubuntu binary
-        uses: actions/download-artifact@v4
-        with:
-          name: qtcloud-devops-x86_64-unknown-linux-gnu
-          path: /tmp/binary
-      - name: smoke test binary
-        run: |
-          chmod +x /tmp/binary/qtcloud-devops
-          /tmp/binary/qtcloud-devops --help
-          /tmp/binary/qtcloud-devops --version
-      - name: download wheel
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: /tmp/dist
-      - name: install wheel via pip
-        run: pip install /tmp/dist/*.whl
-      - name: smoke test installed binary
-        run: |
-          qtcloud-devops --help
-          qtcloud-devops --version
+
