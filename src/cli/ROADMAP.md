@@ -53,12 +53,10 @@
 stage -v cli/v0.3.2-rc.1      ← 标记 rc，推送 tag，触发 CI
   → CI 验证 rc 构建
   → 通过后 publish -v cli/v0.3.2    ← 正式版：打 tag + GitHub Release + 注册源
-  → 失败后 cancel -v cli/v0.3.2-rc.1  ← 删除 rc tag
-```
+  → 失败后直接 stage -v cli/v0.3.2-rc.2  ← 递增 rc 序号
 
 - [ ] `stage` 改为推送 rc tag（版本号含 `-rc.N` 后缀），触发 CI
 - [ ] `publish` 保持正式版打 tag + GitHub Release 不变
-- [ ] `cancel` 删除 remote rc tag
 - [ ] CI 应支持 rc tag 的构建（当前基于 Release 事件触发，需改为 tag push 或增加 rc 构建 workflow）
 
 ### 发布目标支持

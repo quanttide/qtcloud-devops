@@ -91,8 +91,8 @@ preflight 不通过不发布。
    publish -v cli/v0.3.2 -y     ← 正式发布
 
 ✅ rc 失败时：
-   cancel -v cli/v0.3.2-rc.1    ← 取消 rc
-   stage -v cli/v0.3.2-rc.2     ← 重新标记
+   直接 stage 下一个，不 cancel
+   stage -v cli/v0.3.2-rc.2     ← 递增 rc 序号
 
 ❌ 错误做法（跳过 rc）：
    stage -v cli/v0.3.2          ← stage 不应直接用于正式版
