@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-pub mod release;
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CommitHash(pub String);
 

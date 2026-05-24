@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::commands::{HealthIssue, SubmoduleEditor};
-use crate::model::{RepoState, SubmoduleStatus};
+use crate::model::code::{RepoState, SubmoduleStatus};
 
 pub struct GitSubmoduleEditor {
     root: PathBuf,

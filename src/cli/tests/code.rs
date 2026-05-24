@@ -72,7 +72,7 @@ fn editor_retire(root: &std::path::Path, name: &str) -> Result<(), Box<dyn std::
 fn test_integration_scan_submodule() {
     let tmp = tempfile::tempdir().unwrap();
     let parent = setup_repo_with_submodule(tmp.path());
-    let state = qtcloud_devops_cli::model::RepoState::scan(&parent).unwrap();
+    let state = qtcloud_devops_cli::model::code::RepoState::scan(&parent).unwrap();
     assert_eq!(state.total, 1);
     assert_eq!(state.submodules[0].name, "libs/sub");
 }
@@ -80,7 +80,7 @@ fn test_integration_scan_submodule() {
 #[test]
 fn test_integration_scan_no_gitmodules() {
     let tmp = tempfile::tempdir().unwrap();
-    assert!(qtcloud_devops_cli::model::RepoState::scan(tmp.path()).is_err());
+    assert!(qtcloud_devops_cli::model::code::RepoState::scan(tmp.path()).is_err());
 }
 
 #[test]

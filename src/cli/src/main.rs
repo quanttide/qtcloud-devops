@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use qtcloud_devops_cli::commands::code::GitSubmoduleEditor;
 use qtcloud_devops_cli::commands::{HealthIssue, SubmoduleEditor};
-use qtcloud_devops_cli::model;
+use qtcloud_devops_cli::model::code;
 use std::path::PathBuf;
 use std::process;
 
@@ -87,8 +87,8 @@ fn print_issues(issues: &[HealthIssue]) {
     }
 }
 
-fn print_aggregate(state: &model::RepoState) {
-    if let Ok((_, agg)) = model::RepoState::scan_all(&state.root_path) {
+fn print_aggregate(state: &code::RepoState) {
+    if let Ok((_, agg)) = code::RepoState::scan_all(&state.root_path) {
         println!("\n聚合统计:");
         println!("  总数: {}", agg.total);
         println!("  ✅ Clean: {}", agg.clean);
@@ -123,28 +123,20 @@ fn main() {
     let result = match cli.command {
         Commands::Code { dry_run, action } => run_code(dry_run, action),
         Commands::Stage { version } => {
-            match qtcloud_devops_cli::commands::stage::run(&version, &repo_path()) {
-                Ok(_) => Ok(()),
-                Err(e) => Err(format!("{}", e)),
-            }
+            qtcloud_devops_cli::commands::release::stage(&version, &repo_path())
+                .map(|_| ()).map_err(|e| format!("{}", e))
         }
         Commands::Publish { version, yes } => {
-            match qtcloud_devops_cli::commands::publish::run(&version, &repo_path(), yes) {
-                Ok(_) => Ok(()),
-                Err(e) => Err(format!("{}", e)),
-            }
+            qtcloud_devops_cli::commands::release::publish(&version, &repo_path(), yes)
+                .map(|_| ()).map_err(|e| format!("{}", e))
         }
         Commands::Cancel { version } => {
-            match qtcloud_devops_cli::commands::cancel::run(&version, &repo_path()) {
-                Ok(_) => Ok(()),
-                Err(e) => Err(format!("{}", e)),
-            }
+            qtcloud_devops_cli::commands::release::cancel(&version, &repo_path())
+                .map(|_| ()).map_err(|e| format!("{}", e))
         }
         Commands::Retire { version } => {
-            match qtcloud_devops_cli::commands::retire::run(&version, &repo_path()) {
-                Ok(_) => Ok(()),
-                Err(e) => Err(format!("{}", e)),
-            }
+            qtcloud_devops_cli::commands::release::retire(&version, &repo_path())
+                .map(|_| ()).map_err(|e| format!("{}", e))
         }
     };
 
@@ -159,7 +151,7 @@ fn run_code(dry_run: bool, action: CodeAction) -> Result<(), String> {
         CodeAction::Status { path } => {
             let root = resolve_path(&path)?;
             let editor = GitSubmoduleEditor::new(root.clone());
-            let state = model::RepoState::scan(&root)
+            let state = code::RepoState::scan(&root)
                 .map_err(|e| format!("{}", e))?;
             let issues = editor.status()
                 .map_err(|e| format!("{}", e))?;
@@ -274,7 +266,7 @@ mod tests {
     #[test]
     fn test_print_issues_non_empty() {
         use qtcloud_devops_cli::commands::HealthIssue;
-        use qtcloud_devops_cli::model::SubmoduleStatus;
+        use qtcloud_devops_cli::model::code::SubmoduleStatus;
         let issues = vec![HealthIssue {
             submodule_name: "libs/foo".into(),
             status: SubmoduleStatus::Dirty,
@@ -288,7 +280,7 @@ mod tests {
 
     #[test]
     fn test_print_aggregate_all_zeros() {
-        let state = model::RepoState {
+        let state = code::RepoState {
             root_path: PathBuf::from("/tmp"),
             submodules: vec![],
             total: 0,
@@ -301,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_print_aggregate_with_variants() {
-        use qtcloud_devops_cli::model::{CommitHash, Submodule, SubmoduleStatus};
+        use qtcloud_devops_cli::model::code::{CommitHash, Submodule, SubmoduleStatus};
         let submodules = vec![
             Submodule {
                 name: "a".into(),
@@ -395,7 +387,7 @@ mod tests {
                 remote_unreachable: false,
             },
         ];
-        let state = model::RepoState {
+        let state = code::RepoState {
             root_path: PathBuf::from("/tmp"),
             submodules,
             total: 7,
