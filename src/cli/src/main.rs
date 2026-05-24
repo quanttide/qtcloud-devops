@@ -48,6 +48,8 @@ enum Commands {
         #[arg(short = 'v', long)]
         version: String,
     },
+    /// 查看发布状态
+    ReleaseStatus,
 }
 
 #[derive(Subcommand)]
@@ -136,6 +138,10 @@ fn main() {
         }
         Commands::Retire { version } => {
             qtcloud_devops_cli::commands::release::retire(&version, &repo_path())
+                .map(|_| ()).map_err(|e| format!("{}", e))
+        }
+        Commands::ReleaseStatus => {
+            qtcloud_devops_cli::commands::release::release_status(&repo_path())
                 .map(|_| ()).map_err(|e| format!("{}", e))
         }
     };

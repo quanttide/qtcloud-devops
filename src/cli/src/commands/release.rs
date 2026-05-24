@@ -238,6 +238,47 @@ pub fn retire(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::er
     Ok(id)
 }
 
+// ===== release_status =====
+
+pub fn release_status(repo_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let storage = FileStorage::new(repo_path);
+    let mut records = storage.list();
+    if records.is_empty() {
+        println!("当前无发布记录");
+        return Ok(String::new());
+    }
+
+    records.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    let staged: Vec<&ReleaseRecord> = records.iter().filter(|r| r.status == ReleaseStatus::Staged).collect();
+    let published: Vec<&ReleaseRecord> = records.iter().filter(|r| r.status == ReleaseStatus::Published).collect();
+
+    println!("发布状态报告");
+    println!("{}", "-".repeat(40));
+    println!("待发布: {}", staged.len());
+    for r in &staged {
+        println!("  {} (尝试: {})", r.version, &r.id[..8]);
+    }
+    println!("已发布: {}", published.len());
+    for r in &published {
+        println!("  {} (尝试: {})", r.version, &r.id[..8]);
+    }
+    println!();
+
+    println!("最新发布:");
+    for r in records.iter().take(5) {
+        let status_str = match r.status {
+            ReleaseStatus::Staged => "Staged",
+            ReleaseStatus::Published => "Published",
+            ReleaseStatus::Cancelled => "Cancelled",
+            ReleaseStatus::Retired => "Retired",
+        };
+        println!("  {:<25} {:<12} {}", r.version, status_str, r.updated_at);
+    }
+
+    Ok(records.len().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -429,5 +470,32 @@ mod tests {
         }
         retire("v1.0.0", dir.path()).unwrap();
         assert_eq!(FileStorage::new(dir.path()).load("v1.0.0").unwrap().status, ReleaseStatus::Retired);
+    }
+
+    // release_status
+
+    #[test]
+    fn test_release_status_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(release_status(dir.path()).unwrap(), "");
+    }
+
+    #[test]
+    fn test_release_status_with_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = FileStorage::new(dir.path());
+        s.save(&make_record("v1.0.0", ReleaseStatus::Staged)).unwrap();
+        s.save(&make_record("v2.0.0", ReleaseStatus::Published)).unwrap();
+        assert_eq!(release_status(dir.path()).unwrap(), "2");
+    }
+
+    #[test]
+    fn test_release_status_multiple_staged() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = FileStorage::new(dir.path());
+        s.save(&make_record("v1.0.0", ReleaseStatus::Staged)).unwrap();
+        s.save(&make_record("v2.0.0", ReleaseStatus::Staged)).unwrap();
+        s.save(&make_record("v3.0.0", ReleaseStatus::Published)).unwrap();
+        assert_eq!(release_status(dir.path()).unwrap(), "3");
     }
 }
