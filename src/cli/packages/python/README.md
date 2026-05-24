@@ -4,7 +4,7 @@
 
 ## 工作原理
 
-`pyproject.toml` 中配置 `python-source = "packages/python"`，maturin 构建时会：
+`pyproject.toml` 中配置 `source-dir = "../.."`（指向 Rust crate），maturin 构建时会：
 
 1. 编译 Rust 源码为 `qtcloud-devops` 二进制 + `_native.so` 原生库
 2. 打包为 wheel 发布到 PyPI
@@ -17,4 +17,4 @@
 
 ## 维护状态
 
-此包的内容**不主动维护**。核心代码在 `../../src/`（Rust），本目录仅保留 PyPI 分发所需的脚手架文件。
+此包的内容**不主动维护**。核心代码在 `../src/`（Rust），本目录仅保留 PyPI 分发所需的脚手架文件。
