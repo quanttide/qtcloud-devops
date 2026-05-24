@@ -76,7 +76,7 @@ qtcloud-devops release          qtcloud-devops stage -v v0.1.0     ← 标记版
 
 | 命令 | 职责 |
 |------|------|
-| `plan` | 围绕特殊文件的规划命令。扫描 CHANGELOG.md、pyproject.toml、版本标记等，自动生成发布计划或变更摘要 |
+| `plan` | 围绕项目规划文件的命令。扫描 BUGS、ROADMAP、TODO 等项目管理文件，生成变更摘要或进度报告 |
 | `build` | 围绕 CI 的构建命令。触发或查询 CI 构建状态，与 GitHub Actions 等 CI 系统交互 |
 | `test` | 围绕测试的测试命令。运行测试套件并报告结果，支持过滤和摘要输出 |
 

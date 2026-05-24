@@ -13,7 +13,7 @@
 
 ## plan
 
-围绕特殊文件的规划命令。扫描项目中的特定文件（如 CHANGELOG.md、pyproject.toml、版本标记等），自动生成发布计划或变更摘要。
+围绕项目规划文件的命令。扫描 BUGS、ROADMAP、TODO 等项目管理文件，生成变更摘要或进度报告。
 
 ## build
 
