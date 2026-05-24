@@ -1,94 +1,41 @@
 name: publish-cli
 on:
-  push:
-    tags:
-      - 'cli/*'
-
-env:
-  CARGO_TERM_COLOR: always
+  workflow_run:
+    workflows: [build-cli]
+    types: [completed]
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: src/cli
-    outputs:
-      version: ${{ steps.version.outputs.value }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: extract version from tag
-        id: version
-        run: echo "value=${GITHUB_REF_NAME#cli/}" >> $GITHUB_OUTPUT
-      - name: validate version matches Cargo.toml
-        run: |
-          CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          if [ "$CARGO_VERSION" != "${{ steps.version.outputs.value }}" ]; then
-            echo "tag version ${{ steps.version.outputs.value }} != Cargo.toml version $CARGO_VERSION"
-            exit 1
-          fi
-      - name: run tests
-        run: cargo test
-
-  build-binaries:
-    needs: check
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            ext: ""
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            ext: ""
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            ext: ".exe"
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: src/cli
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: ${{ matrix.target }}
-      - name: build binary
-        run: cargo build --release --target ${{ matrix.target }}
-      - name: upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: qtcloud-devops-${{ matrix.target }}
-          path: ${{ github.workspace }}/src/cli/target/${{ matrix.target }}/release/qtcloud-devops${{ matrix.ext }}
-
   publish:
-    needs: [check, build-binaries]
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: src/cli
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: install uv
         run: pip install uv
-      - name: download all binaries
+      - name: download binaries from build
         uses: actions/download-artifact@v4
         with:
           pattern: qtcloud-devops-*
-          path: binaries
+          path: ${{ github.workspace }}/src/cli/binaries
           merge-multiple: true
-      - name: create GitHub Release
-        uses: softprops/action-gh-release@v2
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: download package from build
+        uses: actions/download-artifact@v4
         with:
-          files: binaries/*
-          generate_release_notes: true
-      - name: build wheel & sdist
-        run: uv build
+          name: dist
+          path: ${{ github.workspace }}/src/cli/dist
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
       - name: publish to PyPI
         run: uv publish
         env:
