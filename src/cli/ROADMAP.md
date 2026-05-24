@@ -1,33 +1,39 @@
 # ROADMAP
 
-## v0.3.1 — release status
+## v0.3.x — code 命令体验修复
 
-新增 `release status` 命令，查看当前项目的发布状态。每次操作开始和结束时执行一次，形成操作前后的状态对比。
+基于 `v0.3.0` 实际使用体验（17 个子模块全流程实测），修复 `code status` 和 `code sync` 的核心问题。
 
-**功能**：
-- 当前版本号
-- 最新发布记录
-- 未发布的变更摘要
-- 预发布版本列表
+### P0 — 状态误判与实时性
 
-## v0.4.0 — plan / build / test
+**状态误判**：`code status` 将纯 AheadOfParent 的子模块标记为 Dirty。根因是状态判定混用了"工作区是否干净"和"父指针是否落后"两个维度。
 
-以 `release` 命令组为蓝本，新增三个命令组，覆盖完整开发工作流：
+- [ ] 修正状态判定：工作区有未提交修改才标 Dirty，父指针落后标 AheadOfParent
+- 涉及：`src/model/code.rs` `RepoState::scan()` 判定逻辑
 
-| 命令 | 职责 |
-|------|------|
-| `plan` | 围绕项目规划文件的命令。扫描 BUGS、ROADMAP、TODO 等项目管理文件，生成变更摘要或进度报告 |
-| `build` | 围绕 CI 的构建命令。触发或查询 CI 构建状态，与 GitHub Actions 等 CI 系统交互 |
-| `test` | 围绕测试的测试命令。运行测试套件并报告结果，支持过滤和摘要输出 |
+**remote_head 是本地缓存**：三路比对中的 `remote_head` 是上次 `git fetch` 时的快照，不反映远程实时状态。`BehindRemote` 无法检测真正的远程更新。
 
-**风格**：与现有 `release` 命令组一致——Rust 实现、状态驱动、原子操作。
+- [ ] `status` 默认先 fetch，失败时降级到本地缓存并标记 🛰
+- [ ] 增加 `--offline` 参数跳过 fetch
+- 涉及：`src/commands/code.rs` `status` 逻辑
 
-## 待规划
+### P1 — CLI 设计
 
-### P0 — 发布目标支持
+- [ ] `--dry-run` 下放到 `sync` / `status` / `retire` 各子命令（当前是 `code` 级别，违反直觉）
+- 涉及：`src/main.rs` `CodeAction` 参数定义
+
+### P2 — 输出格式
+
+- [ ] 同步输出改为单行聚合格式：`name  ✓ push · sync · push-parent`
+- [ ] 失败的子模块显式标记：`✗ push: 权限不足 · 已跳过`
+- 涉及：`src/commands/code.rs` 输出逻辑
+
+## v0.4.0 — 发布目标支持
 
 - **pub.dev 发布集成**：release 命令支持发布到 pub.dev
 - **发布目标抽象**：从 PyPI/pub.dev 的具体实现中提取"发布目标"模型
+
+## 待规划
 
 ### P1 — 体验修复
 
