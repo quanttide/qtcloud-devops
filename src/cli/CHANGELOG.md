@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## [0.3.0-rc.1] - 2026-05-24
+
+### Added
+
+- 发布状态机：`stage` / `publish` / `cancel` / `retire` 四个命令（BREAKING）
+- 事件溯源持久化：`.quanttide/devops/release-journal.jsonl` 追加写
+- 多平台二进制构建 CI（Linux x86_64 / macOS arm64 / Windows x86_64）
+- `scripts/validate-version.sh`：版本一致性格栅（tag / Cargo.toml / pyproject.toml）
+- 安装文档 docs/install.md（pip / cargo / GitHub Releases）
+
+### Changed
+
+- 纯 Rust CLI，移除 Python 入口（BREAKING）
+- 发布流程从 `release --version v0.x.y` 改为 `stage -v v0.x.y && publish -v v0.x.y`
+- PyPI 包降级为 native 库分发渠道，Python 源码仅保留 `__init__.py`
+- Cargo.toml / pyproject.toml 构建配置分离
+- `src/qtcloud_devops_cli/` → `packages/python/`
+
+### Fixed
+
+- git 命令始终通过 `git -C <repo_path>` 在指定目录执行，不再污染 CWD
+
 ## [0.2.3] - 2026-05-24
 
 ### Fixed
