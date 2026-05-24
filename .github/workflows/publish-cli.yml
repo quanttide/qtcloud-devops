@@ -5,6 +5,18 @@ on:
     types: [completed]
 
 jobs:
+  publish-crate:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: publish to crates.io
+        working-directory: src/cli
+        run: cargo publish --token ${{ secrets.CRATES_API_TOKEN }}
+
   publish-pypi:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
@@ -31,15 +43,3 @@ jobs:
         run: uv publish
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-
-  publish-crate:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - name: publish to crates.io
-        working-directory: src/cli
-        run: cargo publish --token ${{ secrets.CRATES_API_TOKEN }}
