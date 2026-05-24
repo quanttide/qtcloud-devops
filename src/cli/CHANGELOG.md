@@ -1,8 +1,8 @@
 # CHANGELOG
 
-## [0.3.0-rc.6] - 2026-05-24
+## [0.3.0-rc.7] - 2026-05-24
 
-修复 maturin wheel 构建（pyproject.toml 回到项目根目录），Windows 构建添加 build.rs。
+修复 publish CI: --allow-dirty, maturin build direct（pyproject.toml 回到项目根目录），Windows 构建添加 build.rs。
 
 ## [0.3.0-rc.5] - 2026-05-24
 

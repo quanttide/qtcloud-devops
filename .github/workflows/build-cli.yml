@@ -74,11 +74,8 @@ jobs:
       - name: install maturin
         run: pip install maturin
       - name: build wheel
-        uses: PyO3/maturin-action@v1
-        with:
-          command: build
-          args: --release --out packages/python/dist --auditwheel skip
-          working-directory: src/cli
+        working-directory: src/cli
+        run: maturin build --release --out packages/python/dist --auditwheel skip
       - name: upload package
         uses: actions/upload-artifact@v4
         with:
