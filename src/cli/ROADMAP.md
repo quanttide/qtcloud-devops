@@ -6,9 +6,16 @@
 
 新增 `release status` 命令，查看发布状态。修复 `python.rs` 模块路径。
 
-## v0.3.x — code 命令体验修复（当前）
+## v0.3.x — code 命令体验修复 & 发布流程加固（当前）
 
 基于 `v0.3.0` 实际使用体验（17 个子模块全流程实测），修复 `code status` 和 `code sync` 的核心问题。
+
+### 发布流程漏洞
+
+`publish` 创建 tag + GitHub Release 时 CI 还没跑。如果 CI 失败，tag 和 Release 已经存在 remote，journal 记录为 Published，无法重新发布同一版本。
+
+- [ ] 考虑改进：`publish` 只打标，CI 通过后自动创建 Release（或手动创建）
+- 现状：v0.3.1 CI 失败后标签和 Release 已存在，只能升 v0.3.2
 
 ### P0 — 状态误判与实时性
 
