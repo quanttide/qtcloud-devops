@@ -1,14 +1,14 @@
 name: build-cli
 on:
-  push:
-    tags:
-      - 'cli/*'
+  release:
+    types: [published]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   check:
+    if: startsWith(github.ref, 'refs/tags/cli/')
     runs-on: ubuntu-latest
     defaults:
       run:
