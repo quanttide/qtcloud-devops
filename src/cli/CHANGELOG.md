@@ -1,8 +1,12 @@
 # CHANGELOG
 
+## [0.3.0-rc.3] - 2026-05-24
+
+重测 CI，移除 build 流程中的 `cargo test`，修复 pyo3 无条件编译问题。
+
 ## [0.3.0-rc.2] - 2026-05-24
 
-重测 CI，移除 build 流程中的 `cargo test`（测试独立为 test CI，不阻塞发布）。
+重测 CI，移除 build 流程中的 `cargo test`。
 
 ## [0.3.0-rc.1] - 2026-05-24
 

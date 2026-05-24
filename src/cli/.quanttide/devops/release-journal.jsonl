@@ -2,3 +2,7 @@
 {"id":"687de0b3-ca8b-4583-99c6-1cbd1cdf5411","version":"v0.3.0-rc.1","status":"Published","created_at":"1779616687"}
 {"id":"18b2c480-f169-443c-840c-c1fe5cb53754","version":"cli/v0.3.0-rc.1","status":"Staged","created_at":"1779616746"}
 {"id":"18b2c480-f169-443c-840c-c1fe5cb53754","version":"cli/v0.3.0-rc.1","status":"Published","created_at":"1779616750"}
+{"id":"def7d73b-a738-402c-b9db-7c96dbc915d6","version":"cli/v0.3.0-rc.2","status":"Staged","created_at":"1779617015"}
+{"id":"def7d73b-a738-402c-b9db-7c96dbc915d6","version":"cli/v0.3.0-rc.2","status":"Published","created_at":"1779617018"}
+{"id":"7c809a5e-722a-49f5-aebd-0db267264643","version":"cli/v0.3.0-rc.3","status":"Staged","created_at":"1779617165"}
+{"id":"7c809a5e-722a-49f5-aebd-0db267264643","version":"cli/v0.3.0-rc.3","status":"Published","created_at":"1779617169"}
