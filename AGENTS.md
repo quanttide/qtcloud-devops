@@ -80,28 +80,23 @@ preflight 不通过不发布。
 
 如果一次 rc 因为某个问题失败，修复后应预期其余步骤不受影响（而不是出现新的问题）。出现新问题说明本地预验证不足。
 
-**工作纪律 4：stage 用于验证，publish 用于交付**
+**工作纪律 4：stage 关联预发布**
 
-`stage` 的正确用法是标记版本进入等待验证状态，不是发布前的仪式性步骤。
+`stage` 只用于 rc 版本，不直接 stage 正式版。
 
 ```
 ✅ 正确流程：
-   stage -v cli/v0.3.2-rc.1    ← 标记 rc，CI 自动构建验证
-   # CI 验证通过
-   stage -v cli/v0.3.2          ← 标记正式版（幂等刷新）
-   publish -v cli/v0.3.2 -y     ← CI 通过后发布
+   stage -v cli/v0.3.2-rc.1    ← 标记 rc
+   # CI 验证 rc 通过
+   publish -v cli/v0.3.2 -y     ← 正式发布
 
 ✅ rc 失败时：
    cancel -v cli/v0.3.2-rc.1    ← 取消 rc
    stage -v cli/v0.3.2-rc.2     ← 重新标记
 
-❌ 错误做法（跳过验证）：
-   stage -v cli/v0.3.2          ← 无意义
-   publish -v cli/v0.3.2 -y     ← 立刻发布
-
-❌ 错误做法（rc 不通过直接发正式版）：
-   stage -v cli/v0.3.2-rc.1     ← rc 还没验证通过
-   publish -v cli/v0.3.2 -y     ← 就发正式版，rc 形同虚设
+❌ 错误做法（跳过 rc）：
+   stage -v cli/v0.3.2          ← stage 不应直接用于正式版
+   publish -v cli/v0.3.2 -y     ← 应走 rc → publish 流程
 ```
 
 **工作纪律 5：测试与发布分离**

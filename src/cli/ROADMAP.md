@@ -41,18 +41,25 @@
 - [ ] 失败的子模块显式标记：`✗ push: 权限不足 · 已跳过`
 - 涉及：`src/commands/code.rs` 输出逻辑
 
-## v0.4.0 — 发布流程重构 & 发布目标支持
+## v0.4.x — stage 关联预发布 & 发布目标支持
 
 ### 发布流程重构
 
-当前 `publish` 同时做两件事：打 tag 和创建 GitHub Release。如果 CI 失败，tag 和 Release 已存在 remote 无法撤回。
+当前 `stage` 只校验版本号，`publish` 同时打 tag 和创建 Release。`stage` 和预发布（rc）没有关联。
 
-改进方向：`stage` 负责标记和推送 tag，`publish` 负责 CI 通过后创建 Release。
+改进方向：
 
-- [ ] 拆解：`stage` 推送 tag 并触发 CI
-- [ ] 拆解：`publish` 不做 tag，只创建 GitHub Release
-- [ ] CI 通过后自动触发 `publish`（或人手动执行）
-- [ ] CI 失败时 `cancel` 删除 remote tag
+```
+stage -v cli/v0.3.2-rc.1      ← 标记 rc，推送 tag，触发 CI
+  → CI 验证 rc 构建
+  → 通过后 publish -v cli/v0.3.2    ← 正式版：打 tag + GitHub Release + 注册源
+  → 失败后 cancel -v cli/v0.3.2-rc.1  ← 删除 rc tag
+```
+
+- [ ] `stage` 改为推送 rc tag（版本号含 `-rc.N` 后缀），触发 CI
+- [ ] `publish` 保持正式版打 tag + GitHub Release 不变
+- [ ] `cancel` 删除 remote rc tag
+- [ ] CI 应支持 rc tag 的构建（当前基于 Release 事件触发，需改为 tag push 或增加 rc 构建 workflow）
 
 ### 发布目标支持
 
