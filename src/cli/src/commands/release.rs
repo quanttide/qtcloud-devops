@@ -513,4 +513,91 @@ mod tests {
         s.save(&make_record("v3.0.0", ReleaseStatus::Published)).unwrap();
         assert_eq!(release_status(dir.path()).unwrap(), "3");
     }
+
+    // is_prerelease
+
+    #[test]
+    fn test_is_prerelease_rc() { assert!(is_prerelease("v1.0.0-rc.1")); }
+    #[test]
+    fn test_is_prerelease_alpha() { assert!(is_prerelease("v1.0.0-alpha.1")); }
+    #[test]
+    fn test_is_prerelease_beta() { assert!(is_prerelease("v1.0.0-beta.2")); }
+    #[test]
+    fn test_is_prerelease_scoped() { assert!(is_prerelease("cli/v0.3.2-rc.1")); }
+    #[test]
+    fn test_is_prerelease_formal() { assert!(!is_prerelease("v1.0.0")); }
+    #[test]
+    fn test_is_prerelease_formal_scoped() { assert!(!is_prerelease("cli/v0.3.2")); }
+
+    // Registry
+
+    #[test]
+    fn test_registry_debug() {
+        assert_eq!(format!("{:?}", Registry::PyPI), "PyPI");
+        assert_eq!(format!("{:?}", Registry::PubDev), "PubDev");
+        assert_eq!(format!("{:?}", Registry::Crates), "Crates");
+    }
+
+    #[test]
+    fn test_registry_clone_eq() {
+        assert_eq!(Registry::PyPI, Registry::PyPI);
+        assert_ne!(Registry::PyPI, Registry::PubDev);
+    }
+
+    // normalize_version
+
+    #[test]
+    fn test_normalize_version_v_prefix() { assert_eq!(normalize_version("v1.2.3"), "1.2.3"); }
+
+    #[test]
+    fn test_normalize_version_pkg() { assert_eq!(normalize_version("pkg/v1.2.3"), "1.2.3"); }
+
+    #[test]
+    fn test_normalize_version_no_prefix() { assert_eq!(normalize_version("1.2.3"), "1.2.3"); }
+
+    #[test]
+    fn test_normalize_version_scoped() { assert_eq!(normalize_version("cli/v0.3.2"), "0.3.2"); }
+
+    // validate_version edge cases
+
+    #[test]
+    fn test_validate_version_formal() { assert!(validate_version("v1.0.0")); }
+    #[test]
+    fn test_validate_version_prerelease() { assert!(validate_version("v1.0.0-rc.1")); }
+    #[test]
+    fn test_validate_version_no_v() { assert!(!validate_version("1.0.0")); }
+    #[test]
+    fn test_validate_version_empty() { assert!(!validate_version("")); }
+    #[test]
+    fn test_validate_version_scope_only() { assert!(!validate_version("cli/")); }
+
+    // get_remote_repo (no remote)
+
+    #[test]
+    fn test_get_remote_repo_no_git_repo() { assert_eq!(get_remote_repo(tempfile::tempdir().unwrap().path()), None); }
+
+    // create_release without gh (should fail gracefully)
+
+    #[test]
+    fn test_create_release_no_gh() { assert!(!create_release("v0.0.0-test", "", "no/repo")); }
+
+    // rollback_tag in temp repo
+
+    #[test]
+    fn test_rollback_tag_removes_tag() {
+        let dir = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-b", "main"]).current_dir(dir.path()).output().unwrap();
+        std::fs::write(dir.path().join("f"), "").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."]).current_dir(dir.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
+            .current_dir(dir.path()).output().unwrap();
+        assert!(create_tag("v0.0.0-test-rollback", dir.path()));
+        rollback_tag("v0.0.0-test-rollback", dir.path());
+        let output = std::process::Command::new("git")
+            .args(["tag", "-l"]).current_dir(dir.path()).output().unwrap();
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("v0.0.0-test-rollback"));
+    }
 }
