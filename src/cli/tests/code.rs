@@ -149,3 +149,36 @@ fn test_integration_status_not_a_repo() {
     let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(tmp.path().to_path_buf());
     assert!(editor.status().is_err());
 }
+
+#[test]
+fn test_integration_sync_fails_without_submodule_repo() {
+    let tmp = tempfile::tempdir().unwrap();
+    git_init(tmp.path());
+    git_commit(tmp.path(), "init");
+    // sync with non-existent submodule name should fail
+    let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(tmp.path().to_path_buf());
+    let result = editor.sync_to_parent("no-such-module");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_integration_sync_all_on_repo_without_submodules() {
+    let tmp = tempfile::tempdir().unwrap();
+    git_init(tmp.path());
+    git_commit(tmp.path(), "init");
+    let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(tmp.path().to_path_buf());
+    // Should succeed with no submodules to sync
+    assert!(editor.sync_all_to_parent().is_ok());
+}
+
+#[test]
+fn test_integration_status_with_fetch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let parent = setup_repo_with_submodule(tmp.path());
+    let mut editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(parent);
+    // --offline should skip fetch
+    editor.set_offline(true);
+    let issues = editor.status().unwrap();
+    // With offline mode, status should still work without network
+    assert!(issues.is_empty());
+}

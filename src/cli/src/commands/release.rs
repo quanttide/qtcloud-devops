@@ -584,6 +584,38 @@ mod tests {
     // rollback_tag in temp repo
 
     #[test]
+    fn test_precheck_changelog_file_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let errors = precheck_version_changelog("v1.0.0", &dir.path().join("NONEXISTENT.md"));
+        assert!(errors.iter().any(|e| e.contains("不存在")));
+    }
+
+    #[test]
+    fn test_precheck_changelog_version_invalid() {
+        let dir = tempfile::tempdir().unwrap();
+        let errors = precheck_version_changelog("bad", &dir.path().join("CHANGELOG.md"));
+        assert!(errors.iter().any(|e| e.contains("格式错误")));
+    }
+
+    #[test]
+    fn test_create_tag_in_non_git_dir() {
+        assert!(!create_tag("v0.0.0-test", tempfile::tempdir().unwrap().path()));
+    }
+
+    #[test]
+    fn test_push_tag_in_non_git_dir() {
+        assert!(!push_tag("v0.0.0-test", tempfile::tempdir().unwrap().path()));
+    }
+
+    #[test]
+    fn test_get_remote_repo_in_git_without_remote() {
+        let dir = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-b", "main"]).current_dir(dir.path()).output().unwrap();
+        assert_eq!(get_remote_repo(dir.path()), None);
+    }
+
+    #[test]
     fn test_rollback_tag_removes_tag() {
         let dir = tempfile::tempdir().unwrap();
         std::process::Command::new("git")
