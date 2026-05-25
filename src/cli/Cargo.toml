@@ -50,3 +50,7 @@ path = "tests/code.rs"
 [[test]]
 name = "release"
 path = "tests/release.rs"
+
+[[test]]
+name = "cli"
+path = "tests/cli.rs"
