@@ -87,9 +87,6 @@ impl RepoState {
 
             let raw_status = repo.submodule_status(&name, git2::SubmoduleIgnore::None)?;
             let is_uninitialized = raw_status.is_wd_uninitialized();
-            let is_dirty = raw_status.is_wd_modified()
-                || raw_status.is_index_modified()
-                || raw_status.is_wd_untracked();
 
             // 父仓库记录的 commit
             let head_oid = sm.head_id().unwrap_or_else(git2::Oid::zero);
@@ -185,6 +182,12 @@ impl RepoState {
                     ),
                 }
             };
+
+            let is_dirty = !is_uninitialized
+                && ahead_count == 0
+                && (raw_status.is_wd_modified()
+                    || raw_status.is_index_modified()
+                    || raw_status.is_wd_untracked());
 
             let status = if is_uninitialized {
                 SubmoduleStatus::Uninitialized
@@ -883,9 +886,7 @@ mod tests {
             .unwrap();
         let state = RepoState::scan(&parent).unwrap();
         // With remote unreachable and ahead_count > 0 → AheadOfParent
-        // But Dirty takes priority because git2 sees WD_INDEX_MODIFIED
-        // actually WD_MODIFIED includes HEAD mismatch, so status is Dirty
-        assert_eq!(state.submodules[0].status, SubmoduleStatus::Dirty);
+        assert_eq!(state.submodules[0].status, SubmoduleStatus::AheadOfParent);
         assert_eq!(state.submodules[0].ahead_count, 1);
         assert!(state.submodules[0].remote_unreachable);
     }

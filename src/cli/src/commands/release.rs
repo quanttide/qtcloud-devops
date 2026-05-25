@@ -196,6 +196,7 @@ pub fn publish(version: &str, repo_path: &Path, yes: bool) -> Result<String, Box
 // ===== cancel =====
 
 pub fn cancel(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    eprintln!("warning: cancel 已废弃，将在 v0.4.0 移除。rc 失败时直接递增 rc 序号即可，不需要 cancel。");
     let mut storage = FileStorage::new(repo_path);
     let mut record = storage
         .load(version)

@@ -38,7 +38,7 @@ enum Commands {
         #[arg(long, short = 'y')]
         yes: bool,
     },
-    /// 取消 Staged 版本的发布
+    /// 取消发布（已废弃，v0.4.0 将移除，请使用 retire）
     Cancel {
         #[arg(short = 'v', long)]
         version: String,
