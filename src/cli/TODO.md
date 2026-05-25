@@ -10,12 +10,9 @@
   - 新增 `create_tag()` + `push_tag()`，推送 tag 触发 CI
   - journal 保留写入（审计用途）
 
-### 预发布构建 CI
+### 预发布构建 CI（已废弃，workflow 已删除）
 
-- [x] 新增 `.github/workflows/build-prerelease.yml`
-  - 触发：`push: tags: ['cli/*-*']`（匹配所有含预发布后缀的 tag）
-  - 行为：构建 + 测试，不发布
-  - publish 时验证该 workflow 最后一次执行结果为 success
+CI 验证条件不明确前，publish 不检查 CI 状态，依赖人工判断。
 
 ## P1 — publish 前置条件（已废弃，相关代码已删除）
 
