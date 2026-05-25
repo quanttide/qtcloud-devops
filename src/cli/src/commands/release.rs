@@ -180,6 +180,12 @@ pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::err
 
 // ===== publish =====
 
+fn has_prerelease_tag(version: &str, repo_path: &Path) -> bool {
+    let pattern = format!("{}-*", version);
+    let output = git_args(&["tag", "-l", &pattern], repo_path).output().ok();
+    output.map_or(false, |o| !o.stdout.is_empty())
+}
+
 pub fn publish(version: &str, repo_path: &Path, yes: bool) -> Result<String, Box<dyn std::error::Error>> {
     let mut storage = FileStorage::new(repo_path);
     let mut record = storage
@@ -187,6 +193,9 @@ pub fn publish(version: &str, repo_path: &Path, yes: bool) -> Result<String, Box
         .ok_or_else(|| format!("版本 {} 不存在，请先执行 stage", version))?;
     if record.status != ReleaseStatus::Staged {
         return Err(format!("版本 {} 不处于 Staged 状态 (当前: {:?})", version, record.status).into());
+    }
+    if !is_prerelease(version) && !has_prerelease_tag(version, repo_path) {
+        return Err(format!("未找到版本 {} 对应的预发布 tag（如 {}），请先 stage 预发布版本", version, format!("{}-rc.1", version)).into());
     }
     if !confirm_release(version, yes) {
         return Err("已取消发布".into());
