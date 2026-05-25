@@ -126,6 +126,16 @@ impl RepoState {
                             .map(|r| !r.is_branch())
                             .unwrap_or(false);
 
+                        // 先 fetch 子模块的远程 ref，确保 remote_head 是实时状态
+                        if let Ok(mut sub_remote) = sub_repo.find_remote("origin") {
+                            let mut fetch_opts = git2::FetchOptions::new();
+                            fetch_opts.download_tags(git2::AutotagOption::None);
+                            let mut callbacks = git2::RemoteCallbacks::new();
+                            callbacks.transfer_progress(|_| true);
+                            fetch_opts.remote_callbacks(callbacks);
+                            let _ = sub_remote.fetch(&["+refs/heads/*:refs/remotes/origin/*"], Some(&mut fetch_opts), None);
+                        }
+
                         let (remote, unreachable) = sub_repo
                             .find_reference(&format!("refs/remotes/origin/{}", branch))
                             .ok()
@@ -986,6 +996,11 @@ mod tests {
     fn test_scan_with_orphaned_submodule() {
         let tmp = tempfile::tempdir().unwrap();
         let parent = setup_repo_with_submodule(tmp.path());
+        // Remove origin remote so RepoState::scan() won't try to fetch and overwrite the fake ref
+        let sm_path = parent.join("libs/sub");
+        std::process::Command::new("git")
+            .args(["remote", "remove", "origin"])
+            .current_dir(&sm_path).output().unwrap();
         // Write the remote tracking ref directly to bypass packed-refs issues
         let ref_dir = parent.join(".git/modules/libs/sub/refs/remotes/origin");
         std::fs::create_dir_all(&ref_dir).unwrap();

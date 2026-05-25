@@ -154,19 +154,7 @@ impl SubmoduleEditor for GitSubmoduleEditor {
     }
 
     fn status(&self) -> Result<Vec<HealthIssue>, Box<dyn std::error::Error>> {
-        // 先 fetch 远程更新（除非 --offline），确保 remote_head 是实时状态
-        if !self.offline {
-            if let Ok(repo) = git2::Repository::open(&self.root) {
-                if let Ok(mut remote) = repo.find_remote("origin") {
-                    let mut fetch_opts = git2::FetchOptions::new();
-                    fetch_opts.download_tags(git2::AutotagOption::None);
-                    let mut callbacks = git2::RemoteCallbacks::new();
-                    callbacks.transfer_progress(|_| true);
-                    fetch_opts.remote_callbacks(callbacks);
-                    let _ = remote.fetch(&["+refs/heads/*:refs/remotes/origin/*"], Some(&mut fetch_opts), None);
-                }
-            }
-        }
+        // RepoState::scan() 内部对每个子模块执行 fetch，确保 remote_head 实时
         let state = RepoState::scan(&self.root)?;
         let mut issues = Vec::new();
         for sm in &state.submodules {
