@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [0.4.1-rc.1] - 2026-05-25
+## [0.4.1] - 2026-05-25
 
 ### Fixed
 
@@ -8,6 +8,9 @@
   - 旧：`qtcloud-devops stage -v ...`
   - 新：`qtcloud-devops release stage -v ...`
 - `publish` 不再要求先 `stage`，正式版可直接发布
+- `create_tag`、`create_release` 幂等（tag/Release 已存在时跳过）
+
+## [0.4.1-rc.1] - 2026-05-25
 
 ## [0.4.0] - 2026-05-25
 
