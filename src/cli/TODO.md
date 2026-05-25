@@ -14,13 +14,12 @@
   - 触发：`push: tags: ['cli/*-rc.*']`
   - 行为：构建 + 测试，不发布
 
-### publish 不再打 tag
+### publish 打正式 tag
 
-- [ ] `publish` 不做 tag，只创建 GitHub Release + 发布注册源
+- [ ] `publish` 打正式 tag + GitHub Release + 注册源（当前行为不变）
   - 文件：`src/commands/release.rs` `publish()` 函数
-  - 移除 `create_tag()` 和 `push_tag()` 调用
-  - 前置条件：对应 rc tag 已存在（`git tag -l` 验证）
-- [ ] 验证：`publish -v cli/v0.3.2` 时检查 `cli/v0.3.2-rc.*` tag 存在
+  - 当前已实现：`create_tag()` + `push_tag()` + `create_release()`
+- [ ] 前置条件：对应 rc tag 已存在（验证 `cli/v0.3.2-rc.*` 存在才能 publish `cli/v0.3.2`）
 
 ### 移除 cancel
 
