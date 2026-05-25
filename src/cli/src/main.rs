@@ -162,101 +162,85 @@ fn main() {
 
 fn run_code(action: CodeAction) -> Result<(), String> {
     match action {
-        CodeAction::Status { path, offline } => {
-            let root = resolve_path(&path)?;
-            let mut editor = GitSubmoduleEditor::new(root.clone());
-            editor.set_offline(offline);
-            let state = code::RepoState::scan(&root)
-                .map_err(|e| format!("{}", e))?;
-            let issues = editor.status()
-                .map_err(|e| format!("{}", e))?;
-
-            println!("仓库: {}", state.root_path.display());
-            println!("子模块总数: {}", state.total);
-            println!("干净: {}", state.clean_count);
-            if !state.needs_attention.is_empty() {
-                println!("需要关注: {}", state.needs_attention.join(", "));
-            }
-
-            print_aggregate(&state);
-            println!();
-
-            if state.submodules.is_empty() && state.total == 0 {
-                println!("  没有子模块");
-            } else {
-                println!(
-                    "  {:<20} {:<15} {:<10} {:<8}",
-                    "名称", "状态", "分支", "差异"
-                );
-                for sm in &state.submodules {
-                    let diff = if sm.ahead_count > 0 && sm.behind_count > 0 {
-                        format!("+{}/-{}", sm.ahead_count, sm.behind_count)
-                    } else if sm.ahead_count > 0 {
-                        format!("+{}", sm.ahead_count)
-                    } else if sm.behind_count > 0 {
-                        format!("-{}", sm.behind_count)
-                    } else {
-                        String::new()
-                    };
-                    println!(
-                        "  {:<20} {:<15} {:<10} {:<8}",
-                        sm.name,
-                        format!("{:?}", sm.status),
-                        sm.tracked_branch,
-                        diff,
-                    );
-                }
-            }
-            print_issues(&issues);
-            Ok(())
+        CodeAction::Status { path, offline } => run_code_status(path, offline),
+        CodeAction::Sync { name: Some(n), dry_run, repo } => {
+            run_code_sync_one(&n, dry_run, repo)
         }
-
-        CodeAction::Sync {
-            name: Some(n),
-            dry_run,
-            repo,
-        } => {
-            let root = resolve_path(&repo)?;
-            if dry_run {
-                println!("[预览] 同步子模块 '{}' 到父仓库", n);
-                return Ok(());
-            }
-            let editor = GitSubmoduleEditor::new(root);
-            editor.sync_to_parent(&n)
-                .map_err(|e| format!("同步子模块 '{}' 失败: {}", n, e))
+        CodeAction::Sync { name: None, dry_run, repo } => {
+            run_code_sync_all(dry_run, repo)
         }
-
-        CodeAction::Sync {
-            name: None,
-            dry_run,
-            repo,
-        } => {
-            let root = resolve_path(&repo)?;
-            if dry_run {
-                println!("[预览] 同步所有子模块到父仓库");
-                return Ok(());
-            }
-            let editor = GitSubmoduleEditor::new(root);
-            editor.sync_all_to_parent()
-                .map_err(|e| format!("同步所有子模块失败: {}", e))
+        CodeAction::Retire { name, dry_run, repo } => {
+            run_code_retire(&name, dry_run, repo)
         }
-
-        CodeAction::Retire {
-            name,
-            dry_run,
-            repo,
-        } => {
-            let root = resolve_path(&repo)?;
-            if dry_run {
-                println!("[预览] 退役子模块 '{}'", name);
-                return Ok(());
-            }
-            let editor = GitSubmoduleEditor::new(root);
-            editor.retire_submodule(&name)
-                .map_err(|e| format!("退役子模块 '{}' 失败: {}", name, e))
-        }
-
     }
+}
+
+fn run_code_status(path: PathBuf, offline: bool) -> Result<(), String> {
+    let root = resolve_path(&path)?;
+    let mut editor = GitSubmoduleEditor::new(root.clone());
+    editor.set_offline(offline);
+    let state = code::RepoState::scan(&root).map_err(|e| format!("{}", e))?;
+    let issues = editor.status().map_err(|e| format!("{}", e))?;
+
+    println!("仓库: {}", state.root_path.display());
+    println!("子模块总数: {}", state.total);
+    println!("干净: {}", state.clean_count);
+    if !state.needs_attention.is_empty() {
+        println!("需要关注: {}", state.needs_attention.join(", "));
+    }
+
+    print_aggregate(&state);
+    println!();
+
+    if state.submodules.is_empty() && state.total == 0 {
+        println!("  没有子模块");
+    } else {
+        println!("  {:<20} {:<15} {:<10} {:<8}", "名称", "状态", "分支", "差异");
+        for sm in &state.submodules {
+            let diff = if sm.ahead_count > 0 && sm.behind_count > 0 {
+                format!("+{}/-{}", sm.ahead_count, sm.behind_count)
+            } else if sm.ahead_count > 0 {
+                format!("+{}", sm.ahead_count)
+            } else if sm.behind_count > 0 {
+                format!("-{}", sm.behind_count)
+            } else {
+                String::new()
+            };
+            println!("  {:<20} {:<15} {:<10} {:<8}", sm.name, format!("{:?}", sm.status), sm.tracked_branch, diff);
+        }
+    }
+    print_issues(&issues);
+    Ok(())
+}
+
+fn run_code_sync_one(name: &str, dry_run: bool, repo: PathBuf) -> Result<(), String> {
+    let root = resolve_path(&repo)?;
+    if dry_run {
+        println!("[预览] 同步子模块 '{}' 到父仓库", name);
+        return Ok(());
+    }
+    let editor = GitSubmoduleEditor::new(root);
+    editor.sync_to_parent(name).map_err(|e| format!("同步子模块 '{}' 失败: {}", name, e))
+}
+
+fn run_code_sync_all(dry_run: bool, repo: PathBuf) -> Result<(), String> {
+    let root = resolve_path(&repo)?;
+    if dry_run {
+        println!("[预览] 同步所有子模块到父仓库");
+        return Ok(());
+    }
+    let editor = GitSubmoduleEditor::new(root);
+    editor.sync_all_to_parent().map_err(|e| format!("同步所有子模块失败: {}", e))
+}
+
+fn run_code_retire(name: &str, dry_run: bool, repo: PathBuf) -> Result<(), String> {
+    let root = resolve_path(&repo)?;
+    if dry_run {
+        println!("[预览] 退役子模块 '{}'", name);
+        return Ok(());
+    }
+    let editor = GitSubmoduleEditor::new(root);
+    editor.retire_submodule(name).map_err(|e| format!("退役子模块 '{}' 失败: {}", name, e))
 }
 
 #[cfg(test)]
