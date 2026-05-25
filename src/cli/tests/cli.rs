@@ -97,3 +97,46 @@ fn test_cli_stage_prerelease_succeeds() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Staged"));
 }
+
+#[test]
+fn test_cli_publish_requires_stage_first() {
+    let dir = tempfile::tempdir().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"]).current_dir(dir.path()).output().unwrap();
+    std::fs::write(dir.path().join("f"), "").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."]).current_dir(dir.path()).output().unwrap();
+    std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
+        .current_dir(dir.path()).output().unwrap();
+
+    // publish without stage should fail
+    let output = cli()
+        .args(["publish", "-v", "v1.0.0"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("stage"));
+}
+
+#[test]
+fn test_cli_retire_without_publish_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"]).current_dir(dir.path()).output().unwrap();
+    std::fs::write(dir.path().join("f"), "").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."]).current_dir(dir.path()).output().unwrap();
+    std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
+        .current_dir(dir.path()).output().unwrap();
+
+    let output = cli()
+        .args(["retire", "-v", "v1.0.0"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}

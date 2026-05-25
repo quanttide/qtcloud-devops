@@ -603,8 +603,29 @@ mod tests {
     }
 
     #[test]
+    fn test_create_tag_duplicate_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        assert!(create_tag("v0.0.0-test", dir.path()));
+        // second create should fail (tag already exists)
+        assert!(!create_tag("v0.0.0-test", dir.path()));
+    }
+
+    #[test]
     fn test_push_tag_in_non_git_dir() {
         assert!(!push_tag("v0.0.0-test", tempfile::tempdir().unwrap().path()));
+    }
+
+    #[test]
+    fn test_push_tag_fails_with_non_existent_remote() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        assert!(create_tag("v0.0.0-test-remote", dir.path()));
+        // add a non-existent remote so push fails with real error, not "no remote"
+        std::process::Command::new("git")
+            .args(["remote", "add", "origin", "https://nonexistent.invalid/repo.git"])
+            .current_dir(dir.path()).output().unwrap();
+        assert!(!push_tag("v0.0.0-test-remote", dir.path()));
     }
 
     #[test]
