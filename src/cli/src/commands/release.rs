@@ -229,33 +229,6 @@ pub fn publish(version: &str, repo_path: &Path, yes: bool) -> Result<String, Box
     Ok(id)
 }
 
-// ===== cancel =====
-
-pub fn cancel(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
-    eprintln!("warning: cancel 已废弃，将在 v0.4.0 移除。rc 失败时直接递增 rc 序号即可，不需要 cancel。");
-    let mut storage = FileStorage::new(repo_path);
-    let mut record = storage
-        .load(version)
-        .ok_or_else(|| format!("版本 {} 不存在", version))?;
-    if record.status != ReleaseStatus::Staged {
-        return Err(Box::new(TransitionError::NotStaged(version.to_string())));
-    }
-    rollback_tag(version, repo_path);
-    if let Some(repo) = get_remote_repo(repo_path) {
-        std::process::Command::new("gh")
-            .args(["release", "delete", version, "--repo", &repo, "--yes"])
-            .output().ok();
-        println!("✓ GitHub Release {} 已删除", version);
-    }
-    record.status = ReleaseStatus::Cancelled;
-    record.updated_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string();
-    storage.save(&record)?;
-    let id = record.id.clone();
-    println!("✓ 版本 {} 已取消 (发布尝试 ID: {})", version, id);
-    Ok(id)
-}
-
 // ===== retire =====
 
 pub fn retire(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
@@ -486,34 +459,6 @@ mod tests {
         r.status = ReleaseStatus::Cancelled;
         s.save(&r).unwrap();
         assert!(publish("v1.0.0", dir.path(), true).is_err());
-    }
-
-    // cancel
-
-    #[test]
-    fn test_cancel_nonexistent() { assert!(cancel("v9.9.9", tempfile::tempdir().unwrap().path()).is_err()); }
-
-    #[test]
-    fn test_cancel_not_staged() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut s = FileStorage::new(dir.path());
-        s.save(&make_record("v1.0.0", ReleaseStatus::Published)).unwrap();
-        assert!(cancel("v1.0.0", dir.path()).is_err());
-    }
-
-    #[test]
-    fn test_cancel_happy_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let record_id;
-        {
-            let mut s = FileStorage::new(dir.path());
-            let r = ReleaseRecord::new_staged("v1.0.0");
-            record_id = r.id.clone();
-            s.save(&r).unwrap();
-        }
-        cancel("v1.0.0", dir.path()).unwrap();
-        assert_eq!(FileStorage::new(dir.path()).load("v1.0.0").unwrap().status, ReleaseStatus::Cancelled);
-        assert_eq!(FileStorage::new(dir.path()).load("v1.0.0").unwrap().id, record_id);
     }
 
     // retire

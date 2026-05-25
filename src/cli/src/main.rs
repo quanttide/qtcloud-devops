@@ -35,11 +35,6 @@ enum Commands {
         #[arg(long, short = 'y')]
         yes: bool,
     },
-    /// 取消发布（已废弃，v0.4.0 将移除，请使用 retire）
-    Cancel {
-        #[arg(short = 'v', long)]
-        version: String,
-    },
     /// 将已发布的版本标记为退役
     Retire {
         #[arg(short = 'v', long)]
@@ -142,10 +137,6 @@ fn main() {
         }
         Commands::Publish { version, yes } => {
             qtcloud_devops_cli::commands::release::publish(&version, &repo_path(), yes)
-                .map(|_| ()).map_err(|e| format!("{}", e))
-        }
-        Commands::Cancel { version } => {
-            qtcloud_devops_cli::commands::release::cancel(&version, &repo_path())
                 .map(|_| ()).map_err(|e| format!("{}", e))
         }
         Commands::Retire { version } => {

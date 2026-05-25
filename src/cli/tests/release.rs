@@ -75,27 +75,13 @@ fn test_release_create_tag_uses_repo_path() {
 }
 
 #[test]
-fn test_release_stage_then_cancel() {
+fn test_release_prerelease_tag_exists() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
     qtcloud_devops_cli::commands::release::stage("v1.0.0-rc.1", dir.path()).unwrap();
-
     let s = FileStorage::new(dir.path());
     let r = s.load("v1.0.0-rc.1").unwrap();
     assert_eq!(r.status, ReleaseStatus::Staged);
-
-    qtcloud_devops_cli::commands::release::cancel("v1.0.0-rc.1", dir.path()).unwrap();
-    let s = FileStorage::new(dir.path());
-    let r = s.load("v1.0.0-rc.1").unwrap();
-    assert_eq!(r.status, ReleaseStatus::Cancelled);
-}
-
-#[test]
-fn test_release_cancel_nonexistent() {
-    let dir = tempfile::tempdir().unwrap();
-    assert!(
-        qtcloud_devops_cli::commands::release::cancel("v9.9.9", dir.path()).is_err()
-    );
 }
 
 #[test]
@@ -159,16 +145,6 @@ fn test_release_stage_idempotent() {
 }
 
 #[test]
-fn test_release_cancelled_restage_new_uuid() {
-    let dir = tempfile::tempdir().unwrap();
-    git_init(dir.path());
-    let first_id = qtcloud_devops_cli::commands::release::stage("v1.0.0-rc.1", dir.path()).unwrap();
-    qtcloud_devops_cli::commands::release::cancel("v1.0.0-rc.1", dir.path()).unwrap();
-    let second_id = qtcloud_devops_cli::commands::release::stage("v1.0.0-rc.1", dir.path()).unwrap();
-    assert_ne!(first_id, second_id);
-}
-
-#[test]
 fn test_release_publish_not_staged() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = FileStorage::new(dir.path());
@@ -183,16 +159,6 @@ fn test_release_publish_not_found() {
     let dir = tempfile::tempdir().unwrap();
     assert!(
         qtcloud_devops_cli::commands::release::publish("v1.0.0", dir.path(), true).is_err()
-    );
-}
-
-#[test]
-fn test_release_cancel_not_staged() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut s = FileStorage::new(dir.path());
-    s.save(&make_record("v1.0.0", ReleaseStatus::Published)).unwrap();
-    assert!(
-        qtcloud_devops_cli::commands::release::cancel("v1.0.0", dir.path()).is_err()
     );
 }
 
