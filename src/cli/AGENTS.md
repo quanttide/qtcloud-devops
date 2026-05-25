@@ -16,7 +16,7 @@ cargo test --test code          # 仅 code 集成测试
 
 ### PyO3
 - `pyo3` 是 optional feature（`python`），默认不启用
-- Wheel 构建由 `maturin` 处理，`pyproject.toml` 在子模组根目录
+- Wheel 构建由 `maturin` 处理，`pyproject.toml` 在 `src/cli/`
 
 ## 模块结构
 

@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## [0.4.3] - 2026-05-25
+
+### Fixed
+
+- `release stage`/`release publish` 强制检查 CHANGELOG，缺失对应版本记录时拒绝执行
+
+### Added
+
+- 新增 6 个测试覆盖 CHANGELOG 拒绝场景（单元 + 集成 + CLI 子进程三层）
+- `src/cli/AGENTS.md` 新建，与子模组级 AGENTS 拆分职责
+
 ## [0.4.2] - 2026-05-25
 
 ### Fixed
