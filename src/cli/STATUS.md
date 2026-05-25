@@ -1,14 +1,14 @@
 # Code Scan Status
 
-> 自动生成于 qtcloud-code scan，时间戳: 1779710789
+> 自动生成于 qtcloud-code scan，时间戳: 1779710930
 
 ## 汇总
 
 | 级别 | 数量 |
 |------|------|
-| MUST   | 3 |
+| MUST   | 2 |
 | SHOULD | 5 |
-| MAY    | 9 |
+| MAY    | 10 |
 | **Total** | **17** |
 
 ## 详情
@@ -24,7 +24,7 @@
   - 🔵 **MAY** `rust-long-function` 291:1 — 函数 `release_status` 共 37 行
 - **../../apps/qtcloud-devops/src/cli/src/main.rs** (2 项)
   - 🔴 **MUST** `rust-long-function` 163:1 — 函数 `run_code` 共 97 行
-  - 🔴 **MUST** `rust-long-function` 319:1 — 函数 `test_print_aggregate_with_variants` 共 111 行
+  - 🔵 **MAY** `rust-long-function` 319:1 — 函数 `test_print_aggregate_with_variants` 共 45 行
 - **../../apps/qtcloud-devops/src/cli/src/model/code.rs** (8 项)
   - 🔵 **MAY** `rust-long-function` 69:1 — 函数 `scan` 共 39 行
   - 🟡 **SHOULD** `rust-long-function` 110:1 — 函数 `scan_single_submodule` 共 57 行

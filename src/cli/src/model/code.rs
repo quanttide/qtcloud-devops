@@ -173,29 +173,37 @@ impl RepoState {
         is_uninitialized: bool,
     ) -> (CommitHash, CommitHash, bool, usize, usize, bool, bool) {
         if is_uninitialized {
-            return (
-                CommitHash::default(),
-                CommitHash::default(),
-                false,
-                0,
-                0,
-                false,
-                false,
-            );
+            return Self::default_submodule_state();
         }
 
         let Ok(sub_repo) = git2::Repository::open(full_sm_path) else {
-            return (
-                CommitHash::default(),
-                CommitHash::default(),
-                false,
-                0,
-                0,
-                false,
-                false,
-            );
+            return Self::default_submodule_state();
         };
 
+        let (local, detached) = Self::open_submodule_head(&sub_repo);
+        Self::fetch_submodule_remote(&sub_repo);
+        let (remote, unreachable) = Self::resolve_submodule_remote(&sub_repo, branch);
+        let (ahead, behind, orphaned) =
+            Self::compute_submodule_diff(&sub_repo, &local, parent_pointer, &remote, unreachable);
+
+        (local, remote, detached, ahead, behind, orphaned, unreachable)
+    }
+
+    fn default_submodule_state() -> (CommitHash, CommitHash, bool, usize, usize, bool, bool) {
+        (
+            CommitHash::default(),
+            CommitHash::default(),
+            false,
+            0,
+            0,
+            false,
+            false,
+        )
+    }
+
+    fn open_submodule_head(
+        sub_repo: &git2::Repository,
+    ) -> (CommitHash, bool) {
         let local = sub_repo
             .head()
             .ok()
@@ -209,7 +217,10 @@ impl RepoState {
             .map(|r| !r.is_branch())
             .unwrap_or(false);
 
-        // 先 fetch 子模块的远程 ref，确保 remote_head 是实时状态
+        (local, detached)
+    }
+
+    fn fetch_submodule_remote(sub_repo: &git2::Repository) {
         if let Ok(mut sub_remote) = sub_repo.find_remote("origin") {
             let mut fetch_opts = git2::FetchOptions::new();
             fetch_opts.download_tags(git2::AutotagOption::None);
@@ -222,27 +233,40 @@ impl RepoState {
                 None,
             );
         }
+    }
 
-        let (remote, unreachable) = sub_repo
+    fn resolve_submodule_remote(
+        sub_repo: &git2::Repository,
+        branch: &str,
+    ) -> (CommitHash, bool) {
+        sub_repo
             .find_reference(&format!("refs/remotes/origin/{}", branch))
             .ok()
             .and_then(|r| r.target())
             .map(|o| (CommitHash(o.to_string()), false))
-            .unwrap_or_else(|| (CommitHash::default(), true));
+            .unwrap_or_else(|| (CommitHash::default(), true))
+    }
 
-        let ahead = count_between_opt(&sub_repo, parse_oid(parent_pointer), parse_oid(&local));
+    fn compute_submodule_diff(
+        sub_repo: &git2::Repository,
+        local: &CommitHash,
+        parent_pointer: &CommitHash,
+        remote: &CommitHash,
+        unreachable: bool,
+    ) -> (usize, usize, bool) {
+        let ahead = count_between_opt(sub_repo, parse_oid(parent_pointer), parse_oid(local));
         let behind = if unreachable {
             0
         } else {
-            count_between_opt(&sub_repo, parse_oid(&local), parse_oid(&remote))
+            count_between_opt(sub_repo, parse_oid(local), parse_oid(remote))
         };
 
         let orphaned = if !unreachable
-            && remote != CommitHash::default()
-            && *parent_pointer != remote
+            && remote != &CommitHash::default()
+            && parent_pointer != remote
         {
             let p = parse_oid(parent_pointer);
-            let r = parse_oid(&remote);
+            let r = parse_oid(remote);
             match (p, r) {
                 (Some(p_oid), Some(r_oid)) => sub_repo
                     .merge_base(r_oid, p_oid)
@@ -254,7 +278,7 @@ impl RepoState {
             false
         };
 
-        (local, remote, detached, ahead, behind, orphaned, unreachable)
+        (ahead, behind, orphaned)
     }
 
     fn determine_submodule_status(
