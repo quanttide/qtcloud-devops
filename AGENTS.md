@@ -118,6 +118,16 @@ preflight 不通过不发布。
 
 反面案例（踩过的坑）：`precheck_version_changelog` 有独立单元测试，但 `stage`/`publish` 没有测试"缺少 CHANGELOG 时应当拒绝"这个场景，导致该规则虽然存在但从未被执行。
 
+### 重构原则
+
+**1. 提取私函数不改测试** — 从 `scan()` 拆出 4 个私有辅助函数后，存量 13 个 `test_scan_*` 全部通过，零改动。私有函数通过 `pub fn` 入口被间接覆盖，证明提取正确。
+
+**2. 纯逻辑函数值得单独的单元测试** — `determine_submodule_status` 有 6 个布尔条件产生 64 种组合，只靠 `scan()` 的集成测试无法穷举。提取后补了 7 个测试，发现了 1 个对优先级的认知错误（ahead+behind 同时存在时实际走 BehindRemote 而非 Clean）。纯函数测试成本低、收益高。
+
+**3. 非纯函数不要单独测** — git 操作的私有函数（`scan_submodule_remote_state`、`check_parent_dirty`）如果单独测需要 mock repo，测试代码比生产代码还复杂。让集成测试间接覆盖就够了。
+
+判断标准：**纯函数（无 I/O、无外部状态）→ 单元测试；编排/I/O → 集成测试覆盖。**
+
 ## 提交消息
 
 - `feat:` — 新功能
