@@ -163,8 +163,7 @@ impl SubmoduleEditor for GitSubmoduleEditor {
                     let mut callbacks = git2::RemoteCallbacks::new();
                     callbacks.transfer_progress(|_| true);
                     fetch_opts.remote_callbacks(callbacks);
-                    let refspecs: &[&str] = &[];
-                    let _ = remote.fetch(refspecs, Some(&mut fetch_opts), None);
+                    let _ = remote.fetch(&["+refs/heads/*:refs/remotes/origin/*"], Some(&mut fetch_opts), None);
                 }
             }
         }

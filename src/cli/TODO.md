@@ -10,7 +10,7 @@
 ### P0 — remote_head fetch ✅
 
 - [x] `status` 执行时默认先 fetch（git2::Remote::fetch）
-- [ ] 增加 `--offline` 参数跳过 fetch（待实现）
+- [x] 增加 `--offline` 参数跳过 fetch
 
 ### P1 — CLI 设计 ✅
 

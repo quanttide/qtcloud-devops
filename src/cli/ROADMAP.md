@@ -14,7 +14,7 @@
 
 - [x] 修正状态判定：工作区有未提交修改才标 Dirty，父指针落后标 AheadOfParent
 - [x] `status` 默认先 fetch，获取远程最新 ref
-- [ ] `--offline` 参数跳过 fetch（待实现）
+ - [x] `--offline` 参数跳过 fetch
 
 ### P1 — CLI 设计 ✅
 
