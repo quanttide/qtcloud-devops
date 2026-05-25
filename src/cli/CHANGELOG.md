@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [0.4.2] - 2026-05-25
+
+### Fixed
+
+- `code status` fetch 子模块而非主仓库，确保 remote_head 实时
+
 ## [0.4.1] - 2026-05-25
 
 ### Fixed
