@@ -20,9 +20,6 @@ struct Cli {
 enum Commands {
     /// Git 子模块管理命令集
     Code {
-        #[arg(global = true, long = "dry-run")]
-        dry_run: bool,
-
         #[command(subcommand)]
         action: CodeAction,
     },
@@ -72,12 +69,16 @@ enum CodeAction {
     Sync {
         /// 子模块名称（省略则同步全部）
         name: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
         #[arg(default_value = ".")]
         repo: PathBuf,
     },
     /// 退役子模块
     Retire {
         name: String,
+        #[arg(long)]
+        dry_run: bool,
         #[arg(default_value = ".")]
         repo: PathBuf,
     },
@@ -132,7 +133,7 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Code { dry_run, action } => run_code(dry_run, action),
+        Commands::Code { action } => run_code(action),
         Commands::Stage { version } => {
             qtcloud_devops_cli::commands::release::stage(&version, &repo_path())
                 .map(|_| ()).map_err(|e| format!("{}", e))
@@ -163,7 +164,7 @@ fn main() {
     }
 }
 
-fn run_code(dry_run: bool, action: CodeAction) -> Result<(), String> {
+fn run_code(action: CodeAction) -> Result<(), String> {
     match action {
         CodeAction::Status { path } => {
             let root = resolve_path(&path)?;
@@ -215,6 +216,7 @@ fn run_code(dry_run: bool, action: CodeAction) -> Result<(), String> {
 
         CodeAction::Sync {
             name: Some(n),
+            dry_run,
             repo,
         } => {
             let root = resolve_path(&repo)?;
@@ -227,7 +229,11 @@ fn run_code(dry_run: bool, action: CodeAction) -> Result<(), String> {
                 .map_err(|e| format!("同步子模块 '{}' 失败: {}", n, e))
         }
 
-        CodeAction::Sync { name: None, repo } => {
+        CodeAction::Sync {
+            name: None,
+            dry_run,
+            repo,
+        } => {
             let root = resolve_path(&repo)?;
             if dry_run {
                 println!("[预览] 同步所有子模块到父仓库");
@@ -238,7 +244,11 @@ fn run_code(dry_run: bool, action: CodeAction) -> Result<(), String> {
                 .map_err(|e| format!("同步所有子模块失败: {}", e))
         }
 
-        CodeAction::Retire { name, repo } => {
+        CodeAction::Retire {
+            name,
+            dry_run,
+            repo,
+        } => {
             let root = resolve_path(&repo)?;
             if dry_run {
                 println!("[预览] 退役子模块 '{}'", name);

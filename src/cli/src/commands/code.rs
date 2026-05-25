@@ -24,6 +24,8 @@ impl SubmoduleEditor for GitSubmoduleEditor {
         let sm_path = sm.path();
         let full_sm_path = self.root.join(sm_path);
 
+        let mut parts: Vec<&str> = Vec::new();
+
         // 1. 推送子模块自身的 commit 到子模块的 remote
         if full_sm_path.exists() {
             let output = std::process::Command::new("git")
@@ -33,9 +35,10 @@ impl SubmoduleEditor for GitSubmoduleEditor {
                 .map_err(|e| format!("无法在子模块内执行 git push: {}", e))?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("警告: 子模块 '{}' push 失败: {}", name, stderr.trim());
+                parts.push("✗ push");
+                eprintln!("  {}  push 失败: {}", name, stderr.trim());
             } else {
-                println!("已推送子模块 '{}' 到 remote", name);
+                parts.push("✓ push");
             }
         }
 
@@ -57,7 +60,7 @@ impl SubmoduleEditor for GitSubmoduleEditor {
             &tree,
             &[&parent],
         )?;
-        println!("已同步子模块 '{}' 到父仓库", name);
+        parts.push("sync");
 
         // 3. 推送父仓库到 origin
         let branch = repo
@@ -73,22 +76,26 @@ impl SubmoduleEditor for GitSubmoduleEditor {
                 .map_err(|e| format!("无法执行 git push: {}", e))?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("警告: git push 失败: {}", stderr.trim());
+                parts.push("✗ push-parent");
+                eprintln!("  {}  push-parent 失败: {}", name, stderr.trim());
             } else {
-                println!("已推送 '{}' 到 origin", branch);
+                parts.push("✓ push-parent");
             }
         }
+
+        println!("  {:<35} {}", name, parts.join(" · "));
         Ok(())
     }
 
     fn sync_all_to_parent(&self) -> Result<(), Box<dyn std::error::Error>> {
         let repo = git2::Repository::open(&self.root)?;
         let submodules = repo.submodules()?;
+        println!("同步 {} 个子模块", submodules.len());
         for sm in submodules.iter() {
             let name = sm.name().unwrap_or("unknown").to_string();
             match self.sync_to_parent(&name) {
                 Ok(()) => {}
-                Err(e) => eprintln!("警告: 同步子模块 '{}' 失败: {}", name, e),
+                Err(e) => println!("  {:<35} ✗ 失败: {}", name, e),
             }
         }
         Ok(())
@@ -142,6 +149,18 @@ impl SubmoduleEditor for GitSubmoduleEditor {
     }
 
     fn status(&self) -> Result<Vec<HealthIssue>, Box<dyn std::error::Error>> {
+        // 先 fetch 远程更新，确保 remote_head 是实时状态
+        if let Ok(repo) = git2::Repository::open(&self.root) {
+            if let Ok(mut remote) = repo.find_remote("origin") {
+                let mut fetch_opts = git2::FetchOptions::new();
+                fetch_opts.download_tags(git2::AutotagOption::None);
+                let mut callbacks = git2::RemoteCallbacks::new();
+                callbacks.transfer_progress(|_| true);
+                fetch_opts.remote_callbacks(callbacks);
+                let refspecs: &[&str] = &[];
+                let _ = remote.fetch(refspecs, Some(&mut fetch_opts), None);
+            }
+        }
         let state = RepoState::scan(&self.root)?;
         let mut issues = Vec::new();
         for sm in &state.submodules {
