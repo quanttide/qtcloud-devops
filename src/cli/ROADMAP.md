@@ -41,7 +41,15 @@
 - [ ] 失败的子模块显式标记：`✗ push: 权限不足 · 已跳过`
 - 涉及：`src/commands/code.rs` 输出逻辑
 
-## v0.4.x — stage 关联预发布 & 发布目标支持
+## v0.3.x — cancel 废弃
+
+`cancel` 在 stage 关联预发布后无实际用途（rc 失败直接递增序号，不清理）。v0.3.x 标记废弃，保留命令但输出提示 "已废弃，请使用 retire"。
+
+## v0.4.x — 移除 cancel & stage 关联预发布 & 发布目标支持
+
+### 移除 cancel
+
+- `cancel` 命令移除，有需要时使用 `retire` 替代
 
 ### 发布流程重构
 
