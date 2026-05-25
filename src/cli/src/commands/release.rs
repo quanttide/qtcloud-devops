@@ -88,7 +88,14 @@ pub fn create_tag(version: &str, repo_path: &Path) -> bool {
 pub fn push_tag(version: &str, repo_path: &Path) -> bool {
     match git_args(&["push", "origin", version], repo_path).output() {
         Ok(out) if out.status.success() => true,
-        Ok(out) => { eprintln!("推送标签失败: {}", String::from_utf8_lossy(&out.stderr).trim()); false }
+        Ok(out) => {
+            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if msg.contains("does not appear") || msg.contains("repository '' does not exist") {
+                return true; // 没有 remote 时静默跳过（本地 tag 已创建）
+            }
+            eprintln!("推送标签失败: {}", msg);
+            false
+        }
         Err(e) => { eprintln!("推送标签失败: {}", e); false }
     }
 }
@@ -125,9 +132,17 @@ pub fn rollback_tag(version: &str, repo_path: &Path) {
 
 // ===== stage =====
 
+fn is_prerelease(version: &str) -> bool {
+    let base = version.split('/').last().unwrap_or(version);
+    base.contains('-')
+}
+
 pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
     if !validate_version(version) {
         return Err(format!("版本号格式错误: {}", version).into());
+    }
+    if !is_prerelease(version) {
+        return Err(format!("stage 仅用于预发布版本（含 -rc.N、-alpha.N 等后缀），正式版请直接 publish: {}", version).into());
     }
     let mut storage = FileStorage::new(repo_path);
     if let Some(existing) = storage.load(version) {
@@ -139,6 +154,10 @@ pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::err
                 let mut updated = existing.clone();
                 updated.updated_at = now;
                 storage.save(&updated)?;
+                // re-push tag (idempotent)
+                if create_tag(version, repo_path) && push_tag(version, repo_path) {
+                    println!("✓ 标签 {} 已更新并推送", version);
+                }
                 return Ok(updated.id);
             }
             ReleaseStatus::Cancelled => {}
@@ -147,7 +166,15 @@ pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::err
     }
     let record = ReleaseRecord::new_staged(version);
     storage.save(&record)?;
+    if !create_tag(version, repo_path) {
+        return Err(format!("创建标签 {} 失败", version).into());
+    }
+    if !push_tag(version, repo_path) {
+        rollback_tag(version, repo_path);
+        return Err(format!("推送标签 {} 失败", version).into());
+    }
     println!("✓ 版本 {} 已进入 Staged 状态 (发布尝试 ID: {})", version, record.id);
+    println!("✓ 标签 {} 已创建并推送", version);
     Ok(record.id)
 }
 
@@ -353,54 +380,85 @@ mod tests {
         assert!(precheck_version_changelog("v2.0.0", &dir.path().join("CHANGELOG.md")).iter().any(|e| e.contains("未找到")));
     }
 
-    // stage
+    // stage helpers
+
+    fn git_init(path: &std::path::Path) {
+        std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(path)
+            .output().unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "t@t"])
+            .current_dir(path).output().unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "t"])
+            .current_dir(path).output().unwrap();
+        std::fs::write(path.join("f"), "").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."]).current_dir(path).output().unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"]).current_dir(path).output().unwrap();
+    }
 
     #[test]
     fn test_stage_new_version() {
         let dir = tempfile::tempdir().unwrap();
-        let id = stage("v1.0.0", dir.path()).unwrap();
+        git_init(dir.path());
+        let id = stage("v1.0.0-rc.1", dir.path()).unwrap();
         assert!(!id.is_empty());
         let s = FileStorage::new(dir.path());
-        assert_eq!(s.load("v1.0.0").unwrap().status, ReleaseStatus::Staged);
+        assert_eq!(s.load("v1.0.0-rc.1").unwrap().status, ReleaseStatus::Staged);
     }
 
     #[test]
     fn test_stage_invalid_version() { assert!(stage("bad", tempfile::tempdir().unwrap().path()).is_err()); }
 
     #[test]
+    fn test_stage_formal_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let err = stage("v1.0.0", dir.path()).unwrap_err().to_string();
+        assert!(err.contains("仅用于预发布"));
+    }
+
+    #[test]
     fn test_stage_published_rejected() {
         let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
         let mut s = FileStorage::new(dir.path());
-        s.save(&make_record("v1.0.0", ReleaseStatus::Published)).unwrap();
-        assert!(stage("v1.0.0", dir.path()).unwrap_err().to_string().contains("已发布"));
+        s.save(&make_record("v1.0.0-rc.1", ReleaseStatus::Published)).unwrap();
+        assert!(stage("v1.0.0-rc.1", dir.path()).unwrap_err().to_string().contains("已发布"));
     }
 
     #[test]
     fn test_stage_cancelled_restage() {
         let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
         let old_id;
         {
             let mut s = FileStorage::new(dir.path());
-            let r = make_record("v1.0.0", ReleaseStatus::Cancelled);
+            let r = make_record("v1.0.0-rc.1", ReleaseStatus::Cancelled);
             old_id = r.id.clone();
             s.save(&r).unwrap();
         }
-        let id = stage("v1.0.0", dir.path()).unwrap();
+        let id = stage("v1.0.0-rc.1", dir.path()).unwrap();
         assert_ne!(id, old_id);
     }
 
     #[test]
     fn test_stage_retired_rejected() {
         let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
         let mut s = FileStorage::new(dir.path());
-        s.save(&make_record("v1.0.0", ReleaseStatus::Retired)).unwrap();
-        assert!(stage("v1.0.0", dir.path()).unwrap_err().to_string().contains("退役"));
+        s.save(&make_record("v1.0.0-rc.1", ReleaseStatus::Retired)).unwrap();
+        assert!(stage("v1.0.0-rc.1", dir.path()).unwrap_err().to_string().contains("退役"));
     }
 
     #[test]
     fn test_stage_idempotent() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(stage("v1.0.0", dir.path()).unwrap(), stage("v1.0.0", dir.path()).unwrap());
+        git_init(dir.path());
+        assert_eq!(stage("v1.0.0-rc.1", dir.path()).unwrap(), stage("v1.0.0-rc.1", dir.path()).unwrap());
     }
 
     // publish
