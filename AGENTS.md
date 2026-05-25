@@ -1,4 +1,6 @@
-# AGENTS
+# AGENTS — qtcloud-devops Submodule
+
+Rust crate 层面的细节见 `src/cli/AGENTS.md`。
 
 ## 文档分工
 
@@ -104,6 +106,18 @@ preflight 不通过不发布。
 - 单元测试在 push/PR 时由 test CI 执行（待建立）
 - build/publish CI 不运行测试，避免环境问题阻塞发布
 
+### 拒绝规则测试原则
+
+每新增一条发布层面的拒绝规则，必须在三个层次各加一个测试：
+
+1. **单元/辅助函数层** — 验证拒绝逻辑本身正确
+2. **生产路径层**（`stage`/`publish` 直接调用） — 验证拒绝规则在真实流程中被执行
+3. **CLI 子进程层**（端到端） — 验证用户看到的错误消息正确
+
+测试方式：`.is_err()` + 检查错误消息关键字。只测 `.is_err()` 不检查消息会被视为不完整。
+
+反面案例（踩过的坑）：`precheck_version_changelog` 有独立单元测试，但 `stage`/`publish` 没有测试"缺少 CHANGELOG 时应当拒绝"这个场景，导致该规则虽然存在但从未被执行。
+
 ## 提交消息
 
 - `feat:` — 新功能
@@ -145,14 +159,6 @@ qtcloud-devops retire -v <version>       # Published → Retired
 - 发布流程：`stage` → `publish`（两步）。`stage` 只校验版本号，`publish` 执行 tag + GitHub Release
 - 回滚：`create_tag` 失败无副作用；`push_tag` 失败删本地 tag；GitHub Release 失败删本地+远程 tag
 - 仓库自动检测：从 `git remote get-url origin` 解析 GitHub 仓库名（`get_remote_repo()`）
-
-## 测试
-
-```sh
-cargo test          # 全部 129 测试
-cargo test --test release  # 仅 release 集成测试
-cargo test --test code     # 仅 code 集成测试
-```
 
 ## CI 工作流
 

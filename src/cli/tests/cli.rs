@@ -85,6 +85,7 @@ fn test_cli_stage_prerelease_succeeds() {
     std::process::Command::new("git")
         .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
         .current_dir(dir.path()).output().unwrap();
+    std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
 
     let output = cli()
         .args(["release", "stage", "-v", "v1.0.0-rc.1"])
@@ -107,6 +108,7 @@ fn test_cli_publish_formal_version() {
     std::process::Command::new("git")
         .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
         .current_dir(dir.path()).output().unwrap();
+    std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0]\n\ncontent\n").unwrap();
 
     // publish auto-creates journal entry for formal versions
     let output = cli()
@@ -139,6 +141,50 @@ fn test_cli_retire_without_publish_fails() {
 }
 
 #[test]
+fn test_cli_stage_rejects_missing_changelog() {
+    let dir = tempfile::tempdir().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"]).current_dir(dir.path()).output().unwrap();
+    std::fs::write(dir.path().join("f"), "").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."]).current_dir(dir.path()).output().unwrap();
+    std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
+        .current_dir(dir.path()).output().unwrap();
+
+    let output = cli()
+        .args(["release", "stage", "-v", "v1.0.0-rc.1"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("CHANGELOG"), "预期 CHANGELOG 错误，得到: {}", stderr);
+}
+
+#[test]
+fn test_cli_publish_rejects_missing_changelog() {
+    let dir = tempfile::tempdir().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"]).current_dir(dir.path()).output().unwrap();
+    std::fs::write(dir.path().join("f"), "").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."]).current_dir(dir.path()).output().unwrap();
+    std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
+        .current_dir(dir.path()).output().unwrap();
+
+    let output = cli()
+        .args(["release", "publish", "-v", "v1.0.0", "-y"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("CHANGELOG"), "预期 CHANGELOG 错误，得到: {}", stderr);
+}
+
+#[test]
 fn test_cli_stage_git_not_found_err_path() {
     let dir = tempfile::tempdir().unwrap();
     // Run in a dir without files, with PATH pointing to empty dir
@@ -165,6 +211,7 @@ fn test_cli_create_release_gh_not_found_err_path() {
     std::process::Command::new("git")
         .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
         .current_dir(dir.path()).output().unwrap();
+    std::fs::write(dir.path().join("CHANGELOG.md"), "## [0.0.0-ghfail]\n\ncontent\n").unwrap();
     // Stage first (no remote, push silently skips)
     let stage_out = cli()
         .args(["release", "stage", "-v", "v0.0.0-ghfail"])

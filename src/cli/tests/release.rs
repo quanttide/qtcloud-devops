@@ -78,6 +78,7 @@ fn test_release_create_tag_uses_repo_path() {
 fn test_release_prerelease_tag_exists() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
+    std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
     qtcloud_devops_cli::commands::release::stage("v1.0.0-rc.1", dir.path()).unwrap();
     let s = FileStorage::new(dir.path());
     let r = s.load("v1.0.0-rc.1").unwrap();
@@ -112,6 +113,26 @@ fn test_release_stage_invalid_version() {
 }
 
 #[test]
+fn test_release_stage_rejects_missing_changelog() {
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    let err = qtcloud_devops_cli::commands::release::stage("v1.0.0-rc.1", dir.path())
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("CHANGELOG"), "预期 CHANGELOG 相关错误，得到: {}", err);
+}
+
+#[test]
+fn test_release_publish_rejects_missing_changelog() {
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    let err = qtcloud_devops_cli::commands::release::publish("v1.0.0", dir.path(), true, None)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("CHANGELOG"), "预期 CHANGELOG 相关错误，得到: {}", err);
+}
+
+#[test]
 fn test_release_stage_published_rejected() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
@@ -139,6 +160,7 @@ fn test_release_stage_retired_rejected() {
 fn test_release_stage_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
+    std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
     let id1 = qtcloud_devops_cli::commands::release::stage("v1.0.0-rc.1", dir.path()).unwrap();
     let id2 = qtcloud_devops_cli::commands::release::stage("v1.0.0-rc.1", dir.path()).unwrap();
     assert_eq!(id1, id2);

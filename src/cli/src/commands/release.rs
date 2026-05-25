@@ -165,6 +165,11 @@ pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::err
     if !is_prerelease(version) {
         return Err(format!("stage 仅用于预发布版本（含 -rc.N、-alpha.N 等后缀），正式版请直接 publish: {}", version).into());
     }
+    let changelog_path = repo_path.join("CHANGELOG.md");
+    let precheck_errors = precheck_version_changelog(version, &changelog_path);
+    if !precheck_errors.is_empty() {
+        return Err(precheck_errors.join("\n").into());
+    }
     let mut storage = FileStorage::new(repo_path);
     if let Some(existing) = storage.load(version) {
         match existing.status {
@@ -197,7 +202,6 @@ pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::err
     println!("✓ 版本 {} 已进入 Staged 状态 (发布尝试 ID: {})", version, record.id);
     println!("✓ 标签 {} 已创建并推送", version);
 
-    let changelog_path = repo_path.join("CHANGELOG.md");
     let notes = extract_notes(version, &changelog_path);
     if let Some(repo) = get_remote_repo(repo_path) {
         if create_release(version, notes.as_deref().unwrap_or(""), &repo) {
@@ -212,6 +216,12 @@ pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::err
 // ===== publish =====
 
 pub fn publish(version: &str, repo_path: &Path, yes: bool, registry: Option<Registry>) -> Result<String, Box<dyn std::error::Error>> {
+    let changelog_path = repo_path.join("CHANGELOG.md");
+    let precheck_errors = precheck_version_changelog(version, &changelog_path);
+    if !precheck_errors.is_empty() {
+        return Err(precheck_errors.join("\n").into());
+    }
+
     let mut storage = FileStorage::new(repo_path);
     let mut record = if let Some(r) = storage.load(version) {
         if r.status != ReleaseStatus::Staged {
@@ -234,7 +244,6 @@ pub fn publish(version: &str, repo_path: &Path, yes: bool, registry: Option<Regi
     }
     println!("✓ 标签 {} 已创建并推送", version);
 
-    let changelog_path = repo_path.join("CHANGELOG.md");
     let notes = extract_notes(version, &changelog_path);
     if let Some(repo) = get_remote_repo(repo_path) {
         if !create_release(version, notes.as_deref().unwrap_or(""), &repo) {
@@ -415,6 +424,7 @@ mod tests {
     fn test_stage_new_version() {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
+        std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
         let id = stage("v1.0.0-rc.1", dir.path()).unwrap();
         assert!(!id.is_empty());
         let s = FileStorage::new(dir.path());
@@ -436,6 +446,7 @@ mod tests {
     fn test_stage_published_rejected() {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
+        std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
         let mut s = FileStorage::new(dir.path());
         s.save(&make_record("v1.0.0-rc.1", ReleaseStatus::Published)).unwrap();
         assert!(stage("v1.0.0-rc.1", dir.path()).unwrap_err().to_string().contains("已发布"));
@@ -445,6 +456,7 @@ mod tests {
     fn test_stage_cancelled_restage() {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
+        std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
         let old_id;
         {
             let mut s = FileStorage::new(dir.path());
@@ -460,6 +472,7 @@ mod tests {
     fn test_stage_retired_rejected() {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
+        std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
         let mut s = FileStorage::new(dir.path());
         s.save(&make_record("v1.0.0-rc.1", ReleaseStatus::Retired)).unwrap();
         assert!(stage("v1.0.0-rc.1", dir.path()).unwrap_err().to_string().contains("退役"));
@@ -469,7 +482,24 @@ mod tests {
     fn test_stage_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
+        std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
         assert_eq!(stage("v1.0.0-rc.1", dir.path()).unwrap(), stage("v1.0.0-rc.1", dir.path()).unwrap());
+    }
+
+    #[test]
+    fn test_stage_rejects_missing_changelog() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let err = stage("v1.0.0-rc.1", dir.path()).unwrap_err().to_string();
+        assert!(err.contains("CHANGELOG"), "预期 CHANGELOG 相关错误，得到: {}", err);
+    }
+
+    #[test]
+    fn test_publish_rejects_missing_changelog() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let err = publish("v1.0.0", dir.path(), true, None).unwrap_err().to_string();
+        assert!(err.contains("CHANGELOG"), "预期 CHANGELOG 相关错误，得到: {}", err);
     }
 
     // publish
