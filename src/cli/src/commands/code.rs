@@ -18,40 +18,38 @@ impl GitSubmoduleEditor {
     }
 }
 
-impl SubmoduleEditor for GitSubmoduleEditor {
-    fn root(&self) -> &Path {
-        &self.root
-    }
-
-    fn sync_to_parent(&self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let repo = git2::Repository::open(&self.root)?;
-        let sm = repo.find_submodule(name)?;
-        let sm_path = sm.path();
-        let full_sm_path = self.root.join(sm_path);
-
-        let mut parts: Vec<&str> = Vec::new();
-
-        // 1. 推送子模块自身的 commit 到子模块的 remote
-        if full_sm_path.exists() {
-            let output = std::process::Command::new("git")
-                .args(["push", "origin"])
-                .current_dir(&full_sm_path)
-                .output()
-                .map_err(|e| format!("无法在子模块内执行 git push: {}", e))?;
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
+impl GitSubmoduleEditor {
+    fn push_submodule(path: &std::path::Path, name: &str, parts: &mut Vec<&str>) {
+        if !path.exists() {
+            return;
+        }
+        let output = std::process::Command::new("git")
+            .args(["push", "origin"])
+            .current_dir(path)
+            .output();
+        match output {
+            Ok(out) if out.status.success() => parts.push("✓ push"),
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
                 parts.push("✗ push");
                 eprintln!("  {}  push 失败: {}", name, stderr.trim());
-            } else {
-                parts.push("✓ push");
+            }
+            Err(e) => {
+                parts.push("✗ push");
+                eprintln!("  {}  push 失败: {}", name, e);
             }
         }
+    }
 
-        // 2. 更新父仓库的子模块指针
+    fn update_parent_pointer(
+        repo: &git2::Repository,
+        sm_path: &std::path::Path,
+        name: &str,
+        parts: &mut Vec<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut index = repo.index()?;
         index.add_path(sm_path)?;
         index.write()?;
-
         let tree_id = index.write_tree()?;
         let tree = repo.find_tree(tree_id)?;
         let head = repo.head()?;
@@ -66,27 +64,58 @@ impl SubmoduleEditor for GitSubmoduleEditor {
             &[&parent],
         )?;
         parts.push("sync");
+        Ok(())
+    }
 
-        // 3. 推送父仓库到 origin
+    fn push_parent(
+        repo: &git2::Repository,
+        root: &std::path::Path,
+        name: &str,
+        parts: &mut Vec<&str>,
+    ) {
         let branch = repo
             .head()
             .ok()
             .and_then(|r| r.shorthand().map(|s| s.to_string()))
             .unwrap_or_default();
-        if !branch.is_empty() {
-            let output = std::process::Command::new("git")
-                .args(["push", "origin", &branch])
-                .current_dir(&self.root)
-                .output()
-                .map_err(|e| format!("无法执行 git push: {}", e))?;
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
+        if branch.is_empty() {
+            return;
+        }
+        let output = std::process::Command::new("git")
+            .args(["push", "origin", &branch])
+            .current_dir(root)
+            .output();
+        match output {
+            Ok(out) if out.status.success() => parts.push("✓ push-parent"),
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
                 parts.push("✗ push-parent");
                 eprintln!("  {}  push-parent 失败: {}", name, stderr.trim());
-            } else {
-                parts.push("✓ push-parent");
+            }
+            Err(e) => {
+                parts.push("✗ push-parent");
+                eprintln!("  {}  push-parent 失败: {}", name, e);
             }
         }
+    }
+}
+
+impl SubmoduleEditor for GitSubmoduleEditor {
+    fn root(&self) -> &Path {
+        &self.root
+    }
+
+    fn sync_to_parent(&self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let repo = git2::Repository::open(&self.root)?;
+        let sm = repo.find_submodule(name)?;
+        let sm_path = sm.path();
+        let full_sm_path = self.root.join(sm_path);
+
+        let mut parts: Vec<&str> = Vec::new();
+
+        Self::push_submodule(&full_sm_path, name, &mut parts);
+        Self::update_parent_pointer(&repo, sm_path, name, &mut parts)?;
+        Self::push_parent(&repo, &self.root, name, &mut parts);
 
         println!("  {:<35} {}", name, parts.join(" · "));
         Ok(())
