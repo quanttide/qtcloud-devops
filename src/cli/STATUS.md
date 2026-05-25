@@ -1,15 +1,15 @@
 # Code Scan Status
 
-> 自动生成于 qtcloud-code scan，时间戳: 1779709818
+> 自动生成于 qtcloud-code scan，时间戳: 1779710044
 
 ## 汇总
 
 | 严重度 | 数量 |
 |--------|------|
 | Error   | 0 |
-| Warning | 14 |
+| Warning | 17 |
 | Info    | 0 |
-| **Total** | **14** |
+| **Total** | **17** |
 
 ## 详情
 
@@ -25,9 +25,12 @@
 - **../../apps/qtcloud-devops/src/cli/src/main.rs** (2 项)
   - 🟡 `rust-long-function` 163:1 — 函数 `run_code` 共 97 行，建议不超过 30 行
   - 🟡 `rust-long-function` 319:1 — 函数 `test_print_aggregate_with_variants` 共 111 行，建议不超过 30 行
-- **../../apps/qtcloud-devops/src/cli/src/model/code.rs** (5 项)
-  - 🟡 `rust-long-function` 69:1 — 函数 `scan` 共 200 行，建议不超过 30 行
-  - 🟡 `rust-long-function` 388:1 — 函数 `setup_repo_with_submodule` 共 32 行，建议不超过 30 行
-  - 🟡 `rust-long-function` 568:1 — 函数 `test_aggregate_status_from_submodules` 共 47 行，建议不超过 30 行
-  - 🟡 `rust-long-function` 618:1 — 函数 `test_aggregate_status_all_variants` 共 32 行，建议不超过 30 行
-  - 🟡 `rust-long-function` 925:1 — 函数 `test_scan_with_behind_remote` 共 55 行，建议不超过 30 行
+- **../../apps/qtcloud-devops/src/cli/src/model/code.rs** (8 项)
+  - 🟡 `rust-long-function` 69:1 — 函数 `scan` 共 39 行，建议不超过 30 行
+  - 🟡 `rust-long-function` 110:1 — 函数 `scan_single_submodule` 共 57 行，建议不超过 30 行
+  - 🟡 `rust-long-function` 169:1 — 函数 `scan_submodule_remote_state` 共 89 行，建议不超过 30 行
+  - 🟡 `rust-long-function` 260:1 — 函数 `determine_submodule_status` 共 32 行，建议不超过 30 行
+  - 🟡 `rust-long-function` 429:1 — 函数 `setup_repo_with_submodule` 共 32 行，建议不超过 30 行
+  - 🟡 `rust-long-function` 609:1 — 函数 `test_aggregate_status_from_submodules` 共 47 行，建议不超过 30 行
+  - 🟡 `rust-long-function` 659:1 — 函数 `test_aggregate_status_all_variants` 共 32 行，建议不超过 30 行
+  - 🟡 `rust-long-function` 966:1 — 函数 `test_scan_with_behind_remote` 共 55 行，建议不超过 30 行
