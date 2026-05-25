@@ -20,11 +20,6 @@
 ## P1 — publish 前置条件
 
 - [x] `publish` 验证对应预发布 tag 存在（新增 `has_prerelease_tag()` 函数）
-- [ ] `publish` 验证该 tag 触发的 CI 最后一次运行为 success
-  - 方式：`gh run list --workflow build-prerelease.yml --branch cli/v0.3.2-rc.1 --json conclusion` 检查最新一次为 success
-  - `gh` 已安装，不需要额外依赖
-  - CI 未通过时拒绝发布
-  - `gh run list` 因网络问题失败时，降级为允许发布，但提示"无法验证 CI 状态，请手动确认"
 
 ## P2 — 移除 cancel
 
