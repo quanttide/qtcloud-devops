@@ -24,6 +24,4 @@ project:
 
 site:
   template: book-theme
-  options:
-    logo: qtcloud-devops-logo.png
-    base: /qtcloud-devops
+  url: https://quanttide.github.io/qtcloud-devops
