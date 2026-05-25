@@ -30,9 +30,6 @@
 
 ## P3 — pub.dev 发布集成
 
-- [ ] `publish --registry <name>` 指定发布目标
-  - 命名：`Registry` 枚举，variant 对齐官方注册源名（`PyPI`、`PubDev` 等）
-  - `publish --registry pypi`（默认）
-  - `publish --registry crates`
-  - `publish --registry pub-dev`
-- [ ] 先做具体实现，积累两个以上后再考虑提取 trait
+- [x] 新增 `Registry` 枚举（`PyPI`、`PubDev`、`Crates`）
+- [x] `publish --registry <name>` 指定发布目标
+  - registry 发布由 CI 处理，本地仅传递参数
