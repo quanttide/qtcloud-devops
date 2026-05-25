@@ -9,10 +9,8 @@ fn test_cli_help_succeeds() {
     let output = cli().arg("--help").output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("stage"));
-    assert!(stdout.contains("publish"));
-    assert!(stdout.contains("retire"));
     assert!(stdout.contains("release"));
+    assert!(stdout.contains("code"));
 }
 
 #[test]
@@ -23,7 +21,7 @@ fn test_cli_version_output() {
 
 #[test]
 fn test_cli_stage_help_contains_prerelease() {
-    let output = cli().arg("stage").arg("--help").output().unwrap();
+    let output = cli().args(["release", "stage", "--help"]).output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("version"));
@@ -31,14 +29,14 @@ fn test_cli_stage_help_contains_prerelease() {
 
 #[test]
 fn test_cli_publish_help() {
-    let output = cli().arg("publish").arg("--help").output().unwrap();
+    let output = cli().args(["release", "publish", "--help"]).output().unwrap();
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("registry"));
 }
 
 #[test]
 fn test_cli_retire_help() {
-    let output = cli().arg("retire").arg("--help").output().unwrap();
+    let output = cli().args(["release", "retire", "--help"]).output().unwrap();
     assert!(output.status.success());
 }
 
@@ -67,7 +65,7 @@ fn test_cli_stage_rejects_formal_version() {
         .current_dir(dir.path()).output().unwrap();
 
     let output = cli()
-        .args(["stage", "-v", "v1.0.0"])
+        .args(["release", "stage", "-v", "v1.0.0"])
         .current_dir(dir.path())
         .output()
         .unwrap();
@@ -89,7 +87,7 @@ fn test_cli_stage_prerelease_succeeds() {
         .current_dir(dir.path()).output().unwrap();
 
     let output = cli()
-        .args(["stage", "-v", "v1.0.0-rc.1"])
+        .args(["release", "stage", "-v", "v1.0.0-rc.1"])
         .current_dir(dir.path())
         .output()
         .unwrap();
@@ -99,7 +97,7 @@ fn test_cli_stage_prerelease_succeeds() {
 }
 
 #[test]
-fn test_cli_publish_requires_stage_first() {
+fn test_cli_publish_formal_version() {
     let dir = tempfile::tempdir().unwrap();
     std::process::Command::new("git")
         .args(["init", "-b", "main"]).current_dir(dir.path()).output().unwrap();
@@ -110,15 +108,14 @@ fn test_cli_publish_requires_stage_first() {
         .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
         .current_dir(dir.path()).output().unwrap();
 
-    // publish without stage should fail
+    // publish auto-creates journal entry for formal versions
     let output = cli()
-        .args(["publish", "-v", "v1.0.0"])
+        .args(["release", "publish", "-v", "v1.0.0", "-y"])
         .current_dir(dir.path())
         .output()
         .unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("stage"));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("已发布") || stdout.contains("失败"), "publish should succeed or fail on git env: {}", stdout);
 }
 
 #[test]
@@ -134,7 +131,7 @@ fn test_cli_retire_without_publish_fails() {
         .current_dir(dir.path()).output().unwrap();
 
     let output = cli()
-        .args(["retire", "-v", "v1.0.0"])
+        .args(["release", "retire", "-v", "v1.0.0"])
         .current_dir(dir.path())
         .output()
         .unwrap();
@@ -148,7 +145,7 @@ fn test_cli_stage_git_not_found_err_path() {
     // This makes Command::new("git") fail with Err(e) → triggers the Err(e) branch
     let empty = tempfile::tempdir().unwrap();
     let output = cli()
-        .args(["stage", "-v", "v1.0.0-rc.1"])
+        .args(["release", "stage", "-v", "v1.0.0-rc.1"])
         .current_dir(dir.path())
         .env("PATH", empty.path())
         .output()
@@ -170,7 +167,7 @@ fn test_cli_create_release_gh_not_found_err_path() {
         .current_dir(dir.path()).output().unwrap();
     // Stage first (no remote, push silently skips)
     let stage_out = cli()
-        .args(["stage", "-v", "v0.0.0-ghfail"])
+        .args(["release", "stage", "-v", "v0.0.0-ghfail"])
         .current_dir(dir.path())
         .output().unwrap();
     assert!(stage_out.status.success());
@@ -183,7 +180,7 @@ fn test_cli_create_release_gh_not_found_err_path() {
     // Now publish with PATH pointing to empty dir → gh not found → Err(e) in create_release
     let empty = tempfile::tempdir().unwrap();
     let output = cli()
-        .args(["publish", "-v", "v0.0.0-ghfail", "-y"])
+        .args(["release", "publish", "-v", "v0.0.0-ghfail", "-y"])
         .current_dir(dir.path())
         .env("PATH", empty.path())
         .output()

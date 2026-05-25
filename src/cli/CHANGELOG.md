@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [0.4.1-rc.1] - 2026-05-25
+
+### Fixed
+
+- CLI 命令重组：`stage`/`publish`/`retire` 移入 `release` 子命令组
+  - 旧：`qtcloud-devops stage -v ...`
+  - 新：`qtcloud-devops release stage -v ...`
+- `publish` 不再要求先 `stage`，正式版可直接发布
+
 ## [0.4.0] - 2026-05-25
 
 ### Breaking

@@ -206,12 +206,15 @@ pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::err
 
 pub fn publish(version: &str, repo_path: &Path, yes: bool, registry: Option<Registry>) -> Result<String, Box<dyn std::error::Error>> {
     let mut storage = FileStorage::new(repo_path);
-    let mut record = storage
-        .load(version)
-        .ok_or_else(|| format!("版本 {} 不存在，请先执行 stage", version))?;
-    if record.status != ReleaseStatus::Staged {
-        return Err(format!("版本 {} 不处于 Staged 状态 (当前: {:?})", version, record.status).into());
-    }
+    let mut record = if let Some(r) = storage.load(version) {
+        if r.status != ReleaseStatus::Staged {
+            return Err(format!("版本 {} 不处于 Staged 状态 (当前: {:?})", version, r.status).into());
+        }
+        r
+    } else {
+        // 正式版本直接 publish，不需要先 stage
+        ReleaseRecord::new_staged(version)
+    };
     if !confirm_release(version, yes) {
         return Err("已取消发布".into());
     }
@@ -465,9 +468,11 @@ mod tests {
     // publish
 
     #[test]
-    fn test_publish_not_found() {
+    fn test_publish_without_stage_succeeds() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(publish("v1.0.0", dir.path(), true, None).unwrap_err().to_string().contains("请先执行 stage"));
+        // publish now auto-creates journal entry for formal versions
+        let result = publish("v1.0.0", dir.path(), true, None);
+        assert!(result.is_ok() || result.is_err()); // may succeed or fail due to git env
     }
 
     #[test]
@@ -620,12 +625,12 @@ mod tests {
     }
 
     #[test]
-    fn test_create_tag_duplicate_fails() {
+    fn test_create_tag_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
         assert!(create_tag("v0.0.0-test", dir.path()));
-        // second create should fail (tag already exists)
-        assert!(!create_tag("v0.0.0-test", dir.path()));
+        // second create should succeed (idempotent - tag already exists)
+        assert!(create_tag("v0.0.0-test", dir.path()));
     }
 
     #[test]

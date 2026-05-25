@@ -24,6 +24,15 @@ enum Commands {
         #[command(subcommand)]
         action: CodeAction,
     },
+    /// 发布管理命令集
+    Release {
+        #[command(subcommand)]
+        action: ReleaseAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReleaseAction {
     /// 将版本标记为 Staged 状态
     Stage {
         #[arg(short = 'v', long)]
@@ -43,15 +52,6 @@ enum Commands {
         #[arg(short = 'v', long)]
         version: String,
     },
-    /// 发布管理命令集
-    Release {
-        #[command(subcommand)]
-        action: ReleaseAction,
-    },
-}
-
-#[derive(Subcommand)]
-enum ReleaseAction {
     /// 查看发布状态
     Status,
 }
@@ -134,19 +134,19 @@ fn main() {
 
     let result = match cli.command {
         Commands::Code { action } => run_code(action),
-        Commands::Stage { version } => {
-            qtcloud_devops_cli::commands::release::stage(&version, &repo_path())
-                .map(|_| ()).map_err(|e| format!("{}", e))
-        }
-        Commands::Publish { version, yes, registry } => {
-            qtcloud_devops_cli::commands::release::publish(&version, &repo_path(), yes, registry)
-                .map(|_| ()).map_err(|e| format!("{}", e))
-        }
-        Commands::Retire { version } => {
-            qtcloud_devops_cli::commands::release::retire(&version, &repo_path())
-                .map(|_| ()).map_err(|e| format!("{}", e))
-        }
         Commands::Release { action } => match action {
+            ReleaseAction::Stage { version } => {
+                qtcloud_devops_cli::commands::release::stage(&version, &repo_path())
+                    .map(|_| ()).map_err(|e| format!("{}", e))
+            }
+            ReleaseAction::Publish { version, yes, registry } => {
+                qtcloud_devops_cli::commands::release::publish(&version, &repo_path(), yes, registry)
+                    .map(|_| ()).map_err(|e| format!("{}", e))
+            }
+            ReleaseAction::Retire { version } => {
+                qtcloud_devops_cli::commands::release::retire(&version, &repo_path())
+                    .map(|_| ()).map_err(|e| format!("{}", e))
+            }
             ReleaseAction::Status => {
                 qtcloud_devops_cli::commands::release::release_status(&repo_path())
                     .map(|_| ()).map_err(|e| format!("{}", e))
