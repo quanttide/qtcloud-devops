@@ -52,6 +52,25 @@ qtcloud-devops code sync --dry-run
   - 影响的匹配分支统一调整
 - [ ] 测试：各子命令的 `--dry-run` 参数通过编译且行为正确
 
+### P3 — cancel 废弃（v0.3.x）
+
+**问题**：`cancel` 在 stage 关联预发布后无实际用途。rc 失败直接递增序号，不需要 cancel。
+
+Rust 对 CLI 命令没有 `#[deprecated]` 属性，废弃方式为：
+
+- 在 clap 的 doc comment 中标记 `（已废弃）`
+- 执行时打印 deprecation warning 到 stderr
+- 命令仍然可用，但用户会被提示
+
+**修复**：
+
+- [ ] clap 注释标记：`/// 取消发布（已废弃，v0.4.0 将移除）`
+  - 文件：`src/main.rs` `Commands::Cancel` 定义
+- [ ] 函数入口打印 deprecation warning
+  - 文件：`src/commands/release.rs` `cancel()` 函数
+  - 在函数开头加一行：`eprintln!("warning: cancel 已废弃，将在 v0.4.0 移除，请使用 retire 替代");`
+- [ ] 更新帮助文本和文档
+
 ### P2 — 输出格式
 
 **问题**：同步 17 个子模块时生成 51 行日志（每行三段式），信息密度低，滚动困难。
