@@ -140,3 +140,53 @@ fn test_cli_retire_without_publish_fails() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+#[test]
+fn test_cli_stage_git_not_found_err_path() {
+    let dir = tempfile::tempdir().unwrap();
+    // Run in a dir without files, with PATH pointing to empty dir
+    // This makes Command::new("git") fail with Err(e) → triggers the Err(e) branch
+    let empty = tempfile::tempdir().unwrap();
+    let output = cli()
+        .args(["stage", "-v", "v1.0.0-rc.1"])
+        .current_dir(dir.path())
+        .env("PATH", empty.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}
+
+#[test]
+fn test_cli_create_release_gh_not_found_err_path() {
+    let dir = tempfile::tempdir().unwrap();
+    // Need a real git repo first so create_tag succeeds, then push_tag fails
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"]).current_dir(dir.path()).output().unwrap();
+    std::fs::write(dir.path().join("f"), "").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."]).current_dir(dir.path()).output().unwrap();
+    std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
+        .current_dir(dir.path()).output().unwrap();
+    // Stage first (no remote, push silently skips)
+    let stage_out = cli()
+        .args(["stage", "-v", "v0.0.0-ghfail"])
+        .current_dir(dir.path())
+        .output().unwrap();
+    assert!(stage_out.status.success());
+
+    // Add a dummy remote after stage so publish's push_tag has a target
+    std::process::Command::new("git")
+        .args(["remote", "add", "origin", "https://example.com/repo.git"])
+        .current_dir(dir.path()).output().unwrap();
+
+    // Now publish with PATH pointing to empty dir → gh not found → Err(e) in create_release
+    let empty = tempfile::tempdir().unwrap();
+    let output = cli()
+        .args(["publish", "-v", "v0.0.0-ghfail", "-y"])
+        .current_dir(dir.path())
+        .env("PATH", empty.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}
