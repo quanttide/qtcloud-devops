@@ -29,10 +29,10 @@
 - [ ] 更新文档和 help 文本
 - [ ] publish 前加二次确认（替代 cancel 的保护作用）
 
-## 发布目标支持
+## 发布渠道支持
 
 - [ ] **pub.dev 发布集成**：release 命令支持发布到 pub.dev
   - 调用 `dart pub publish`
-- [ ] **发布目标抽象**：从 PyPI/pub.dev 提取 `PublishTarget` trait
-  - `trait PublishTarget { fn publish(...) -> Result<()> }`
-  - 实现：`PypiTarget`、`PubDevTarget`、`CratesTarget`
+- [ ] **发布渠道抽象**：从 PyPI/pub.dev 提取 `Publisher` trait
+  - `trait Publisher { fn publish(&self, version: &str, artifact_path: &Path) -> Result<()>; }`
+  - 实现：`PypiPublisher`、`PubDevPublisher`、`CratesPublisher`

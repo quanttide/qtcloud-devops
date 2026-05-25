@@ -51,10 +51,10 @@ stage -v cli/v0.3.2-rc.1      ← 标记 rc，推送 tag，触发 CI
 - [ ] `publish` 保持正式版打 tag + GitHub Release 不变
 - [ ] CI 应支持 rc tag 的构建（当前基于 Release 事件触发，需改为 tag push 或增加 rc 构建 workflow）
 
-### 发布目标支持
+### 发布渠道支持
 
 - **pub.dev 发布集成**：release 命令支持发布到 pub.dev
-- **发布目标抽象**：从 PyPI/pub.dev 的具体实现中提取"发布目标"模型
+- **发布渠道抽象**：从 PyPI/pub.dev 的具体实现中提取 `Publisher` trait
 
 ## 待规划
 
