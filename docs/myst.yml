@@ -1,7 +1,6 @@
-# See https://mystmd.org/guide for more information.
 version: 1
 project:
-  title: qtcloud-devops-cli
+  title: qtcloud-devops
   description: 量潮DevOps云命令行工具
   keywords: [devops, release, git, submodule]
   authors:
@@ -11,12 +10,12 @@ project:
   source: https://github.com/quanttide/qtcloud-devops/tree/main/docs
   toc:
     - file: index.md
-    - title: User Guide
+    - title: 用户指南
       children:
         - file: user-guide/index.md
         - file: user-guide/code.md
         - file: user-guide/release.md
-    - title: API References
+    - title: API参考
       children:
         - file: api-references/index.md
         - file: api-references/release.md
@@ -27,3 +26,4 @@ site:
   template: book-theme
   options:
     logo: qtcloud-devops-logo.png
+    base: /qtcloud-devops
