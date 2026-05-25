@@ -72,166 +72,17 @@ impl RepoState {
             Err(e) => return Err(format!("无法打开 Git 仓库 '{}': {}", root.display(), e).into()),
         };
         let gitmodules_path = root.join(".gitmodules");
-        let mut submodules = Vec::new();
 
-        if gitmodules_path.exists() {
+        let submodules = if gitmodules_path.exists() {
             let mut git_submodules = repo.submodules()?;
             git_submodules.sort_by(|a, b| a.name().cmp(&b.name()));
-
-            for sm in &git_submodules {
-            let name = sm.name().unwrap_or("unknown").to_string();
-            let sm_path = sm.path();
-            let full_sm_path = root.join(sm_path);
-            let url = sm.url().unwrap_or("").to_string();
-            let branch = sm.branch().unwrap_or("main").to_string();
-
-            let raw_status = repo.submodule_status(&name, git2::SubmoduleIgnore::None)?;
-            let is_uninitialized = raw_status.is_wd_uninitialized();
-
-            // 父仓库记录的 commit
-            let head_oid = sm.head_id().unwrap_or_else(git2::Oid::zero);
-            let parent_pointer = CommitHash(head_oid.to_string());
-
-            let (
-                local_head,
-                remote_head,
-                is_detached,
-                ahead_count,
-                behind_count,
-                is_orphaned,
-                remote_unreachable,
-            ) = if is_uninitialized {
-                (
-                    CommitHash::default(),
-                    CommitHash::default(),
-                    false,
-                    0,
-                    0,
-                    false,
-                    false,
-                )
-            } else {
-                match git2::Repository::open(&full_sm_path) {
-                    Ok(sub_repo) => {
-                        let local = sub_repo
-                            .head()
-                            .ok()
-                            .and_then(|r| r.target())
-                            .map(|o| CommitHash(o.to_string()))
-                            .unwrap_or_default();
-
-                        let detached = sub_repo
-                            .head()
-                            .ok()
-                            .map(|r| !r.is_branch())
-                            .unwrap_or(false);
-
-                        // 先 fetch 子模块的远程 ref，确保 remote_head 是实时状态
-                        if let Ok(mut sub_remote) = sub_repo.find_remote("origin") {
-                            let mut fetch_opts = git2::FetchOptions::new();
-                            fetch_opts.download_tags(git2::AutotagOption::None);
-                            let mut callbacks = git2::RemoteCallbacks::new();
-                            callbacks.transfer_progress(|_| true);
-                            fetch_opts.remote_callbacks(callbacks);
-                            let _ = sub_remote.fetch(&["+refs/heads/*:refs/remotes/origin/*"], Some(&mut fetch_opts), None);
-                        }
-
-                        let (remote, unreachable) = sub_repo
-                            .find_reference(&format!("refs/remotes/origin/{}", branch))
-                            .ok()
-                            .and_then(|r| r.target())
-                            .map(|o| (CommitHash(o.to_string()), false))
-                            .unwrap_or_else(|| (CommitHash::default(), true));
-
-                        let ahead = count_between_opt(
-                            &sub_repo,
-                            parse_oid(&parent_pointer),
-                            parse_oid(&local),
-                        );
-                        let behind = if unreachable {
-                            0
-                        } else {
-                            count_between_opt(&sub_repo, parse_oid(&local), parse_oid(&remote))
-                        };
-
-                        let orphaned = if !unreachable
-                            && remote != CommitHash::default()
-                            && parent_pointer != remote
-                        {
-                            let p = parse_oid(&parent_pointer);
-                            let r = parse_oid(&remote);
-                            match (p, r) {
-                                (Some(p_oid), Some(r_oid)) => sub_repo
-                                    .merge_base(r_oid, p_oid)
-                                    .map(|base| base != p_oid)
-                                    .unwrap_or(true),
-                                _ => false,
-                            }
-                        } else {
-                            false
-                        };
-
-                        (
-                            local,
-                            remote,
-                            detached,
-                            ahead,
-                            behind,
-                            orphaned,
-                            unreachable,
-                        )
-                    }
-                    Err(_) => (
-                        CommitHash::default(),
-                        CommitHash::default(),
-                        false,
-                        0,
-                        0,
-                        false,
-                        false,
-                    ),
-                }
-            };
-
-            let is_dirty = !is_uninitialized
-                && ahead_count == 0
-                && (raw_status.is_wd_modified()
-                    || raw_status.is_index_modified()
-                    || raw_status.is_wd_untracked());
-
-            let status = if is_uninitialized {
-                SubmoduleStatus::Uninitialized
-            } else if is_dirty {
-                SubmoduleStatus::Dirty
-            } else if is_detached {
-                SubmoduleStatus::Detached
-            } else if is_orphaned && !remote_unreachable {
-                SubmoduleStatus::Orphaned
-            } else if (remote_unreachable && local_head != parent_pointer)
-                || (ahead_count > 0 && behind_count == 0)
-            {
-                SubmoduleStatus::AheadOfParent
-            } else if behind_count > 0 && !remote_unreachable {
-                SubmoduleStatus::BehindRemote
-            } else {
-                SubmoduleStatus::Clean
-            };
-
-            submodules.push(Submodule {
-                name,
-                path: sm_path.to_path_buf(),
-                url,
-                tracked_branch: branch,
-                parent_pointer,
-                local_head,
-                remote_head,
-                status,
-                ahead_count,
-                behind_count,
-                remote_unreachable,
-            });
-        }
-        } // end if gitmodules_path.exists()
+            git_submodules
+                .iter()
+                .map(|sm| Self::scan_single_submodule(root, sm, &repo))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            Vec::new()
+        };
 
         let total = submodules.len();
         let clean_count = submodules
@@ -244,19 +95,7 @@ impl RepoState {
             .map(|s| s.name.clone())
             .collect();
 
-        let parent_dirty = repo
-            .statuses(Some(
-                git2::StatusOptions::new()
-                    .include_untracked(true)
-                    .recurse_untracked_dirs(true),
-            ))
-            .map(|statuses| {
-                statuses
-                    .iter()
-                    .filter(|e| e.path().map_or(true, |p| !std::path::Path::new(p).starts_with(".gitmodules")))
-                    .any(|e| e.status() != git2::Status::CURRENT)
-            })
-            .unwrap_or(false);
+        let parent_dirty = Self::check_parent_dirty(&repo);
 
         Ok(RepoState {
             root_path: root.to_path_buf(),
@@ -266,6 +105,208 @@ impl RepoState {
             needs_attention,
             parent_dirty,
         })
+    }
+
+    fn scan_single_submodule(
+        root: &std::path::Path,
+        sm: &git2::Submodule,
+        repo: &git2::Repository,
+    ) -> Result<Submodule, Box<dyn std::error::Error>> {
+        let name = sm.name().unwrap_or("unknown").to_string();
+        let sm_path = sm.path();
+        let full_sm_path = root.join(sm_path);
+        let url = sm.url().unwrap_or("").to_string();
+        let branch = sm.branch().unwrap_or("main").to_string();
+
+        let raw_status = repo.submodule_status(&name, git2::SubmoduleIgnore::None)?;
+        let is_uninitialized = raw_status.is_wd_uninitialized();
+        let head_oid = sm.head_id().unwrap_or_else(git2::Oid::zero);
+        let parent_pointer = CommitHash(head_oid.to_string());
+
+        let (
+            local_head,
+            remote_head,
+            is_detached,
+            ahead_count,
+            behind_count,
+            is_orphaned,
+            remote_unreachable,
+        ) = Self::scan_submodule_remote_state(&full_sm_path, &branch, &parent_pointer, is_uninitialized);
+
+        let is_dirty = !is_uninitialized
+            && ahead_count == 0
+            && (raw_status.is_wd_modified()
+                || raw_status.is_index_modified()
+                || raw_status.is_wd_untracked());
+
+        let status = Self::determine_submodule_status(
+            is_uninitialized,
+            is_dirty,
+            is_detached,
+            is_orphaned,
+            remote_unreachable,
+            ahead_count,
+            behind_count,
+            &local_head,
+            &parent_pointer,
+        );
+
+        Ok(Submodule {
+            name,
+            path: sm_path.to_path_buf(),
+            url,
+            tracked_branch: branch,
+            parent_pointer,
+            local_head,
+            remote_head,
+            status,
+            ahead_count,
+            behind_count,
+            remote_unreachable,
+        })
+    }
+
+    fn scan_submodule_remote_state(
+        full_sm_path: &std::path::Path,
+        branch: &str,
+        parent_pointer: &CommitHash,
+        is_uninitialized: bool,
+    ) -> (CommitHash, CommitHash, bool, usize, usize, bool, bool) {
+        if is_uninitialized {
+            return (
+                CommitHash::default(),
+                CommitHash::default(),
+                false,
+                0,
+                0,
+                false,
+                false,
+            );
+        }
+
+        let Ok(sub_repo) = git2::Repository::open(full_sm_path) else {
+            return (
+                CommitHash::default(),
+                CommitHash::default(),
+                false,
+                0,
+                0,
+                false,
+                false,
+            );
+        };
+
+        let local = sub_repo
+            .head()
+            .ok()
+            .and_then(|r| r.target())
+            .map(|o| CommitHash(o.to_string()))
+            .unwrap_or_default();
+
+        let detached = sub_repo
+            .head()
+            .ok()
+            .map(|r| !r.is_branch())
+            .unwrap_or(false);
+
+        // 先 fetch 子模块的远程 ref，确保 remote_head 是实时状态
+        if let Ok(mut sub_remote) = sub_repo.find_remote("origin") {
+            let mut fetch_opts = git2::FetchOptions::new();
+            fetch_opts.download_tags(git2::AutotagOption::None);
+            let mut callbacks = git2::RemoteCallbacks::new();
+            callbacks.transfer_progress(|_| true);
+            fetch_opts.remote_callbacks(callbacks);
+            let _ = sub_remote.fetch(
+                &["+refs/heads/*:refs/remotes/origin/*"],
+                Some(&mut fetch_opts),
+                None,
+            );
+        }
+
+        let (remote, unreachable) = sub_repo
+            .find_reference(&format!("refs/remotes/origin/{}", branch))
+            .ok()
+            .and_then(|r| r.target())
+            .map(|o| (CommitHash(o.to_string()), false))
+            .unwrap_or_else(|| (CommitHash::default(), true));
+
+        let ahead = count_between_opt(&sub_repo, parse_oid(parent_pointer), parse_oid(&local));
+        let behind = if unreachable {
+            0
+        } else {
+            count_between_opt(&sub_repo, parse_oid(&local), parse_oid(&remote))
+        };
+
+        let orphaned = if !unreachable
+            && remote != CommitHash::default()
+            && *parent_pointer != remote
+        {
+            let p = parse_oid(parent_pointer);
+            let r = parse_oid(&remote);
+            match (p, r) {
+                (Some(p_oid), Some(r_oid)) => sub_repo
+                    .merge_base(r_oid, p_oid)
+                    .map(|base| base != p_oid)
+                    .unwrap_or(true),
+                _ => false,
+            }
+        } else {
+            false
+        };
+
+        (local, remote, detached, ahead, behind, orphaned, unreachable)
+    }
+
+    fn determine_submodule_status(
+        is_uninitialized: bool,
+        is_dirty: bool,
+        is_detached: bool,
+        is_orphaned: bool,
+        remote_unreachable: bool,
+        ahead_count: usize,
+        behind_count: usize,
+        local_head: &CommitHash,
+        parent_pointer: &CommitHash,
+    ) -> SubmoduleStatus {
+        if is_uninitialized {
+            return SubmoduleStatus::Uninitialized;
+        }
+        if is_dirty {
+            return SubmoduleStatus::Dirty;
+        }
+        if is_detached {
+            return SubmoduleStatus::Detached;
+        }
+        if is_orphaned && !remote_unreachable {
+            return SubmoduleStatus::Orphaned;
+        }
+        if (remote_unreachable && local_head != parent_pointer)
+            || (ahead_count > 0 && behind_count == 0)
+        {
+            return SubmoduleStatus::AheadOfParent;
+        }
+        if behind_count > 0 && !remote_unreachable {
+            return SubmoduleStatus::BehindRemote;
+        }
+        SubmoduleStatus::Clean
+    }
+
+    fn check_parent_dirty(repo: &git2::Repository) -> bool {
+        repo.statuses(Some(
+            git2::StatusOptions::new()
+                .include_untracked(true)
+                .recurse_untracked_dirs(true),
+        ))
+        .map(|statuses| {
+            statuses
+                .iter()
+                .filter(|e| {
+                    e.path()
+                        .map_or(true, |p| !std::path::Path::new(p).starts_with(".gitmodules"))
+                })
+                .any(|e| e.status() != git2::Status::CURRENT)
+        })
+        .unwrap_or(false)
     }
 
     pub fn scan_all(
@@ -489,6 +530,98 @@ mod tests {
         let a = SubmoduleStatus::Dirty;
         let b = a.clone();
         assert_eq!(a, b);
+    }
+
+    // ---- determine_submodule_status ----
+
+    fn default_hash() -> CommitHash {
+        CommitHash::default()
+    }
+
+    fn hash(s: &str) -> CommitHash {
+        CommitHash(s.to_string())
+    }
+
+    #[test]
+    fn test_determine_status_uninitialized() {
+        assert_eq!(
+            RepoState::determine_submodule_status(true, false, false, false, false, 0, 0, &default_hash(), &default_hash()),
+            SubmoduleStatus::Uninitialized,
+        );
+    }
+
+    #[test]
+    fn test_determine_status_dirty() {
+        assert_eq!(
+            RepoState::determine_submodule_status(false, true, false, false, false, 0, 0, &default_hash(), &default_hash()),
+            SubmoduleStatus::Dirty,
+        );
+        // uninitialized 优先于 dirty
+        assert_eq!(
+            RepoState::determine_submodule_status(true, true, false, false, false, 0, 0, &default_hash(), &default_hash()),
+            SubmoduleStatus::Uninitialized,
+        );
+    }
+
+    #[test]
+    fn test_determine_status_detached() {
+        assert_eq!(
+            RepoState::determine_submodule_status(false, false, true, false, false, 0, 0, &default_hash(), &default_hash()),
+            SubmoduleStatus::Detached,
+        );
+    }
+
+    #[test]
+    fn test_determine_status_orphaned() {
+        assert_eq!(
+            RepoState::determine_submodule_status(false, false, false, true, false, 0, 0, &default_hash(), &default_hash()),
+            SubmoduleStatus::Orphaned,
+        );
+        // remote_unreachable 时 orphaned 不成立
+        assert_eq!(
+            RepoState::determine_submodule_status(false, false, false, true, true, 0, 0, &default_hash(), &default_hash()),
+            SubmoduleStatus::Clean,
+        );
+    }
+
+    #[test]
+    fn test_determine_status_ahead_of_parent() {
+        // remote_unreachable + local != parent
+        assert_eq!(
+            RepoState::determine_submodule_status(false, false, false, false, true, 0, 0, &hash("abc"), &default_hash()),
+            SubmoduleStatus::AheadOfParent,
+        );
+        // ahead_count > 0 && behind_count == 0
+        assert_eq!(
+            RepoState::determine_submodule_status(false, false, false, false, false, 5, 0, &default_hash(), &default_hash()),
+            SubmoduleStatus::AheadOfParent,
+        );
+        // ahead 且 behind 时优先 BehindRemote
+        assert_eq!(
+            RepoState::determine_submodule_status(false, false, false, false, false, 5, 3, &default_hash(), &default_hash()),
+            SubmoduleStatus::BehindRemote,
+        );
+    }
+
+    #[test]
+    fn test_determine_status_behind_remote() {
+        assert_eq!(
+            RepoState::determine_submodule_status(false, false, false, false, false, 0, 3, &default_hash(), &default_hash()),
+            SubmoduleStatus::BehindRemote,
+        );
+        // remote_unreachable 时 BehindRemote 不成立
+        assert_eq!(
+            RepoState::determine_submodule_status(false, false, false, false, true, 0, 3, &default_hash(), &default_hash()),
+            SubmoduleStatus::Clean,
+        );
+    }
+
+    #[test]
+    fn test_determine_status_clean() {
+        assert_eq!(
+            RepoState::determine_submodule_status(false, false, false, false, false, 0, 0, &default_hash(), &default_hash()),
+            SubmoduleStatus::Clean,
+        );
     }
 
     // ---- CommitHash ----
