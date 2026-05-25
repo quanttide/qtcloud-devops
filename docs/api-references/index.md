@@ -1,6 +1,6 @@
 # qtcloud-devops-cli
 
-量潮DevOps云命令行工具。
+量潮DevOps CLI 命令参考。
 
 ## 命令组
 

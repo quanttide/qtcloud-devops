@@ -1,6 +1,6 @@
-# qtcloud-devops
+# 量潮DevOps云
 
-量潮DevOps云命令行工具。纯 Rust 实现，管理发布流程和 Git 子模块。
+DevOps 基础设施仓库，封装量潮发布规范为可执行命令。
 
 ## 安装
 

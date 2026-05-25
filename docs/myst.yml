@@ -1,7 +1,7 @@
 version: 1
 project:
-  title: qtcloud-devops
-  description: 量潮DevOps云命令行工具
+  title: 量潮DevOps云
+  description: DevOps 基础设施仓库，封装量潮发布规范为可执行命令
   keywords: [devops, release, git, submodule]
   authors:
     - name: Guo Zhang
