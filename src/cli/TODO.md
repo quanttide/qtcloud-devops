@@ -17,9 +17,7 @@
   - 行为：构建 + 测试，不发布
   - publish 时验证该 workflow 最后一次执行结果为 success
 
-## P1 — publish 前置条件
-
-- [x] `publish` 验证对应预发布 tag 存在（新增 `has_prerelease_tag()` 函数）
+## P1 — publish 前置条件（已废弃，相关代码已删除）
 
 ## P2 — 移除 cancel
 
