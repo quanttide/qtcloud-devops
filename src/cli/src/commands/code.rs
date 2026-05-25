@@ -5,11 +5,16 @@ use crate::model::code::{RepoState, SubmoduleStatus};
 
 pub struct GitSubmoduleEditor {
     root: PathBuf,
+    offline: bool,
 }
 
 impl GitSubmoduleEditor {
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self { root, offline: false }
+    }
+
+    pub fn set_offline(&mut self, offline: bool) {
+        self.offline = offline;
     }
 }
 
@@ -149,16 +154,18 @@ impl SubmoduleEditor for GitSubmoduleEditor {
     }
 
     fn status(&self) -> Result<Vec<HealthIssue>, Box<dyn std::error::Error>> {
-        // 先 fetch 远程更新，确保 remote_head 是实时状态
-        if let Ok(repo) = git2::Repository::open(&self.root) {
-            if let Ok(mut remote) = repo.find_remote("origin") {
-                let mut fetch_opts = git2::FetchOptions::new();
-                fetch_opts.download_tags(git2::AutotagOption::None);
-                let mut callbacks = git2::RemoteCallbacks::new();
-                callbacks.transfer_progress(|_| true);
-                fetch_opts.remote_callbacks(callbacks);
-                let refspecs: &[&str] = &[];
-                let _ = remote.fetch(refspecs, Some(&mut fetch_opts), None);
+        // 先 fetch 远程更新（除非 --offline），确保 remote_head 是实时状态
+        if !self.offline {
+            if let Ok(repo) = git2::Repository::open(&self.root) {
+                if let Ok(mut remote) = repo.find_remote("origin") {
+                    let mut fetch_opts = git2::FetchOptions::new();
+                    fetch_opts.download_tags(git2::AutotagOption::None);
+                    let mut callbacks = git2::RemoteCallbacks::new();
+                    callbacks.transfer_progress(|_| true);
+                    fetch_opts.remote_callbacks(callbacks);
+                    let refspecs: &[&str] = &[];
+                    let _ = remote.fetch(refspecs, Some(&mut fetch_opts), None);
+                }
             }
         }
         let state = RepoState::scan(&self.root)?;

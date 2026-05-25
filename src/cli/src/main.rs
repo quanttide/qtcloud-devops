@@ -64,6 +64,8 @@ enum CodeAction {
     Status {
         #[arg(default_value = ".")]
         path: PathBuf,
+        #[arg(long)]
+        offline: bool,
     },
     /// 同步子模块指针到父仓库
     Sync {
@@ -166,9 +168,10 @@ fn main() {
 
 fn run_code(action: CodeAction) -> Result<(), String> {
     match action {
-        CodeAction::Status { path } => {
+        CodeAction::Status { path, offline } => {
             let root = resolve_path(&path)?;
-            let editor = GitSubmoduleEditor::new(root.clone());
+            let mut editor = GitSubmoduleEditor::new(root.clone());
+            editor.set_offline(offline);
             let state = code::RepoState::scan(&root)
                 .map_err(|e| format!("{}", e))?;
             let issues = editor.status()
