@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [0.4.0] - 2026-05-25
+
+### Breaking
+
+- `cancel` 命令移除
+- `stage` 仅接受预发布版本（含 `-rc.N`、`-alpha.N` 等后缀）
+- `stage` 改为推送 tag + 创建 GitHub Release
+
+### Added
+
+- `publish --registry <name>` 指定发布目标
+- `code status --offline` 跳过 fetch
+- CLI 集成测试（13 个）
+
+### Fixed
+
+- `code status` 先 fetch 再扫描，确保 remote_head 实时
+- `sync` 输出改为单行聚合格式
+
+### Changed
+
+- `--dry-run` 下放到 `sync`/`retire` 子命令级别
+
 ## [0.4.0-rc.2] - 2026-05-25
 
 ### Breaking
