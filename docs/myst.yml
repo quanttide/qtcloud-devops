@@ -4,7 +4,7 @@ project:
   description: 量潮DevOps云命令行工具
   keywords: [devops, release, git, submodule]
   authors:
-    - name: Guo-Zhang
+    - name: Guo Zhang
       email: zhangguo@quanttide.com
   github: https://github.com/quanttide/qtcloud-devops
   source: https://github.com/quanttide/qtcloud-devops/tree/main/docs
@@ -24,4 +24,3 @@ project:
 
 site:
   template: book-theme
-  url: https://quanttide.github.io/qtcloud-devops
