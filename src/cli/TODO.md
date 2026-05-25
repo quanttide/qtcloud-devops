@@ -22,9 +22,9 @@
 
 **修复**：
 
-- [ ] `status` 执行时默认先 `git fetch`，获取远程最新 ref
+- [ ] `status` 执行时默认先 fetch，获取远程最新 ref
   - 文件：`src/commands/code.rs`，`status()` 逻辑入口处
-  - 使用 `git fetch --all --quiet --no-tags`（静默、不拉 tag、速度快）
+  - 使用 `git2` 的 `Remote::fetch()` 接口（与现有 `RepoState::scan()` 保持一致），而非 shell 命令
   - fetch 失败时降级到本地缓存，输出的对应行标记 🛰（如 `BehindRemote 🛰`）
 - [ ] 增加 `--offline` 参数跳过 fetch
   - `code status --offline` 使用纯本地缓存，不发起网络请求
