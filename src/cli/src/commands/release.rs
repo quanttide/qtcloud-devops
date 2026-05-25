@@ -87,7 +87,14 @@ fn git_args(args: &[&str], repo_path: &Path) -> Command {
 pub fn create_tag(version: &str, repo_path: &Path) -> bool {
     match git_args(&["tag", version], repo_path).output() {
         Ok(out) if out.status.success() => true,
-        Ok(out) => { eprintln!("创建标签失败: {}", String::from_utf8_lossy(&out.stderr).trim()); false }
+        Ok(out) => {
+            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if msg.contains("already exists") {
+                return true; // 幂等：tag 已存在时不报错
+            }
+            eprintln!("创建标签失败: {}", msg);
+            false
+        }
         Err(e) => { eprintln!("创建标签失败: {}", e); false }
     }
 }
