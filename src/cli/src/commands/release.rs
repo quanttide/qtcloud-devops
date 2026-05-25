@@ -89,7 +89,7 @@ pub fn create_tag(version: &str, repo_path: &Path) -> bool {
         Ok(out) if out.status.success() => true,
         Ok(out) => {
             let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            if msg.contains("already exists") {
+            if msg.contains("already exists") || msg.contains("已存在") {
                 return true; // 幂等：tag 已存在时不报错
             }
             eprintln!("创建标签失败: {}", msg);
@@ -189,6 +189,16 @@ pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::err
     }
     println!("✓ 版本 {} 已进入 Staged 状态 (发布尝试 ID: {})", version, record.id);
     println!("✓ 标签 {} 已创建并推送", version);
+
+    let changelog_path = repo_path.join("CHANGELOG.md");
+    let notes = extract_notes(version, &changelog_path);
+    if let Some(repo) = get_remote_repo(repo_path) {
+        if create_release(version, notes.as_deref().unwrap_or(""), &repo) {
+            println!("✓ GitHub Release {} 已创建", version);
+            println!("  https://github.com/{}/releases/tag/{}", repo, version);
+        }
+    }
+
     Ok(record.id)
 }
 
