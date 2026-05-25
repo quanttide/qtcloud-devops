@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [0.4.0-rc.1] - 2026-05-25
+
+### Fixed
+
+- `code status` Dirty 误判（ahead_count > 0 时不标 Dirty）
+- `code status` 默认 fetch，确保 remote_head 实时
+- `sync` 输出改为单行聚合格式
+
+### Changed
+
+- `--dry-run` 下放到 `code sync`/`code retire` 子命令级别
+- `cancel` 标记为废弃（v0.4.0 将移除）
+
+### Added
+
+- `code status --offline` 跳过 fetch
+
 ## [0.3.2] - 2026-05-25
 
 ### Added
