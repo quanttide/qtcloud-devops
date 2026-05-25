@@ -1,4 +1,4 @@
-# TODO — v0.4.0
+# TODO — v0.4.x
 
 ## P0 — stage 预发布 + CI workflow
 
@@ -25,6 +25,7 @@
   - 方式：`gh run list --workflow build-prerelease.yml --branch cli/v0.3.2-rc.1 --json conclusion` 检查最新一次为 success
   - `gh` 已安装，不需要额外依赖
   - CI 未通过时拒绝发布
+  - `gh run list` 因网络问题失败时，降级为允许发布，但提示"无法验证 CI 状态，请手动确认"
 
 ## P2 — 移除 cancel
 
@@ -36,7 +37,7 @@
 ## P3 — pub.dev 发布集成
 
 - [ ] `publish --registry <name>` 指定发布目标
-  - 命名：`Registry` 枚举，variant 对齐官方注册源名（`Pypi`、`PubDev` 等）
+  - 命名：`Registry` 枚举，variant 对齐官方注册源名（`PyPI`、`PubDev` 等）
   - `publish --registry pypi`（默认）
   - `publish --registry crates`
   - `publish --registry pub-dev`

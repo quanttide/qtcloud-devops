@@ -33,7 +33,7 @@
 
 ### 移除 cancel
 
-- `cancel` 命令移除，有需要时使用 `retire` 替代
+- `cancel` 命令移除。Staged 版本的废弃通过递增预发布序号隐式完成（旧 tag 保留，不清理）
 
 ### 发布流程重构
 
@@ -54,7 +54,7 @@ stage -v cli/v0.3.2-rc.1     ← 标记预发布，推送 tag，触发 CI
 ### 发布渠道支持
 
 - **pub.dev 发布集成**：`publish --registry pub-dev` 支持
-  - 注册源命名：`Registry` 枚举，variant 用官方名（`Pypi`、`PubDev`、`Crates`）
+  - 注册源命名：`Registry` 枚举，variant 用官方名（`PyPI`、`PubDev`、`Crates`）
   - 不提前做 trait 抽象，积累两个以上真实实现后再提取
 
 ## 待规划
