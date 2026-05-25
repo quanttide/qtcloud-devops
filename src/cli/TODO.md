@@ -4,11 +4,11 @@
 
 ### stage 关联预发布
 
-- [ ] `stage` 改为推送 rc tag（版本号含 `-rc.N` 后缀）
+- [ ] `stage` 改为推送 tag（仅限预发布版本）
   - 文件：`src/commands/release.rs` `stage()` 函数
   - 当前行为：只校验版本号 + 存 journal
-  - 改为：校验 `-rc.N` 后缀 → `create_tag()` + `push_tag()` → 触发 CI
-  - 版本号不含 `-rc.N` 时拒绝
+  - 改为：校验含 semver 预发布后缀（`-rc.N`、`-alpha.N`、`-beta.N` 等）→ `create_tag()` + `push_tag()` → 触发 CI
+  - 版本号不含预发布后缀时拒绝（正式版不走 stage）
 - [ ] CI 新增 rc tag 构建 workflow
   - 文件：`.github/workflows/build-rc.yml`
   - 触发：`push: tags: ['cli/*-rc.*']`
@@ -19,7 +19,7 @@
 - [ ] `publish` 打正式 tag + GitHub Release + 注册源（当前行为不变）
   - 文件：`src/commands/release.rs` `publish()` 函数
   - 当前已实现：`create_tag()` + `push_tag()` + `create_release()`
-- [ ] 前置条件：对应 rc tag 已存在（验证 `cli/v0.3.2-rc.*` 存在才能 publish `cli/v0.3.2`）
+- [ ] 前置条件：对应预发布 tag 已存在（验证 `cli/v0.3.2-*` 存在才能 publish `cli/v0.3.2`）
 
 ### 移除 cancel
 

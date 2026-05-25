@@ -29,7 +29,7 @@
 
 - [x] clap 注释标记废弃，执行时打印 deprecation warning
 
-## v0.4.x — 移除 cancel & stage 关联预发布 & 发布目标支持
+## v0.4.x — 移除 cancel & stage 关联预发布 & 发布渠道支持
 
 ### 移除 cancel
 
@@ -37,19 +37,19 @@
 
 ### 发布流程重构
 
-当前 `stage` 只校验版本号，`publish` 同时打 tag 和创建 Release。`stage` 和预发布（rc）没有关联。
+当前 `stage` 只校验版本号，`publish` 同时打 tag 和创建 Release。`stage` 和预发布没有关联。
 
 改进方向：
 
 ```
-stage -v cli/v0.3.2-rc.1      ← 标记 rc，推送 tag，触发 CI
-  → CI 验证 rc 构建
+stage -v cli/v0.3.2-rc.1     ← 标记预发布，推送 tag，触发 CI
+  → CI 验证
   → 通过后 publish -v cli/v0.3.2    ← 正式版：打 tag + GitHub Release + 注册源
-  → 失败后直接 stage -v cli/v0.3.2-rc.2  ← 递增 rc 序号
+  → 失败后 stage -v cli/v0.3.2-rc.2  ← 递增序号
 
-- [ ] `stage` 改为推送 rc tag（版本号含 `-rc.N` 后缀），触发 CI
+- [ ] `stage` 改为推送 tag（仅限含 semver 预发布后缀的版本：`-rc.N`、`-alpha.N` 等）
 - [ ] `publish` 保持正式版打 tag + GitHub Release 不变
-- [ ] CI 应支持 rc tag 的构建（当前基于 Release 事件触发，需改为 tag push 或增加 rc 构建 workflow）
+- [ ] CI 应支持预发布 tag 的构建（当前基于 Release 事件触发，需改为 tag push 或增加 workflow）
 
 ### 发布渠道支持
 
