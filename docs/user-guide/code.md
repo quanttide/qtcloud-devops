@@ -1,51 +1,70 @@
-# code 命令用户指南
+# 子模块管理教程
 
-`code` 管理 Git 子模块。适合有多仓库项目的团队。
+以 qtcloud-devops 自身为例，展示完整的子模块管理流程。
 
-## 场景一：查看状态
+## 子模块结构
+
+```
+quanttide-devops（主仓库）
+├── apps/qtcloud-devops          → qtcloud-devops 应用
+├── packages/toolkit               → devops 工具包
+└── examples/default             → 参考示例
+```
+
+## 查看状态
 
 ```bash
-cd /path/to/your/repo
+cd /home/iguo/repos/quanttide/domains/quanttide-devops
 qtcloud-devops code status
 ```
 
-输出每个子模块的状态。7 种状态中，需要关注的是非 Clean 的项：
+输出每个子模块的状态。Clean 表示正常，其他状态需要关注：
 
-| 状态 | 含义 | 怎么做 |
-|------|------|--------|
-| AheadOfParent | 子模块有新提交 | `code sync <name>` |
-| BehindRemote | 远程有更新 | `git submodule update --remote <name>` |
-| Dirty | 有未提交修改 | 先 commit，再 `code sync` |
-| Detached | 游离 HEAD | `git checkout <name> <branch>` |
-| Orphaned | 提交在远程不存在 | 手动修复父指针 |
-| Uninitialized | 未初始化 | `git submodule update --init <name>` |
+| 状态 | 含义 |
+|------|------|
+| AheadOfParent | 子模块有新提交，父仓库指针未更新 |
+| BehindRemote | 远程仓库有更新，本地子模块未拉取 |
+| Dirty | 子模块工作区有未提交修改 |
+| Detached | 子模块处于游离 HEAD 状态 |
+| Orphaned | 父仓库记录的提交在远程已不存在 |
+| Uninitialized | 子模块尚未初始化 |
 
-`code status --offline` 跳过网络 fetch，使用本地缓存。
+远程不可达时标记 🛰，跳过 Orphaned/BehindRemote 判定。
 
-## 场景二：同步子模块
+## 同步子模块
+
+子模块有 AheadOfParent 或本地有修改需要推送到远程时：
 
 ```bash
-# 同步单个
-qtcloud-devops code sync my-module
+qtcloud-devops code sync apps/qtcloud-devops
+```
 
-# 同步全部
+同步包含三个步骤：
+
+1. **推送子模块** — 将子模块本地提交推送到子模块的 remote
+2. **更新父指针** — 更新父仓库中的子模块指针并本地提交
+3. **推送父仓库** — 将父仓库的指针更新推送到 remote
+
+省略名称时同步全部子模块：
+
+```bash
 qtcloud-devops code sync
 ```
 
-同步包含三个步骤：推送子模块 → 更新父指针 → 推送父仓库。
+## 退役子模块
 
-## 场景三：退役子模块
+当子模块不再需要时：
 
 ```bash
-qtcloud-devops code retire old-module
+qtcloud-devops code retire examples/default
 ```
 
-自动执行：`deinit` → 清理 `.gitmodules` → 清理 index。
+自动完成反注册：`deinit` → 清理 `.gitmodules` → 清理 index。
 
-## 场景四：预览（dry-run）
+## 预览模式
 
 ```bash
 # 先看会做什么，不实际执行
-qtcloud-devops code sync my-module --dry-run
-qtcloud-devops code retire old-module --dry-run
+qtcloud-devops code sync apps/qtcloud-devops --dry-run
+qtcloud-devops code retire examples/default --dry-run
 ```
