@@ -6,44 +6,28 @@
 
 新增 `release status` 命令，查看发布状态。修复 `python.rs` 模块路径。
 
-## v0.3.x — code 命令体验修复 & 发布流程加固（当前）
+## v0.3.x — code 命令体验修复 ✅
 
 基于 `v0.3.0` 实际使用体验（17 个子模块全流程实测），修复 `code status` 和 `code sync` 的核心问题。
 
-### 发布流程漏洞
+### P0 — 状态误判与实时性 ✅
 
-`publish` 创建 tag + GitHub Release 时 CI 还没跑。如果 CI 失败，tag 和 Release 已经存在 remote，journal 记录为 Published，无法重新发布同一版本。
+- [x] 修正状态判定：工作区有未提交修改才标 Dirty，父指针落后标 AheadOfParent
+- [x] `status` 默认先 fetch，获取远程最新 ref
+- [ ] `--offline` 参数跳过 fetch（待实现）
 
-- [ ] 考虑改进：`publish` 只打标，CI 通过后自动创建 Release（或手动创建）
-- 现状：v0.3.1 CI 失败后标签和 Release 已存在，只能升 v0.3.2
+### P1 — CLI 设计 ✅
 
-### P0 — 状态误判与实时性
+- [x] `--dry-run` 下放到 `sync` / `retire` 各子命令
 
-**状态误判**：`code status` 将纯 AheadOfParent 的子模块标记为 Dirty。根因是状态判定混用了"工作区是否干净"和"父指针是否落后"两个维度。
+### P2 — 输出格式 ✅
 
-- [ ] 修正状态判定：工作区有未提交修改才标 Dirty，父指针落后标 AheadOfParent
-- 涉及：`src/model/code.rs` `RepoState::scan()` 判定逻辑
+- [x] 同步输出改为单行聚合格式
+- [x] 失败的子模块显式标记
 
-**remote_head 是本地缓存**：三路比对中的 `remote_head` 是上次 `git fetch` 时的快照，不反映远程实时状态。`BehindRemote` 无法检测真正的远程更新。
+### cancel 废弃 ✅
 
-- [ ] `status` 默认先 fetch，失败时降级到本地缓存并标记 🛰
-- [ ] 增加 `--offline` 参数跳过 fetch
-- 涉及：`src/commands/code.rs` `status` 逻辑
-
-### P1 — CLI 设计
-
-- [ ] `--dry-run` 下放到 `sync` / `status` / `retire` 各子命令（当前是 `code` 级别，违反直觉）
-- 涉及：`src/main.rs` `CodeAction` 参数定义
-
-### P2 — 输出格式
-
-- [ ] 同步输出改为单行聚合格式：`name  ✓ push · sync · push-parent`
-- [ ] 失败的子模块显式标记：`✗ push: 权限不足 · 已跳过`
-- 涉及：`src/commands/code.rs` 输出逻辑
-
-## v0.3.x — cancel 废弃
-
-`cancel` 在 stage 关联预发布后无实际用途（rc 失败直接递增序号，不清理）。v0.3.x 标记废弃，保留命令但输出提示 "已废弃，请使用 retire"。
+- [x] clap 注释标记废弃，执行时打印 deprecation warning
 
 ## v0.4.x — 移除 cancel & stage 关联预发布 & 发布目标支持
 
