@@ -53,8 +53,9 @@ stage -v cli/v0.3.2-rc.1     ← 标记预发布，推送 tag，触发 CI
 
 ### 发布渠道支持
 
-- **pub.dev 发布集成**：release 命令支持发布到 pub.dev
-- **发布渠道抽象**：从 PyPI/pub.dev 的具体实现中提取 `Publisher` trait
+- **pub.dev 发布集成**：`publish --registry pub-dev` 支持
+  - 注册源命名：`Registry` 枚举，variant 用官方名（`Pypi`、`PubDev`、`Crates`）
+  - 不提前做 trait 抽象，积累两个以上真实实现后再提取
 
 ## 待规划
 

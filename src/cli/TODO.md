@@ -35,5 +35,9 @@
 
 ## P3 — pub.dev 发布集成
 
-- [ ] `publish --to pub` 调用 `dart pub publish`
-- [ ] 先做具体实现，积累两个以上渠道后再考虑提取 trait
+- [ ] `publish --registry <name>` 指定发布目标
+  - 命名：`Registry` 枚举，variant 对齐官方注册源名（`Pypi`、`PubDev` 等）
+  - `publish --registry pypi`（默认）
+  - `publish --registry crates`
+  - `publish --registry pub-dev`
+- [ ] 先做具体实现，积累两个以上后再考虑提取 trait
