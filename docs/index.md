@@ -38,4 +38,4 @@ qtcloud-devops code status
 | [发布管理](api-references/release.md) | release stage / publish / retire / status |
 | [子模块管理](api-references/code.md) | code status / sync / retire |
 | [安装指南](api-references/install.md) | pip / cargo / GitHub Releases |
-| [用户指南](user-guide/code.md) | code 命令使用场景与案例 |
+| [用户指南](user-guide/index.md) | 发布流程、子模块管理教程 |

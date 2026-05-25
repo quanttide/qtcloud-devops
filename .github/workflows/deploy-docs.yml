@@ -1,0 +1,28 @@
+name: deploy-docs
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'myst.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: install myst
+        run: npm install -g mystmd
+      - name: build docs
+        run: myst build --html
+        working-directory: docs
+      - name: upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+      - name: deploy to pages
+        uses: actions/deploy-pages@v4
