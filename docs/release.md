@@ -1,6 +1,6 @@
 # 发布教程
 
-以 v0.3.0 为例，展示完整发布流程。
+以 v0.4.1 为例，展示完整发布流程。
 
 ## 发布流程
 
@@ -10,13 +10,13 @@
 
 ```bash
 # Cargo.toml
-version = "0.3.0"
+version = "0.4.1"
 
 # pyproject.toml
-version = "0.3.0"
+version = "0.4.1"
 
 # CHANGELOG.md
-## [0.3.0] - 2026-05-24
+## [0.4.1] - 2026-05-25
 ```
 
 ### Step 2：提交
@@ -24,41 +24,27 @@ version = "0.3.0"
 ```bash
 cd apps/qtcloud-devops/src/cli
 git add -A
-git commit -m "chore: bump to v0.3.0"
+git commit -m "chore: bump to v0.4.1"
 git push origin main
 ```
 
 ### Step 3：发布
 
-确认本地 commit 已推送后，使用 CLI 发布自身：
-
 ```bash
 cd apps/qtcloud-devops/src/cli
-cargo build                              # 确保二进制是最新版本
-qtcloud-devops stage -v cli/v0.3.0       # 标记版本
-qtcloud-devops publish -v cli/v0.3.0 -y  # 打 tag + GitHub Release
+cargo build
+qtcloud-devops release publish -v cli/v0.4.1 -y
 ```
 
-`stage` 校验版本号格式，`publish` 执行 tag 创建、推送、GitHub Release。
-
-publish 成功后会自动触发 GitHub Actions：
-
-```
-release published
-    → build-cli（三平台构建 + wheel 构建）
-        → publish-crate（crates.io）
-        → publish-pypi（PyPI）
-```
+正式版不需要 `release stage`，直接 `release publish`。预发布版本才需要先 `release stage`。
 
 ### Step 4：验证
 
-检查两个渠道的发布结果：
-
 ```bash
 cargo search qtcloud-devops-cli --registry crates-io
-# 应显示 qtcloud-devops-cli = "0.3.0"
+# 应显示 qtcloud-devops-cli = "0.4.1"
 
-pip install qtcloud-devops-cli==0.3.0
+pip install qtcloud-devops-cli==0.4.1
 qtcloud-devops --version
-# 应输出 qtcloud-devops 0.3.0
+# 应输出 qtcloud-devops 0.4.1
 ```
