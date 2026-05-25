@@ -3,6 +3,13 @@ use std::process::Command;
 
 use crate::model::release::{FileStorage, ReleaseRecord, ReleaseStatus, Storage, TransitionError};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Registry {
+    PyPI,
+    PubDev,
+    Crates,
+}
+
 // ===== utility functions =====
 
 pub fn validate_version(version: &str) -> bool {
@@ -186,7 +193,7 @@ fn has_prerelease_tag(version: &str, repo_path: &Path) -> bool {
     output.map_or(false, |o| !o.stdout.is_empty())
 }
 
-pub fn publish(version: &str, repo_path: &Path, yes: bool) -> Result<String, Box<dyn std::error::Error>> {
+pub fn publish(version: &str, repo_path: &Path, yes: bool, registry: Option<Registry>) -> Result<String, Box<dyn std::error::Error>> {
     let mut storage = FileStorage::new(repo_path);
     let mut record = storage
         .load(version)
@@ -218,6 +225,10 @@ pub fn publish(version: &str, repo_path: &Path, yes: bool) -> Result<String, Box
         }
         println!("✓ GitHub Release {} 已创建", version);
         println!("  https://github.com/{}/releases/tag/{}", repo, version);
+    }
+
+    if let Some(reg) = registry {
+        println!("  {:?} 由 CI 自动发布，无需本地操作", reg);
     }
 
     record.status = ReleaseStatus::Published;
@@ -448,7 +459,7 @@ mod tests {
     #[test]
     fn test_publish_not_found() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(publish("v1.0.0", dir.path(), true).unwrap_err().to_string().contains("请先执行 stage"));
+        assert!(publish("v1.0.0", dir.path(), true, None).unwrap_err().to_string().contains("请先执行 stage"));
     }
 
     #[test]
@@ -458,7 +469,7 @@ mod tests {
         let mut r = ReleaseRecord::new_staged("v1.0.0");
         r.status = ReleaseStatus::Cancelled;
         s.save(&r).unwrap();
-        assert!(publish("v1.0.0", dir.path(), true).is_err());
+        assert!(publish("v1.0.0", dir.path(), true, None).is_err());
     }
 
     // retire

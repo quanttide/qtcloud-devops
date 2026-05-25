@@ -150,7 +150,7 @@ fn test_release_publish_not_staged() {
     let mut s = FileStorage::new(dir.path());
     s.save(&make_record("v1.0.0", ReleaseStatus::Cancelled)).unwrap();
     assert!(
-        qtcloud_devops_cli::commands::release::publish("v1.0.0", dir.path(), true).is_err()
+        qtcloud_devops_cli::commands::release::publish("v1.0.0", dir.path(), true, None).is_err()
     );
 }
 
@@ -158,7 +158,7 @@ fn test_release_publish_not_staged() {
 fn test_release_publish_not_found() {
     let dir = tempfile::tempdir().unwrap();
     assert!(
-        qtcloud_devops_cli::commands::release::publish("v1.0.0", dir.path(), true).is_err()
+        qtcloud_devops_cli::commands::release::publish("v1.0.0", dir.path(), true, None).is_err()
     );
 }
 

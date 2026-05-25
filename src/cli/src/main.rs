@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use qtcloud_devops_cli::commands::code::GitSubmoduleEditor;
+use qtcloud_devops_cli::commands::release::Registry;
 use qtcloud_devops_cli::commands::{HealthIssue, SubmoduleEditor};
 use qtcloud_devops_cli::model::code;
 use std::path::PathBuf;
@@ -34,6 +35,8 @@ enum Commands {
         version: String,
         #[arg(long, short = 'y')]
         yes: bool,
+        #[arg(long, value_enum)]
+        registry: Option<Registry>,
     },
     /// 将已发布的版本标记为退役
     Retire {
@@ -135,8 +138,8 @@ fn main() {
             qtcloud_devops_cli::commands::release::stage(&version, &repo_path())
                 .map(|_| ()).map_err(|e| format!("{}", e))
         }
-        Commands::Publish { version, yes } => {
-            qtcloud_devops_cli::commands::release::publish(&version, &repo_path(), yes)
+        Commands::Publish { version, yes, registry } => {
+            qtcloud_devops_cli::commands::release::publish(&version, &repo_path(), yes, registry)
                 .map(|_| ()).map_err(|e| format!("{}", e))
         }
         Commands::Retire { version } => {
