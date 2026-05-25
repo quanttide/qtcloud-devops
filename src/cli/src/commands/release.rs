@@ -128,12 +128,19 @@ pub fn parse_github_repo(url: &str) -> Option<String> {
 }
 
 pub fn create_release(version: &str, notes: &str, repo: &str) -> bool {
-    match Command::new("gh")
+    let out = Command::new("gh")
         .args(["release", "create", version, "--title", version, "--notes", notes, "--repo", repo])
-        .output()
-    {
+        .output();
+    match out {
         Ok(out) if out.status.success() => true,
-        Ok(out) => { eprintln!("创建 Release 失败: {}", String::from_utf8_lossy(&out.stderr).trim()); false }
+        Ok(out) => {
+            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if msg.contains("already exists") || msg.contains("已存在") {
+                return true; // 幂等：Release 已存在时不报错
+            }
+            eprintln!("创建 Release 失败: {}", msg);
+            false
+        }
         Err(e) => { eprintln!("创建 Release 失败: {}", e); false }
     }
 }
