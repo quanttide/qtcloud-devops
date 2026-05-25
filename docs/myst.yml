@@ -4,10 +4,8 @@ project:
   description: DevOps 基础设施仓库，封装量潮发布规范为可执行命令
   keywords: [devops, release, git, submodule]
   authors:
-    - name:
-        given: Guo
-        family: Zhang
-      email: zhangguo@quanttide.com
+    - name: 量潮科技
+      email: opensource@quanttide.com
   github: https://github.com/quanttide/qtcloud-devops
   source: https://github.com/quanttide/qtcloud-devops/tree/main/docs
   toc:
