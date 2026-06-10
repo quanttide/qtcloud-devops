@@ -31,12 +31,15 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ReleaseAction {
-    /// 发布版本（创建 tag + GitHub Release）
+    /// 发布版本：校验 CHANGELOG → 创建 tag → 推送到远端 → 创建 GitHub Release
     Publish {
+        /// 版本号。格式 `vX.Y.Z` 或 `scope/vX.Y.Z`（如 `cli/v0.5.0`）
         #[arg(short = 'v', long)]
         version: String,
+        /// 跳过用户确认
         #[arg(long, short = 'y')]
         yes: bool,
+        /// CI 发布目标（仅打印提示，不执行发布）
         #[arg(long, value_enum)]
         registry: Option<Registry>,
     },

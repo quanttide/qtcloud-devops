@@ -2,6 +2,24 @@ use std::path::Path;
 
 use super::util::{self, Registry};
 
+/// 发布版本。
+///
+/// 内部处理流程：
+/// 1. 校验版本号格式（需匹配 `vX.Y.Z` 或 `scope/vX.Y.Z`）
+/// 2. 校验 CHANGELOG.md 存在且包含对应版本记录
+/// 3. 用户确认（除非 `yes = true`）
+/// 4. 创建 git tag（幂等，已存在时跳过）
+/// 5. 推送 tag 到远端（无远端时静默跳过）
+/// 6. 创建 GitHub Release（幂等，已存在时跳过）
+/// 7. 打印 registry 发布提示（不实际发布，由 CI 执行）
+///
+/// 回滚：步骤 5 失败时删除本地 tag；步骤 6 失败时删除本地和远端 tag。
+///
+/// # 参数
+/// - `version`: 版本号。格式 `vX.Y.Z` 或 `scope/vX.Y.Z`（如 `cli/v0.5.0`）
+/// - `repo_path`: git 仓库路径
+/// - `yes`: 跳过用户确认
+/// - `registry`: CI 发布目标提示（仅打印，不执行）
 pub fn publish(version: &str, repo_path: &Path, yes: bool, registry: Option<Registry>) -> Result<(), Box<dyn std::error::Error>> {
     if !util::validate_version(version) {
         return Err(format!("版本号格式错误: {}", version).into());
