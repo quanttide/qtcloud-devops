@@ -1,32 +1,41 @@
 use std::path::PathBuf;
 
-/// 扫描仓库子模块状态并返回聚合摘要文本。
-/// 输出业务语言（同步/待推送/待拉取/冲突），不暴露子模块概念。
-pub fn status(root: PathBuf, offline: bool) -> Result<String, Box<dyn std::error::Error>> {
+use super::model::{ComponentStatus, StatusReport, SyncStatus};
+use crate::git::submodule::{RepoState, SubmoduleStatus};
+
+pub fn status(root: PathBuf, offline: bool) -> Result<StatusReport, String> {
     let state = if offline {
-        crate::git::submodule::RepoState::scan_offline(&root)?
+        RepoState::scan_offline(&root)
     } else {
-        crate::git::submodule::RepoState::scan(&root)?
-    };
-    let total = state.total;
-    let clean = state.clean_count;
-    let pending = total - clean;
+        RepoState::scan(&root)
+    }
+    .map_err(|e| format!("扫描失败: {}", e))?;
 
-    let mut parts = Vec::new();
+    let mut components = Vec::with_capacity(state.submodules.len());
     for sm in &state.submodules {
-        let label = match sm.status {
-            crate::git::submodule::SubmoduleStatus::Clean => continue,
-            crate::git::submodule::SubmoduleStatus::AheadOfParent => format!("{}: 待推送", sm.name),
-            crate::git::submodule::SubmoduleStatus::BehindRemote => format!("{}: 待拉取", sm.name),
-            crate::git::submodule::SubmoduleStatus::Detached | crate::git::submodule::SubmoduleStatus::Dirty => format!("{}: 有修改", sm.name),
-            crate::git::submodule::SubmoduleStatus::Orphaned | crate::git::submodule::SubmoduleStatus::Uninitialized => format!("{}: 异常", sm.name),
+        let s = match sm.status {
+            SubmoduleStatus::Clean => SyncStatus::Synced,
+            SubmoduleStatus::AheadOfParent => SyncStatus::PendingPush,
+            SubmoduleStatus::BehindRemote => SyncStatus::PendingPull,
+            _ => SyncStatus::Conflict,
         };
-        parts.push(label);
+        components.push(ComponentStatus {
+            name: sm.name.clone(),
+            status: s,
+            ahead: sm.ahead_count,
+            behind: sm.behind_count,
+        });
     }
 
-    if parts.is_empty() {
-        Ok(format!("全部 {} 个组件已同步", total))
-    } else {
-        Ok(format!("{} / {} 个组件未同步:\n  {}", pending, total, parts.join("\n  ")))
-    }
+    let total = components.len();
+    let synced = components.iter().filter(|c| c.status == SyncStatus::Synced).count();
+    let pending = total - synced;
+
+    Ok(StatusReport {
+        root: state.root_path.to_string_lossy().to_string(),
+        components,
+        total,
+        synced,
+        pending,
+    })
 }

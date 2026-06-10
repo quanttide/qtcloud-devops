@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
+use qtcloud_devops_cli::code::{self, StatusReport};
 use qtcloud_devops_cli::release::Registry;
-use qtcloud_devops_cli::git::submodule::{self, GitSubmoduleEditor, HealthIssue};
 use std::path::PathBuf;
 use std::process;
 
@@ -17,7 +17,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Git 子模块管理命令集
+    /// 组件同步管理命令集
     Code {
         #[command(subcommand)]
         action: CodeAction,
@@ -49,16 +49,16 @@ enum ReleaseAction {
 
 #[derive(Subcommand)]
 enum CodeAction {
-    /// 扫描并展示仓库所有子模块的状态
+    /// 查看组件同步状态
     Status {
         #[arg(default_value = ".")]
         path: PathBuf,
         #[arg(long)]
         offline: bool,
     },
-    /// 同步子模块指针到父仓库
+    /// 同步组件到远端
     Sync {
-        /// 子模块名称（省略则同步全部）
+        /// 组件名称（省略则同步全部）
         name: Option<String>,
         #[arg(long)]
         dry_run: bool,
@@ -72,39 +72,24 @@ fn resolve_path(path: &PathBuf) -> Result<PathBuf, String> {
         .map_err(|e| format!("无法解析路径 '{}': {}", path.display(), e))
 }
 
-fn print_issues(issues: &[HealthIssue]) {
-    if !issues.is_empty() {
-        println!("\n需要关注的子模块:");
-        for issue in issues {
-            println!("  [{}] {}", issue.submodule_name, issue.description);
-            println!("        建议: {}", issue.suggested_action);
+fn print_report(report: &StatusReport) {
+    println!("仓库: {}", report.root);
+    println!("组件总数: {}", report.total);
+    if report.pending > 0 {
+        println!("待处理: {}", report.pending);
+        for c in &report.components {
+            if c.status != code::SyncStatus::Synced {
+                let detail = match (c.ahead, c.behind) {
+                    (a, 0) if a > 0 => format!(" (领先 {} 提交)", a),
+                    (0, b) if b > 0 => format!(" (落后 {} 提交)", b),
+                    (a, b) if a > 0 && b > 0 => format!(" (+{}/-{})", a, b),
+                    _ => String::new(),
+                };
+                println!("  {:<20} {}{}", c.name, c.status.label(), detail);
+            }
         }
-    }
-}
-
-fn print_aggregate(state: &submodule::RepoState) {
-    if let Ok((_, agg)) = submodule::RepoState::scan_all(&state.root_path) {
-        println!("\n聚合统计:");
-        println!("  总数: {}", agg.total);
-        println!("  ✅ Clean: {}", agg.clean);
-        if agg.ahead_of_parent > 0 {
-            println!("  ⬆ AheadOfParent: {}", agg.ahead_of_parent);
-        }
-        if agg.behind_remote > 0 {
-            println!("  ⬇ BehindRemote: {}", agg.behind_remote);
-        }
-        if agg.detached > 0 {
-            println!("  ⚠ Detached: {}", agg.detached);
-        }
-        if agg.dirty > 0 {
-            println!("  🔴 Dirty: {}", agg.dirty);
-        }
-        if agg.orphaned > 0 {
-            println!("  💀 Orphaned: {}", agg.orphaned);
-        }
-        if agg.uninitialized > 0 {
-            println!("  ⚪ Uninitialized: {}", agg.uninitialized);
-        }
+    } else {
+        println!("全部组件已同步");
     }
 }
 
@@ -149,68 +134,32 @@ fn run_code(action: CodeAction) -> Result<(), String> {
 
 fn run_code_status(path: PathBuf, offline: bool) -> Result<(), String> {
     let root = resolve_path(&path)?;
-    let mut editor = GitSubmoduleEditor::new(root.clone());
-    editor.set_offline(offline);
-    let state = submodule::RepoState::scan(&root).map_err(|e| format!("{}", e))?;
-    let issues = editor.status().map_err(|e| format!("{}", e))?;
-
-    println!("仓库: {}", state.root_path.display());
-    println!("子模块总数: {}", state.total);
-    println!("干净: {}", state.clean_count);
-    if !state.needs_attention.is_empty() {
-        println!("需要关注: {}", state.needs_attention.join(", "));
-    }
-
-    print_aggregate(&state);
-    println!();
-
-    if state.submodules.is_empty() && state.total == 0 {
-        println!("  没有子模块");
-    } else {
-        println!("  {:<20} {:<15} {:<10} {:<8}", "名称", "状态", "分支", "差异");
-        for sm in &state.submodules {
-            let diff = if sm.ahead_count > 0 && sm.behind_count > 0 {
-                format!("+{}/-{}", sm.ahead_count, sm.behind_count)
-            } else if sm.ahead_count > 0 {
-                format!("+{}", sm.ahead_count)
-            } else if sm.behind_count > 0 {
-                format!("-{}", sm.behind_count)
-            } else {
-                String::new()
-            };
-            println!("  {:<20} {:<15} {:<10} {:<8}", sm.name, format!("{:?}", sm.status), sm.tracked_branch, diff);
-        }
-    }
-    print_issues(&issues);
+    let report = code::status(root, offline)?;
+    print_report(&report);
     Ok(())
 }
 
 fn run_code_sync_one(name: &str, dry_run: bool, repo: PathBuf) -> Result<(), String> {
     let root = resolve_path(&repo)?;
     if dry_run {
-        println!("[预览] 同步子模块 '{}' 到父仓库", name);
+        println!("[预览] 同步组件 '{}'", name);
         return Ok(());
     }
-    let editor = GitSubmoduleEditor::new(root);
-    editor.sync_to_parent(name).map_err(|e| format!("同步子模块 '{}' 失败: {}", name, e))
+    code::sync(root, name)
 }
 
 fn run_code_sync_all(dry_run: bool, repo: PathBuf) -> Result<(), String> {
     let root = resolve_path(&repo)?;
     if dry_run {
-        println!("[预览] 同步所有子模块到父仓库");
+        println!("[预览] 同步所有组件");
         return Ok(());
     }
-    let editor = GitSubmoduleEditor::new(root);
-    editor.sync_all_to_parent().map_err(|e| format!("同步所有子模块失败: {}", e))
+    code::sync_all(root)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-
-    // ---- resolve_path ----
 
     #[test]
     fn test_resolve_path_valid() {
@@ -223,83 +172,5 @@ mod tests {
     fn test_resolve_path_invalid() {
         let result = resolve_path(&PathBuf::from("/__nonexistent_path_12345__"));
         assert!(result.is_err());
-    }
-
-    // ---- print_issues ----
-
-    #[test]
-    fn test_print_issues_empty() {
-        let issues = vec![];
-        print_issues(&issues);
-    }
-
-    #[test]
-    fn test_print_issues_non_empty() {
-        use qtcloud_devops_cli::git::submodule::HealthIssue;
-        let issues = vec![HealthIssue {
-            submodule_name: "libs/foo".into(),
-            status: "Dirty".into(),
-            description: "有修改".into(),
-            suggested_action: "提交".into(),
-        }];
-        print_issues(&issues);
-    }
-
-    #[test]
-    fn test_print_aggregate_all_zeros() {
-        let state = submodule::RepoState {
-            root_path: PathBuf::from("/tmp"),
-            submodules: vec![],
-            total: 0,
-            clean_count: 0,
-            needs_attention: vec![],
-        };
-        print_aggregate(&state);
-    }
-
-    #[test]
-    fn test_print_aggregate_with_variants() {
-        use qtcloud_devops_cli::git::submodule::{CommitHash, Submodule, SubmoduleStatus};
-
-        fn sm(name: &str, status: SubmoduleStatus) -> Submodule {
-            Submodule {
-                name: name.into(),
-                path: PathBuf::new(),
-                url: String::new(),
-                tracked_branch: "main".into(),
-                parent_pointer: CommitHash::default(),
-                local_head: CommitHash::default(),
-                remote_head: CommitHash::default(),
-                status,
-                ahead_count: 0,
-                behind_count: 0,
-                remote_unreachable: false,
-            }
-        }
-
-        let submodules = vec![
-            sm("a", SubmoduleStatus::AheadOfParent),
-            sm("b", SubmoduleStatus::BehindRemote),
-            sm("c", SubmoduleStatus::Detached),
-            sm("d", SubmoduleStatus::Dirty),
-            sm("e", SubmoduleStatus::Orphaned),
-            sm("f", SubmoduleStatus::Uninitialized),
-            sm("g", SubmoduleStatus::Clean),
-        ];
-        let state = submodule::RepoState {
-            root_path: PathBuf::from("/tmp"),
-            submodules,
-            total: 7,
-            clean_count: 1,
-            needs_attention: vec![
-                "a".into(),
-                "b".into(),
-                "c".into(),
-                "d".into(),
-                "e".into(),
-                "f".into(),
-            ],
-        };
-        print_aggregate(&state);
     }
 }
