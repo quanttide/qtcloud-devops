@@ -36,7 +36,7 @@ fn test_release_create_tag_uses_repo_path() {
     git_commit(dir.path());
 
     let tag = "v999.999.999-test-repo-path";
-    assert!(qtcloud_devops_cli::release::util::create_tag(tag, dir.path()));
+    assert!(qtcloud_devops_cli::release::create_tag(tag, dir.path()));
 
     let output = std::process::Command::new("git")
         .args(["-C", dir.path().to_str().unwrap(), "tag", "-l"])

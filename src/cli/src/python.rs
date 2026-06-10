@@ -31,8 +31,7 @@ fn scan_repo(path: String) -> PyResult<PyObject> {
 fn sync_single(name: String, path: String) -> PyResult<PyObject> {
     let canonical = resolve_path(&path)?;
     let editor = GitSubmoduleEditor::new(canonical);
-    editor
-        .sync_to_parent(&name)
+    editor.sync_to_parent(&name)
         .map_err(|e| PyRuntimeError::new_err(format!("同步子模块 '{}' 失败: {}", name, e)))?;
     Python::with_gil(|py| Ok(py.None()))
 }
@@ -41,19 +40,8 @@ fn sync_single(name: String, path: String) -> PyResult<PyObject> {
 fn sync_all(path: String) -> PyResult<PyObject> {
     let canonical = resolve_path(&path)?;
     let editor = GitSubmoduleEditor::new(canonical);
-    editor
-        .sync_all_to_parent()
+    editor.sync_all_to_parent()
         .map_err(|e| PyRuntimeError::new_err(format!("同步所有子模块失败: {}", e)))?;
-    Python::with_gil(|py| Ok(py.None()))
-}
-
-#[pyfunction]
-fn retire_submodule(name: String, path: String) -> PyResult<PyObject> {
-    let canonical = resolve_path(&path)?;
-    let editor = GitSubmoduleEditor::new(canonical);
-    editor
-        .retire_submodule(&name)
-        .map_err(|e| PyRuntimeError::new_err(format!("退役子模块 '{}' 失败: {}", name, e)))?;
     Python::with_gil(|py| Ok(py.None()))
 }
 
@@ -62,7 +50,6 @@ fn _native(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(scan_repo, m)?)?;
     m.add_function(wrap_pyfunction!(sync_single, m)?)?;
     m.add_function(wrap_pyfunction!(sync_all, m)?)?;
-    m.add_function(wrap_pyfunction!(retire_submodule, m)?)?;
     Ok(())
 }
 
@@ -71,60 +58,24 @@ fn _native(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 mod tests {
     use super::*;
 
-    // ---- resolve_path ----
-
-    #[test]
-    fn test_py_resolve_path_valid() {
-        let result = resolve_path(".");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_py_resolve_path_invalid() {
-        let result = resolve_path("/__kse_no_such_path__");
-        assert!(result.is_err());
-    }
-
-    // ---- state_to_dict ----
-
-    #[test]
-    fn test_state_to_dict_empty() {
-        let state = code::RepoState {
-            root_path: std::path::PathBuf::from("/tmp"),
-            submodules: vec![],
-            total: 0,
-            clean_count: 0,
-            needs_attention: vec![],
-            parent_dirty: false,
+    #[test] fn test_py_resolve_path_valid() { assert!(resolve_path(".").is_ok()); }
+    #[test] fn test_py_resolve_path_invalid() { assert!(resolve_path("/__kse_no_such_path__").is_err()); }
+    #[test] fn test_state_to_dict_empty() {
+        let state = submodule::RepoState {
+            root_path: std::path::PathBuf::from("/tmp"), submodules: vec![], total: 0, clean_count: 0, needs_attention: vec![], parent_dirty: false,
         };
-        let result = state_to_dict(&state);
-        assert!(result.is_ok());
+        assert!(state_to_dict(&state).is_ok());
     }
-
-    #[test]
-    fn test_state_to_dict_with_submodule() {
+    #[test] fn test_state_to_dict_with_submodule() {
         let sm = submodule::Submodule {
-            name: "libs/foo".into(),
-            path: std::path::PathBuf::from("libs/foo"),
-            url: "https://example.com/foo.git".into(),
-            tracked_branch: "main".into(),
-            parent_pointer: submodule::CommitHash("abc123".into()),
-            local_head: submodule::CommitHash("def456".into()),
-            remote_head: submodule::CommitHash("ghi789".into()),
-            status: submodule::SubmoduleStatus::Clean,
-            ahead_count: 0,
-            behind_count: 0,
-            remote_unreachable: false,
+            name: "libs/foo".into(), path: std::path::PathBuf::from("libs/foo"), url: "https://example.com/foo.git".into(),
+            tracked_branch: "main".into(), parent_pointer: submodule::CommitHash("abc123".into()),
+            local_head: submodule::CommitHash("def456".into()), remote_head: submodule::CommitHash("ghi789".into()),
+            status: submodule::SubmoduleStatus::Clean, ahead_count: 0, behind_count: 0, remote_unreachable: false,
         };
-        let state = code::RepoState {
-            root_path: std::path::PathBuf::from("/tmp"),
-            submodules: vec![sm],
-            total: 1,
-            clean_count: 1,
-            needs_attention: vec![],
-            parent_dirty: false,
+        let state = submodule::RepoState {
+            root_path: std::path::PathBuf::from("/tmp"), submodules: vec![sm], total: 1, clean_count: 1, needs_attention: vec![], parent_dirty: false,
         };
-        let result = state_to_dict(&state);
-        assert!(result.is_ok());
+        assert!(state_to_dict(&state).is_ok());
     }
 }

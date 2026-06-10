@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use qtcloud_devops_cli::release::util::Registry;
+use qtcloud_devops_cli::release::Registry;
 use qtcloud_devops_cli::git::submodule::{self, GitSubmoduleEditor, HealthIssue};
 use std::path::PathBuf;
 use std::process;
@@ -235,10 +235,10 @@ mod tests {
 
     #[test]
     fn test_print_issues_non_empty() {
-        use qtcloud_devops_cli::git::submodule::{HealthIssue, SubmoduleStatus};
+        use qtcloud_devops_cli::git::submodule::HealthIssue;
         let issues = vec![HealthIssue {
             submodule_name: "libs/foo".into(),
-            status: SubmoduleStatus::Dirty,
+            status: "Dirty".into(),
             description: "有修改".into(),
             suggested_action: "提交".into(),
         }];

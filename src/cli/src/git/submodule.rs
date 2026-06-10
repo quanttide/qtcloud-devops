@@ -67,6 +67,14 @@ pub struct RepoState {
 
 impl RepoState {
     pub fn scan(root: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::scan_with_options(root, false)
+    }
+
+    pub fn scan_offline(root: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::scan_with_options(root, true)
+    }
+
+    fn scan_with_options(root: &std::path::Path, offline: bool) -> Result<Self, Box<dyn std::error::Error>> {
         let repo = match git2::Repository::open(root) {
             Ok(r) => r,
             Err(e) => return Err(format!("无法打开 Git 仓库 '{}': {}", root.display(), e).into()),
@@ -78,7 +86,7 @@ impl RepoState {
             git_submodules.sort_by(|a, b| a.name().cmp(&b.name()));
             git_submodules
                 .iter()
-                .map(|sm| Self::scan_single_submodule(root, sm, &repo))
+                .map(|sm| Self::scan_single_submodule(root, sm, &repo, offline))
                 .collect::<Result<Vec<_>, _>>()?
         } else {
             Vec::new()
@@ -111,6 +119,7 @@ impl RepoState {
         root: &std::path::Path,
         sm: &git2::Submodule,
         repo: &git2::Repository,
+        offline: bool,
     ) -> Result<Submodule, Box<dyn std::error::Error>> {
         let name = sm.name().unwrap_or("unknown").to_string();
         let sm_path = sm.path();
@@ -124,7 +133,7 @@ impl RepoState {
         let parent_pointer = CommitHash(head_oid.to_string());
 
         let (local_head, remote_head, is_detached, ahead_count, behind_count, is_orphaned, remote_unreachable) =
-            Self::scan_submodule_remote_state(&full_sm_path, &branch, &parent_pointer, is_uninitialized);
+            Self::scan_submodule_remote_state(&full_sm_path, &branch, &parent_pointer, is_uninitialized, offline);
 
         let is_dirty = !is_uninitialized
             && ahead_count == 0
@@ -153,7 +162,7 @@ impl RepoState {
     }
 
     fn scan_submodule_remote_state(
-        full_sm_path: &std::path::Path, branch: &str, parent_pointer: &CommitHash, is_uninitialized: bool,
+        full_sm_path: &std::path::Path, branch: &str, parent_pointer: &CommitHash, is_uninitialized: bool, offline: bool,
     ) -> (CommitHash, CommitHash, bool, usize, usize, bool, bool) {
         if is_uninitialized {
             return Self::default_submodule_state();
@@ -162,7 +171,9 @@ impl RepoState {
             return Self::default_submodule_state();
         };
         let (local, detached) = Self::open_submodule_head(&sub_repo);
-        Self::fetch_submodule_remote(&sub_repo);
+        if !offline {
+            Self::fetch_submodule_remote(&sub_repo);
+        }
         let (remote, unreachable) = Self::resolve_submodule_remote(&sub_repo, branch);
         let (ahead, behind, orphaned) = Self::compute_submodule_diff(&sub_repo, &local, parent_pointer, &remote, unreachable);
         (local, remote, detached, ahead, behind, orphaned, unreachable)
@@ -238,6 +249,12 @@ impl RepoState {
 
     pub fn scan_all(root: &std::path::Path) -> Result<(Vec<Submodule>, AggregateStatus), Box<dyn std::error::Error>> {
         let state = Self::scan(root)?;
+        let agg = AggregateStatus::from_submodules(&state.submodules);
+        Ok((state.submodules, agg))
+    }
+
+    pub fn scan_all_offline(root: &std::path::Path) -> Result<(Vec<Submodule>, AggregateStatus), Box<dyn std::error::Error>> {
+        let state = Self::scan_offline(root)?;
         let agg = AggregateStatus::from_submodules(&state.submodules);
         Ok((state.submodules, agg))
     }
@@ -390,7 +407,7 @@ impl GitSubmoduleEditor {
                 let (description, action) = describe_issue(&sm.status);
                 issues.push(HealthIssue {
                     submodule_name: sm.name.clone(),
-                    status: sm.status.clone(),
+                    status: format!("{:?}", sm.status),
                     description,
                     suggested_action: action,
                 });
@@ -415,7 +432,7 @@ fn count_between_opt(repo: &git2::Repository, from: Option<git2::Oid>, to: Optio
 #[derive(Debug, Clone)]
 pub struct HealthIssue {
     pub submodule_name: String,
-    pub status: SubmoduleStatus,
+    pub status: String,
     pub description: String,
     pub suggested_action: String,
 }
@@ -574,7 +591,7 @@ mod tests {
         let t = tempfile::tempdir().unwrap(); let p = setup_repo_with_submodule(t.path());
         std::fs::write(p.join("libs/sub/new-file"), "content").unwrap();
         let issues = GitSubmoduleEditor::new(p).status().unwrap();
-        assert!(!issues.is_empty()); assert_eq!(issues[0].status, SubmoduleStatus::Dirty);
+        assert!(!issues.is_empty()); assert_eq!(issues[0].status, "Dirty");
     }
 
     // ---- describe_issue ----

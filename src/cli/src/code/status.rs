@@ -3,7 +3,11 @@ use std::path::PathBuf;
 /// 扫描仓库子模块状态并返回聚合摘要文本。
 /// 输出业务语言（同步/待推送/待拉取/冲突），不暴露子模块概念。
 pub fn status(root: PathBuf, offline: bool) -> Result<String, Box<dyn std::error::Error>> {
-    let state = crate::git::submodule::RepoState::scan(&root)?;
+    let state = if offline {
+        crate::git::submodule::RepoState::scan_offline(&root)?
+    } else {
+        crate::git::submodule::RepoState::scan(&root)?
+    };
     let total = state.total;
     let clean = state.clean_count;
     let pending = total - clean;
