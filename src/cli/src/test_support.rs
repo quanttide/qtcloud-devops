@@ -1,6 +1,6 @@
 use std::path::Path;
 
-/// 在指定路径初始化 git 仓库，设置 user.name/user.email 并创建初始提交。
+/// 在指定路径初始化 git 仓库并设置 user.name/user.email。
 pub fn git_init(path: &Path) {
     std::process::Command::new("git")
         .args(["init", "-b", "main"]).current_dir(path).output().unwrap();
