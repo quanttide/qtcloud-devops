@@ -37,9 +37,6 @@ enum ReleaseAction {
         version: String,
         #[arg(long, short = 'y')]
         yes: bool,
-        /// 标记为预发布（跳过确认，校验版本号需含 -rc.N 等后缀）
-        #[arg(long)]
-        pre_release: bool,
         #[arg(long, value_enum)]
         registry: Option<Registry>,
     },
@@ -101,8 +98,8 @@ fn main() {
     let result = match cli.command {
         Commands::Code { action } => run_code(action),
         Commands::Release { action } => match action {
-            ReleaseAction::Publish { version, yes, pre_release, registry } => {
-                qtcloud_devops_cli::release::publish(&version, &repo_path(), yes, pre_release, registry)
+            ReleaseAction::Publish { version, yes, registry } => {
+                qtcloud_devops_cli::release::publish(&version, &repo_path(), yes, registry)
                     .map_err(|e| format!("{}", e))
             }
         }

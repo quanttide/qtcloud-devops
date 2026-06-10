@@ -37,18 +37,13 @@ fn test_release_create_tag_uses_repo_path() {
 
 #[test]
 fn test_release_publish_rejects_invalid_version() {
-    assert!(qtcloud_devops_cli::release::publish("bad", tempfile::tempdir().unwrap().path(), true, false, None).is_err());
-}
-
-#[test]
-fn test_release_publish_pre_release_rejects_formal() {
-    assert!(qtcloud_devops_cli::release::publish("v1.0.0", tempfile::tempdir().unwrap().path(), true, true, None).unwrap_err().to_string().contains("--pre-release"));
+    assert!(qtcloud_devops_cli::release::publish("bad", tempfile::tempdir().unwrap().path(), true, None).is_err());
 }
 
 #[test]
 fn test_release_publish_rejects_missing_changelog() {
     let dir = tempfile::tempdir().unwrap(); git_init(dir.path());
-    let err = qtcloud_devops_cli::release::publish("v1.0.0", dir.path(), true, false, None).unwrap_err().to_string();
+    let err = qtcloud_devops_cli::release::publish("v1.0.0", dir.path(), true, None).unwrap_err().to_string();
     assert!(err.contains("CHANGELOG"), "预期 CHANGELOG 错误，得到: {}", err);
 }
 
@@ -56,14 +51,14 @@ fn test_release_publish_rejects_missing_changelog() {
 fn test_release_publish_idempotent() {
     let dir = tempfile::tempdir().unwrap(); git_init(dir.path());
     std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
-    assert!(qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, true, None).is_ok());
-    assert!(qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, true, None).is_ok());
+    assert!(qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, None).is_ok());
+    assert!(qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, None).is_ok());
 }
 
 #[test]
 fn test_release_publish_without_changelog_entry() {
     let dir = tempfile::tempdir().unwrap(); git_init(dir.path());
     std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0]\n\ncontent\n").unwrap();
-    let err = qtcloud_devops_cli::release::publish("v2.0.0", dir.path(), true, false, None).unwrap_err().to_string();
+    let err = qtcloud_devops_cli::release::publish("v2.0.0", dir.path(), true, None).unwrap_err().to_string();
     assert!(err.contains("未找到"));
 }

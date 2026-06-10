@@ -30,12 +30,11 @@ src/
 code sync [name]                # 同步组件（封装 fetch + push + pointer update）
 code status [path] [--offline]  # 查看组件同步状态（Synced/PendingPush/PendingPull/Conflict）
 
-release publish -v <version> [--pre-release]  # 发布版本（--pre-release 跳过确认，校验版本后缀）
+release publish -v <version> [-y]  # 发布版本（-y 跳过确认）
 ```
 
 ### 规则
 
 - `code sync`：`name` 省略时同步全部
 - `code status`：路径默认为当前目录 `.`
-- `release publish --pre-release`：跳过用户确认，校验版本号需含 `-rc.N` 等后缀
-- `release publish -y`：跳过用户确认（正式版用）
+- `release publish -y`：跳过用户确认

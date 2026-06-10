@@ -147,7 +147,7 @@ code status [path] [--offline]  # 查看组件同步状态
 ### `release` 命令
 
 ```bash
-release publish -v <version> [--pre-release]  # 发布版本（--pre-release 跳过确认，校验版本后缀）
+release publish -v <version> [-y]  # 发布版本（-y 跳过确认）
 ```
 
 - 版本号格式：`vX.Y.Z` 或 `scope/vX.Y.Z`
