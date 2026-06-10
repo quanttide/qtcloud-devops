@@ -5,7 +5,7 @@
 ### Breaking
 
 - 模块结构重构：`commands/` + `model/` → `code/` + `git/` + `release/` 三子领域
-- 删除 `release stage` 命令，合并到 `release publish --pre-release`
+- 删除 `release stage` 命令，只保留 `release publish`
   - `code/`：业务层，纯抽象，不暴露 git 概念
   - `git/`：事实源底层，所有 git 操作
   - `release/`：发布子领域
@@ -33,6 +33,7 @@
 - `sync` 三个阶段原子化：push_parent 失败时 revert parent commit
 - `sync` 前先 fetch，确保远端状态最新
 - `python.rs` `retire_submodule` 绑定移除、语法错误修复
+- `release publish` API 简化：移除 `--pre-release` 参数，确认仅依赖 `-y`
 - `src/cli/AGENTS.md` 同步更新 CLI 设计规则
 
 ### Changed
