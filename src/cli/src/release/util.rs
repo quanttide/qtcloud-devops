@@ -129,7 +129,19 @@ pub fn rollback_tag(version: &str, repo_path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{git_commit, git_init};
+    use std::path::Path;
+
+    fn git_init(path: &Path) {
+        std::process::Command::new("git").args(["init", "-b", "main"]).current_dir(path).output().unwrap();
+        std::process::Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(path).output().unwrap();
+        std::process::Command::new("git").args(["config", "user.name", "Test"]).current_dir(path).output().unwrap();
+    }
+
+    fn git_commit(path: &Path, msg: &str) {
+        std::fs::write(path.join("file"), msg).unwrap();
+        std::process::Command::new("git").args(["add", "."]).current_dir(path).output().unwrap();
+        std::process::Command::new("git").args(["commit", "-m", msg]).current_dir(path).output().unwrap();
+    }
 
     #[test] fn test_validate_version_v_prefix() { assert!(validate_version("v1.2.3")); }
     #[test] fn test_validate_version_with_suffix() { assert!(validate_version("v1.2.3-alpha.1")); assert!(validate_version("v1.2.3-rc1")); }

@@ -41,7 +41,19 @@ fn is_prerelease(version: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{git_commit, git_init};
+    use std::path::Path;
+
+    fn git_init(path: &Path) {
+        std::process::Command::new("git").args(["init", "-b", "main"]).current_dir(path).output().unwrap();
+        std::process::Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(path).output().unwrap();
+        std::process::Command::new("git").args(["config", "user.name", "Test"]).current_dir(path).output().unwrap();
+    }
+
+    fn git_commit(path: &Path, msg: &str) {
+        std::fs::write(path.join("file"), msg).unwrap();
+        std::process::Command::new("git").args(["add", "."]).current_dir(path).output().unwrap();
+        std::process::Command::new("git").args(["commit", "-m", msg]).current_dir(path).output().unwrap();
+    }
 
     #[test] fn test_stage_invalid_version() { assert!(stage("bad", tempfile::tempdir().unwrap().path()).is_err()); }
     #[test] fn test_stage_formal_rejected() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); git_commit(d.path(), "init"); let e = stage("v1.0.0", d.path()).unwrap_err().to_string(); assert!(e.contains("仅用于预发布")); }
