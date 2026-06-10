@@ -1,6 +1,4 @@
-use crate::commands::code::GitSubmoduleEditor;
-use crate::commands::SubmoduleEditor;
-use crate::model::code;
+use crate::git::submodule::{self, GitSubmoduleEditor};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::path::PathBuf;
@@ -11,7 +9,7 @@ fn resolve_path(path: &str) -> PyResult<PathBuf> {
         .map_err(|e| PyValueError::new_err(format!("无法解析路径 '{}': {}", path, e)))
 }
 
-fn state_to_dict(state: &code::RepoState) -> PyResult<PyObject> {
+fn state_to_dict(state: &submodule::RepoState) -> PyResult<PyObject> {
     let json_str = serde_json::to_string_pretty(state)
         .map_err(|e| PyRuntimeError::new_err(format!("序列化失败: {}", e)))?;
     Python::with_gil(|py| {
@@ -24,7 +22,7 @@ fn state_to_dict(state: &code::RepoState) -> PyResult<PyObject> {
 #[pyfunction]
 fn scan_repo(path: String) -> PyResult<PyObject> {
     let canonical = resolve_path(&path)?;
-    let state = code::RepoState::scan(&canonical)
+    let state = submodule::RepoState::scan(&canonical)
         .map_err(|e| PyRuntimeError::new_err(format!("扫描仓库失败: {}", e)))?;
     state_to_dict(&state)
 }
@@ -105,15 +103,15 @@ mod tests {
 
     #[test]
     fn test_state_to_dict_with_submodule() {
-        let sm = model::Submodule {
+        let sm = submodule::Submodule {
             name: "libs/foo".into(),
             path: std::path::PathBuf::from("libs/foo"),
             url: "https://example.com/foo.git".into(),
             tracked_branch: "main".into(),
-            parent_pointer: model::CommitHash("abc123".into()),
-            local_head: model::CommitHash("def456".into()),
-            remote_head: model::CommitHash("ghi789".into()),
-            status: model::SubmoduleStatus::Clean,
+            parent_pointer: submodule::CommitHash("abc123".into()),
+            local_head: submodule::CommitHash("def456".into()),
+            remote_head: submodule::CommitHash("ghi789".into()),
+            status: submodule::SubmoduleStatus::Clean,
             ahead_count: 0,
             behind_count: 0,
             remote_unreachable: false,

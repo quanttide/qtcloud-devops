@@ -36,7 +36,7 @@ fn test_release_create_tag_uses_repo_path() {
     git_commit(dir.path());
 
     let tag = "v999.999.999-test-repo-path";
-    assert!(qtcloud_devops_cli::commands::release::create_tag(tag, dir.path()));
+    assert!(qtcloud_devops_cli::release::util::create_tag(tag, dir.path()));
 
     let output = std::process::Command::new("git")
         .args(["-C", dir.path().to_str().unwrap(), "tag", "-l"])
@@ -57,7 +57,7 @@ fn test_release_create_tag_uses_repo_path() {
 fn test_release_stage_invalid_version() {
     let dir = tempfile::tempdir().unwrap();
     assert!(
-        qtcloud_devops_cli::commands::release::stage("bad", dir.path()).is_err()
+        qtcloud_devops_cli::release::stage("bad", dir.path()).is_err()
     );
 }
 
@@ -65,7 +65,7 @@ fn test_release_stage_invalid_version() {
 fn test_release_stage_rejects_missing_changelog() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
-    let err = qtcloud_devops_cli::commands::release::stage("v1.0.0-rc.1", dir.path())
+    let err = qtcloud_devops_cli::release::stage("v1.0.0-rc.1", dir.path())
         .unwrap_err()
         .to_string();
     assert!(err.contains("CHANGELOG"), "预期 CHANGELOG 相关错误，得到: {}", err);
@@ -75,7 +75,7 @@ fn test_release_stage_rejects_missing_changelog() {
 fn test_release_publish_rejects_missing_changelog() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
-    let err = qtcloud_devops_cli::commands::release::publish("v1.0.0", dir.path(), true, None)
+    let err = qtcloud_devops_cli::release::publish("v1.0.0", dir.path(), true, None)
         .unwrap_err()
         .to_string();
     assert!(err.contains("CHANGELOG"), "预期 CHANGELOG 相关错误，得到: {}", err);
@@ -86,13 +86,13 @@ fn test_release_stage_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
     std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
-    assert!(qtcloud_devops_cli::commands::release::stage("v1.0.0-rc.1", dir.path()).is_ok());
-    assert!(qtcloud_devops_cli::commands::release::stage("v1.0.0-rc.1", dir.path()).is_ok());
+    assert!(qtcloud_devops_cli::release::stage("v1.0.0-rc.1", dir.path()).is_ok());
+    assert!(qtcloud_devops_cli::release::stage("v1.0.0-rc.1", dir.path()).is_ok());
 }
 
 #[test]
 fn test_release_publish_without_stage() {
     let dir = tempfile::tempdir().unwrap();
-    let result = qtcloud_devops_cli::commands::release::publish("v1.0.0", dir.path(), true, None);
+    let result = qtcloud_devops_cli::release::publish("v1.0.0", dir.path(), true, None);
     assert!(result.is_ok() || result.is_err());
 }

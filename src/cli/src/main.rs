@@ -1,8 +1,6 @@
 use clap::{Parser, Subcommand};
-use qtcloud_devops_cli::commands::code::GitSubmoduleEditor;
-use qtcloud_devops_cli::commands::release::Registry;
-use qtcloud_devops_cli::commands::{HealthIssue, SubmoduleEditor};
-use qtcloud_devops_cli::model::code;
+use qtcloud_devops_cli::release::util::Registry;
+use qtcloud_devops_cli::git::submodule::{self, GitSubmoduleEditor, HealthIssue};
 use std::path::PathBuf;
 use std::process;
 
@@ -84,8 +82,8 @@ fn print_issues(issues: &[HealthIssue]) {
     }
 }
 
-fn print_aggregate(state: &code::RepoState) {
-    if let Ok((_, agg)) = code::RepoState::scan_all(&state.root_path) {
+fn print_aggregate(state: &submodule::RepoState) {
+    if let Ok((_, agg)) = submodule::RepoState::scan_all(&state.root_path) {
         println!("\n聚合统计:");
         println!("  总数: {}", agg.total);
         println!("  ✅ Clean: {}", agg.clean);
@@ -121,11 +119,11 @@ fn main() {
         Commands::Code { action } => run_code(action),
         Commands::Release { action } => match action {
             ReleaseAction::Stage { version } => {
-                qtcloud_devops_cli::commands::release::stage(&version, &repo_path())
+                qtcloud_devops_cli::release::stage(&version, &repo_path())
                     .map_err(|e| format!("{}", e))
             }
             ReleaseAction::Publish { version, yes, registry } => {
-                qtcloud_devops_cli::commands::release::publish(&version, &repo_path(), yes, registry)
+                qtcloud_devops_cli::release::publish(&version, &repo_path(), yes, registry)
                     .map_err(|e| format!("{}", e))
             }
         }
@@ -153,7 +151,7 @@ fn run_code_status(path: PathBuf, offline: bool) -> Result<(), String> {
     let root = resolve_path(&path)?;
     let mut editor = GitSubmoduleEditor::new(root.clone());
     editor.set_offline(offline);
-    let state = code::RepoState::scan(&root).map_err(|e| format!("{}", e))?;
+    let state = submodule::RepoState::scan(&root).map_err(|e| format!("{}", e))?;
     let issues = editor.status().map_err(|e| format!("{}", e))?;
 
     println!("仓库: {}", state.root_path.display());
@@ -237,8 +235,7 @@ mod tests {
 
     #[test]
     fn test_print_issues_non_empty() {
-        use qtcloud_devops_cli::commands::HealthIssue;
-        use qtcloud_devops_cli::model::code::SubmoduleStatus;
+        use qtcloud_devops_cli::git::submodule::{HealthIssue, SubmoduleStatus};
         let issues = vec![HealthIssue {
             submodule_name: "libs/foo".into(),
             status: SubmoduleStatus::Dirty,
@@ -248,11 +245,9 @@ mod tests {
         print_issues(&issues);
     }
 
-    // ---- print_aggregate ----
-
     #[test]
     fn test_print_aggregate_all_zeros() {
-        let state = code::RepoState {
+        let state = submodule::RepoState {
             root_path: PathBuf::from("/tmp"),
             submodules: vec![],
             total: 0,
@@ -265,10 +260,9 @@ mod tests {
 
     #[test]
     fn test_print_aggregate_with_variants() {
-        use qtcloud_devops_cli::model::code::{Submodule, SubmoduleStatus};
+        use qtcloud_devops_cli::git::submodule::{CommitHash, Submodule, SubmoduleStatus};
 
         fn sm(name: &str, status: SubmoduleStatus) -> Submodule {
-            use qtcloud_devops_cli::model::code::CommitHash;
             Submodule {
                 name: name.into(),
                 path: PathBuf::new(),
@@ -293,7 +287,7 @@ mod tests {
             sm("f", SubmoduleStatus::Uninitialized),
             sm("g", SubmoduleStatus::Clean),
         ];
-        let state = code::RepoState {
+        let state = submodule::RepoState {
             root_path: PathBuf::from("/tmp"),
             submodules,
             total: 7,
