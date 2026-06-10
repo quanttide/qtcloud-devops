@@ -33,12 +33,12 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ReleaseAction {
-    /// 将版本标记为 Staged 状态
+    /// 预发布版本（rc），创建 tag + GitHub Release
     Stage {
         #[arg(short = 'v', long)]
         version: String,
     },
-    /// 将 Staged 版本正式发布上线
+    /// 正式发布，创建 tag + GitHub Release
     Publish {
         #[arg(short = 'v', long)]
         version: String,
@@ -47,13 +47,6 @@ enum ReleaseAction {
         #[arg(long, value_enum)]
         registry: Option<Registry>,
     },
-    /// 将已发布的版本标记为退役
-    Retire {
-        #[arg(short = 'v', long)]
-        version: String,
-    },
-    /// 查看发布状态
-    Status,
 }
 
 #[derive(Subcommand)]
@@ -137,19 +130,11 @@ fn main() {
         Commands::Release { action } => match action {
             ReleaseAction::Stage { version } => {
                 qtcloud_devops_cli::commands::release::stage(&version, &repo_path())
-                    .map(|_| ()).map_err(|e| format!("{}", e))
+                    .map_err(|e| format!("{}", e))
             }
             ReleaseAction::Publish { version, yes, registry } => {
                 qtcloud_devops_cli::commands::release::publish(&version, &repo_path(), yes, registry)
-                    .map(|_| ()).map_err(|e| format!("{}", e))
-            }
-            ReleaseAction::Retire { version } => {
-                qtcloud_devops_cli::commands::release::retire(&version, &repo_path())
-                    .map(|_| ()).map_err(|e| format!("{}", e))
-            }
-            ReleaseAction::Status => {
-                qtcloud_devops_cli::commands::release::release_status(&repo_path())
-                    .map(|_| ()).map_err(|e| format!("{}", e))
+                    .map_err(|e| format!("{}", e))
             }
         }
     };

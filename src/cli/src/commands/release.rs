@@ -1,8 +1,6 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::model::release::{FileStorage, ReleaseRecord, ReleaseStatus, Storage, TransitionError};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Registry {
     PyPI,
@@ -90,7 +88,7 @@ pub fn create_tag(version: &str, repo_path: &Path) -> bool {
         Ok(out) => {
             let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
             if msg.contains("already exists") || msg.contains("已存在") {
-                return true; // 幂等：tag 已存在时不报错
+                return true;
             }
             eprintln!("创建标签失败: {}", msg);
             false
@@ -105,7 +103,7 @@ pub fn push_tag(version: &str, repo_path: &Path) -> bool {
         Ok(out) => {
             let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
             if msg.contains("does not appear") || msg.contains("repository '' does not exist") {
-                return true; // 没有 remote 时静默跳过（本地 tag 已创建）
+                return true;
             }
             eprintln!("推送标签失败: {}", msg);
             false
@@ -136,7 +134,7 @@ pub fn create_release(version: &str, notes: &str, repo: &str) -> bool {
         Ok(out) => {
             let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
             if msg.contains("already exists") || msg.contains("已存在") {
-                return true; // 幂等：Release 已存在时不报错
+                return true;
             }
             eprintln!("创建 Release 失败: {}", msg);
             false
@@ -158,7 +156,7 @@ fn is_prerelease(version: &str) -> bool {
     base.contains('-')
 }
 
-pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+pub fn stage(version: &str, repo_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     if !validate_version(version) {
         return Err(format!("版本号格式错误: {}", version).into());
     }
@@ -170,28 +168,6 @@ pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::err
     if !precheck_errors.is_empty() {
         return Err(precheck_errors.join("\n").into());
     }
-    let mut storage = FileStorage::new(repo_path);
-    if let Some(existing) = storage.load(version) {
-        match existing.status {
-            ReleaseStatus::Published => return Err(format!("版本 {} 已发布，不可重复 stage", version).into()),
-            ReleaseStatus::Staged => {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string();
-                let mut updated = existing.clone();
-                updated.updated_at = now;
-                storage.save(&updated)?;
-                // re-push tag (idempotent)
-                if create_tag(version, repo_path) && push_tag(version, repo_path) {
-                    println!("✓ 标签 {} 已更新并推送", version);
-                }
-                return Ok(updated.id);
-            }
-            ReleaseStatus::Cancelled => {}
-            ReleaseStatus::Retired => return Err(format!("版本 {} 已退役，不可重复 stage", version).into()),
-        }
-    }
-    let record = ReleaseRecord::new_staged(version);
-    storage.save(&record)?;
     if !create_tag(version, repo_path) {
         return Err(format!("创建标签 {} 失败", version).into());
     }
@@ -199,7 +175,6 @@ pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::err
         rollback_tag(version, repo_path);
         return Err(format!("推送标签 {} 失败", version).into());
     }
-    println!("✓ 版本 {} 已进入 Staged 状态 (发布尝试 ID: {})", version, record.id);
     println!("✓ 标签 {} 已创建并推送", version);
 
     let notes = extract_notes(version, &changelog_path);
@@ -210,28 +185,17 @@ pub fn stage(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::err
         }
     }
 
-    Ok(record.id)
+    Ok(())
 }
 
 // ===== publish =====
 
-pub fn publish(version: &str, repo_path: &Path, yes: bool, registry: Option<Registry>) -> Result<String, Box<dyn std::error::Error>> {
+pub fn publish(version: &str, repo_path: &Path, yes: bool, registry: Option<Registry>) -> Result<(), Box<dyn std::error::Error>> {
     let changelog_path = repo_path.join("CHANGELOG.md");
     let precheck_errors = precheck_version_changelog(version, &changelog_path);
     if !precheck_errors.is_empty() {
         return Err(precheck_errors.join("\n").into());
     }
-
-    let mut storage = FileStorage::new(repo_path);
-    let mut record = if let Some(r) = storage.load(version) {
-        if r.status != ReleaseStatus::Staged {
-            return Err(format!("版本 {} 不处于 Staged 状态 (当前: {:?})", version, r.status).into());
-        }
-        r
-    } else {
-        // 正式版本直接 publish，不需要先 stage
-        ReleaseRecord::new_staged(version)
-    };
     if !confirm_release(version, yes) {
         return Err("已取消发布".into());
     }
@@ -258,90 +222,13 @@ pub fn publish(version: &str, repo_path: &Path, yes: bool, registry: Option<Regi
         println!("  {:?} 由 CI 自动发布，无需本地操作", reg);
     }
 
-    record.status = ReleaseStatus::Published;
-    record.updated_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string();
-    storage.save(&record)?;
-    let id = record.id.clone();
-    println!("✓ 版本 {} 已发布 (发布尝试 ID: {})", version, id);
-    Ok(id)
-}
-
-// ===== retire =====
-
-pub fn retire(version: &str, repo_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
-    let mut storage = FileStorage::new(repo_path);
-    let mut record = storage
-        .load(version)
-        .ok_or_else(|| format!("版本 {} 不存在", version))?;
-    if record.status != ReleaseStatus::Published {
-        return Err(Box::new(TransitionError::NotPublished(version.to_string())));
-    }
-    record.status = ReleaseStatus::Retired;
-    record.updated_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string();
-    storage.save(&record)?;
-    let id = record.id.clone();
-    println!("✓ 版本 {} 已退役 (发布尝试 ID: {})", version, id);
-    Ok(id)
-}
-
-// ===== release_status =====
-
-pub fn release_status(repo_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
-    let storage = FileStorage::new(repo_path);
-    let mut records = storage.list();
-    if records.is_empty() {
-        println!("当前无发布记录");
-        return Ok(String::new());
-    }
-
-    records.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-
-    let staged: Vec<&ReleaseRecord> = records.iter().filter(|r| r.status == ReleaseStatus::Staged).collect();
-    let published: Vec<&ReleaseRecord> = records.iter().filter(|r| r.status == ReleaseStatus::Published).collect();
-
-    println!("发布状态报告");
-    println!("{}", "-".repeat(40));
-    println!("待发布: {}", staged.len());
-    for r in &staged {
-        println!("  {} (尝试: {})", r.version, &r.id[..8]);
-    }
-    println!("已发布: {}", published.len());
-    for r in &published {
-        println!("  {} (尝试: {})", r.version, &r.id[..8]);
-    }
-    println!();
-
-    println!("最新发布:");
-    for r in records.iter().take(5) {
-        let status_str = match r.status {
-            ReleaseStatus::Staged => "Staged",
-            ReleaseStatus::Published => "Published",
-            ReleaseStatus::Cancelled => "Cancelled",
-            ReleaseStatus::Retired => "Retired",
-        };
-        println!("  {:<25} {:<12} {}", r.version, status_str, r.updated_at);
-    }
-
-    Ok(records.len().to_string())
+    println!("✓ 版本 {} 已发布", version);
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn make_record(version: &str, status: ReleaseStatus) -> ReleaseRecord {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string();
-        ReleaseRecord {
-            id: uuid::Uuid::new_v4().to_string(),
-            version: version.to_string(),
-            status,
-            created_at: now.clone(),
-            updated_at: now,
-        }
-    }
 
     // validate_version
 
@@ -421,17 +308,6 @@ mod tests {
     }
 
     #[test]
-    fn test_stage_new_version() {
-        let dir = tempfile::tempdir().unwrap();
-        git_init(dir.path());
-        std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
-        let id = stage("v1.0.0-rc.1", dir.path()).unwrap();
-        assert!(!id.is_empty());
-        let s = FileStorage::new(dir.path());
-        assert_eq!(s.load("v1.0.0-rc.1").unwrap().status, ReleaseStatus::Staged);
-    }
-
-    #[test]
     fn test_stage_invalid_version() { assert!(stage("bad", tempfile::tempdir().unwrap().path()).is_err()); }
 
     #[test]
@@ -443,47 +319,12 @@ mod tests {
     }
 
     #[test]
-    fn test_stage_published_rejected() {
-        let dir = tempfile::tempdir().unwrap();
-        git_init(dir.path());
-        std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
-        let mut s = FileStorage::new(dir.path());
-        s.save(&make_record("v1.0.0-rc.1", ReleaseStatus::Published)).unwrap();
-        assert!(stage("v1.0.0-rc.1", dir.path()).unwrap_err().to_string().contains("已发布"));
-    }
-
-    #[test]
-    fn test_stage_cancelled_restage() {
-        let dir = tempfile::tempdir().unwrap();
-        git_init(dir.path());
-        std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
-        let old_id;
-        {
-            let mut s = FileStorage::new(dir.path());
-            let r = make_record("v1.0.0-rc.1", ReleaseStatus::Cancelled);
-            old_id = r.id.clone();
-            s.save(&r).unwrap();
-        }
-        let id = stage("v1.0.0-rc.1", dir.path()).unwrap();
-        assert_ne!(id, old_id);
-    }
-
-    #[test]
-    fn test_stage_retired_rejected() {
-        let dir = tempfile::tempdir().unwrap();
-        git_init(dir.path());
-        std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
-        let mut s = FileStorage::new(dir.path());
-        s.save(&make_record("v1.0.0-rc.1", ReleaseStatus::Retired)).unwrap();
-        assert!(stage("v1.0.0-rc.1", dir.path()).unwrap_err().to_string().contains("退役"));
-    }
-
-    #[test]
     fn test_stage_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
         std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
-        assert_eq!(stage("v1.0.0-rc.1", dir.path()).unwrap(), stage("v1.0.0-rc.1", dir.path()).unwrap());
+        assert!(stage("v1.0.0-rc.1", dir.path()).is_ok());
+        assert!(stage("v1.0.0-rc.1", dir.path()).is_ok());
     }
 
     #[test]
@@ -502,75 +343,11 @@ mod tests {
         assert!(err.contains("CHANGELOG"), "预期 CHANGELOG 相关错误，得到: {}", err);
     }
 
-    // publish
-
     #[test]
     fn test_publish_without_stage_succeeds() {
         let dir = tempfile::tempdir().unwrap();
-        // publish now auto-creates journal entry for formal versions
         let result = publish("v1.0.0", dir.path(), true, None);
-        assert!(result.is_ok() || result.is_err()); // may succeed or fail due to git env
-    }
-
-    #[test]
-    fn test_publish_not_staged() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut s = FileStorage::new(dir.path());
-        let mut r = ReleaseRecord::new_staged("v1.0.0");
-        r.status = ReleaseStatus::Cancelled;
-        s.save(&r).unwrap();
-        assert!(publish("v1.0.0", dir.path(), true, None).is_err());
-    }
-
-    // retire
-
-    #[test]
-    fn test_retire_nonexistent() { assert!(retire("v9.9.9", tempfile::tempdir().unwrap().path()).is_err()); }
-
-    #[test]
-    fn test_retire_not_published() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut s = FileStorage::new(dir.path());
-        s.save(&make_record("v1.0.0", ReleaseStatus::Staged)).unwrap();
-        assert!(retire("v1.0.0", dir.path()).is_err());
-    }
-
-    #[test]
-    fn test_retire_from_published() {
-        let dir = tempfile::tempdir().unwrap();
-        {
-            let mut s = FileStorage::new(dir.path());
-            s.save(&make_record("v1.0.0", ReleaseStatus::Published)).unwrap();
-        }
-        retire("v1.0.0", dir.path()).unwrap();
-        assert_eq!(FileStorage::new(dir.path()).load("v1.0.0").unwrap().status, ReleaseStatus::Retired);
-    }
-
-    // release_status
-
-    #[test]
-    fn test_release_status_empty() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(release_status(dir.path()).unwrap(), "");
-    }
-
-    #[test]
-    fn test_release_status_with_records() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut s = FileStorage::new(dir.path());
-        s.save(&make_record("v1.0.0", ReleaseStatus::Staged)).unwrap();
-        s.save(&make_record("v2.0.0", ReleaseStatus::Published)).unwrap();
-        assert_eq!(release_status(dir.path()).unwrap(), "2");
-    }
-
-    #[test]
-    fn test_release_status_multiple_staged() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut s = FileStorage::new(dir.path());
-        s.save(&make_record("v1.0.0", ReleaseStatus::Staged)).unwrap();
-        s.save(&make_record("v2.0.0", ReleaseStatus::Staged)).unwrap();
-        s.save(&make_record("v3.0.0", ReleaseStatus::Published)).unwrap();
-        assert_eq!(release_status(dir.path()).unwrap(), "3");
+        assert!(result.is_ok() || result.is_err());
     }
 
     // is_prerelease
@@ -640,7 +417,7 @@ mod tests {
     #[test]
     fn test_create_release_no_gh() { assert!(!create_release("v0.0.0-test", "", "no/repo")); }
 
-    // rollback_tag in temp repo
+    // precheck edge cases
 
     #[test]
     fn test_precheck_changelog_file_not_found() {
@@ -666,7 +443,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
         assert!(create_tag("v0.0.0-test", dir.path()));
-        // second create should succeed (idempotent - tag already exists)
         assert!(create_tag("v0.0.0-test", dir.path()));
     }
 
@@ -680,7 +456,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
         assert!(create_tag("v0.0.0-test-remote", dir.path()));
-        // add a non-existent remote so push fails with real error, not "no remote"
         std::process::Command::new("git")
             .args(["remote", "add", "origin", "https://nonexistent.invalid/repo.git"])
             .current_dir(dir.path()).output().unwrap();

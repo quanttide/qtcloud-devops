@@ -35,18 +35,6 @@ fn test_cli_publish_help() {
 }
 
 #[test]
-fn test_cli_retire_help() {
-    let output = cli().args(["release", "retire", "--help"]).output().unwrap();
-    assert!(output.status.success());
-}
-
-#[test]
-fn test_cli_release_status_help() {
-    let output = cli().arg("release").arg("status").arg("--help").output().unwrap();
-    assert!(output.status.success());
-}
-
-#[test]
 fn test_cli_code_help() {
     let output = cli().arg("code").arg("--help").output().unwrap();
     assert!(output.status.success());
@@ -93,8 +81,6 @@ fn test_cli_stage_prerelease_succeeds() {
         .output()
         .unwrap();
     assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Staged"));
 }
 
 #[test]
@@ -110,7 +96,6 @@ fn test_cli_publish_formal_version() {
         .current_dir(dir.path()).output().unwrap();
     std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0]\n\ncontent\n").unwrap();
 
-    // publish auto-creates journal entry for formal versions
     let output = cli()
         .args(["release", "publish", "-v", "v1.0.0", "-y"])
         .current_dir(dir.path())
@@ -118,26 +103,6 @@ fn test_cli_publish_formal_version() {
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("已发布") || stdout.contains("失败"), "publish should succeed or fail on git env: {}", stdout);
-}
-
-#[test]
-fn test_cli_retire_without_publish_fails() {
-    let dir = tempfile::tempdir().unwrap();
-    std::process::Command::new("git")
-        .args(["init", "-b", "main"]).current_dir(dir.path()).output().unwrap();
-    std::fs::write(dir.path().join("f"), "").unwrap();
-    std::process::Command::new("git")
-        .args(["add", "."]).current_dir(dir.path()).output().unwrap();
-    std::process::Command::new("git")
-        .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
-        .current_dir(dir.path()).output().unwrap();
-
-    let output = cli()
-        .args(["release", "retire", "-v", "v1.0.0"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
 }
 
 #[test]
