@@ -1,6 +1,4 @@
-# qtcloud-devops-cli
-
-DevOps CLI — 发布管理、契约检查与工作流自动化。
+# 量潮DevOps云命令行工具(`qtcloud-devops-cli`)
 
 ## 安装
 
@@ -30,35 +28,6 @@ pip install -e apps/qtcloud-devops/src/cli/packages/code
 ```bash
 qtcloud-devops --help        # 应看到 release 和 code 子命令
 qtcloud-devops code status   # 扫描当前仓库子模块状态
-```
-
-## 项目结构
-
-```
-apps/qtcloud-devops/src/cli/     ← Python CLI
-├── app/
-│   ├── cli.py                   # Typer 入口（release + code 子命令）
-│   ├── code.py                  # Rust native 调用封装
-│   ├── config.py                # pydantic-settings 配置
-│   └── release.py               # 发布 Release 逻辑
-├── packages/code/               ← Rust crate（maturin 构建）
-│   ├── Cargo.toml
-│   ├── pyproject.toml           # maturin 构建配置
-│   └── src/
-│       ├── lib.rs               # crate 入口
-│       ├── main.rs              # standalone CLI 入口
-│       ├── python.rs            # PyO3 绑定层
-│       ├── model/mod.rs         # SubmoduleStatus, RepoState
-│       └── commands/
-│           ├── mod.rs           # SubmoduleEditor trait
-│           └── editor.rs        # GitSubmoduleEditor 实现
-├── tests/
-│   └── ...
-├── pyproject.toml               # setuptools 构建
-├── AGENTS.md
-├── CHANGELOG.md
-├── ROADMAP.md
-└── README.md
 ```
 
 ## 用法
@@ -91,17 +60,3 @@ qtcloud-devops code sync [name] --repo path
 # 退役子模块（deinit + .gitmodules + index 清理）
 qtcloud-devops code retire <name> --repo path
 ```
-
-## 发布流程
-
-1. **更新版本号** → 改 `pyproject.toml`
-2. **写 CHANGELOG** → 更新 `CHANGELOG.md`
-3. **提交** → `chore: bump qtcloud-devops-cli to vX.Y.Z`
-4. **打 tag** → `cli/vX.Y.Z`
-5. **推送** → CI 自动发布
-
-## 命名约定
-
-- 包名（PyPI）: `qtcloud-devops-cli`
-- 导入名: `app.*`
-- 仓库 tag 前缀: `cli/`
