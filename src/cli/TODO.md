@@ -8,6 +8,7 @@
 
 ## P0: 修复 `code sync` 实现缺陷
 
+- [ ] 提交作者从 git 配置读取（`user.name` / `user.email`），替换硬编码 `"kse" <kse@local>`
 - [ ] sync 三个阶段原子化：任一阶段失败回滚已执行的操作，避免部分同步
 - [ ] sync 前先 fetch，确保远端状态最新
 
