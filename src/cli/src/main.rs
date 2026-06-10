@@ -253,7 +253,6 @@ mod tests {
             total: 0,
             clean_count: 0,
             needs_attention: vec![],
-            parent_dirty: false,
         };
         print_aggregate(&state);
     }
@@ -300,7 +299,6 @@ mod tests {
                 "e".into(),
                 "f".into(),
             ],
-            parent_dirty: false,
         };
         print_aggregate(&state);
     }

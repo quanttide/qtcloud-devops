@@ -16,9 +16,3 @@ impl SyncStatus {
         }
     }
 }
-
-pub struct SyncResult {
-    pub name: String,
-    pub status: SyncStatus,
-    pub detail: String,
-}

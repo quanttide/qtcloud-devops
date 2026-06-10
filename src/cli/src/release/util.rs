@@ -63,7 +63,7 @@ pub fn confirm_release(version: &str, yes: bool) -> bool {
     input.trim().to_lowercase() == "y" || input.trim().to_lowercase() == "yes"
 }
 
-pub fn git_args(args: &[&str], repo_path: &Path) -> Command {
+fn git_args(args: &[&str], repo_path: &Path) -> Command {
     let mut cmd = Command::new("git");
     cmd.arg("-C"); cmd.arg(repo_path); cmd.args(args);
     cmd

@@ -62,7 +62,6 @@ pub struct RepoState {
     pub total: usize,
     pub clean_count: usize,
     pub needs_attention: Vec<String>,
-    pub parent_dirty: bool,
 }
 
 impl RepoState {
@@ -103,15 +102,12 @@ impl RepoState {
             .map(|s| s.name.clone())
             .collect();
 
-        let parent_dirty = Self::check_parent_dirty(&repo);
-
         Ok(RepoState {
             root_path: root.to_path_buf(),
             submodules,
             total,
             clean_count,
             needs_attention,
-            parent_dirty,
         })
     }
 
@@ -239,22 +235,8 @@ impl RepoState {
         SubmoduleStatus::Clean
     }
 
-    fn check_parent_dirty(repo: &git2::Repository) -> bool {
-        repo.statuses(Some(git2::StatusOptions::new().include_untracked(true).recurse_untracked_dirs(true)))
-            .map(|statuses| statuses.iter()
-                .filter(|e| e.path().map_or(true, |p| !std::path::Path::new(p).starts_with(".gitmodules")))
-                .any(|e| e.status() != git2::Status::CURRENT))
-            .unwrap_or(false)
-    }
-
     pub fn scan_all(root: &std::path::Path) -> Result<(Vec<Submodule>, AggregateStatus), Box<dyn std::error::Error>> {
         let state = Self::scan(root)?;
-        let agg = AggregateStatus::from_submodules(&state.submodules);
-        Ok((state.submodules, agg))
-    }
-
-    pub fn scan_all_offline(root: &std::path::Path) -> Result<(Vec<Submodule>, AggregateStatus), Box<dyn std::error::Error>> {
-        let state = Self::scan_offline(root)?;
         let agg = AggregateStatus::from_submodules(&state.submodules);
         Ok((state.submodules, agg))
     }
@@ -437,7 +419,7 @@ pub struct HealthIssue {
     pub suggested_action: String,
 }
 
-pub fn describe_issue(status: &SubmoduleStatus) -> (String, String) {
+fn describe_issue(status: &SubmoduleStatus) -> (String, String) {
     match status {
         SubmoduleStatus::AheadOfParent => ("本地领先于父仓库记录".into(), "运行 sync_to_parent 更新父仓库指针".into()),
         SubmoduleStatus::BehindRemote => ("远程有更新，本地落后".into(), "运行 update 获取最新代码".into()),
@@ -534,7 +516,7 @@ mod tests {
     #[test] fn test_scan_with_submodule() { let t = tempfile::tempdir().unwrap(); let p = setup_repo_with_submodule(t.path()); let s = RepoState::scan(&p).unwrap(); assert_eq!(s.total, 1); assert_eq!(s.submodules[0].name, "libs/sub"); }
     #[test] fn test_scan_all_no_gitmodules() { assert!(RepoState::scan_all(&tempfile::tempdir().unwrap().path()).is_err()); }
     #[test] fn test_scan_all_with_submodule() { let t = tempfile::tempdir().unwrap(); let p = setup_repo_with_submodule(t.path()); let (subs, _) = RepoState::scan_all(&p).unwrap(); assert_eq!(subs.len(), 1); }
-    #[test] fn test_repo_state_empty() { let s = RepoState { root_path: PathBuf::from("/tmp"), submodules: vec![], total: 0, clean_count: 0, needs_attention: vec![], parent_dirty: false }; assert_eq!(s.total, 0); }
+    #[test] fn test_repo_state_empty() { let s = RepoState { root_path: PathBuf::from("/tmp"), submodules: vec![], total: 0, clean_count: 0, needs_attention: vec![] }; assert_eq!(s.total, 0); }
 
     // ---- GitSubmoduleEditor ----
     #[test] fn test_editor_new_and_root() { let e = GitSubmoduleEditor::new(PathBuf::from("/tmp")); assert_eq!(e.root(), std::path::Path::new("/tmp")); }
@@ -580,9 +562,6 @@ mod tests {
     #[test] #[should_panic(expected = "unreachable")] fn test_describe_issue_clean_panics() { describe_issue(&SubmoduleStatus::Clean); }
 
     // ---- edge case scan tests ----
-    fn git_bare_init(path: &std::path::Path) { Command::new("git").args(["init", "--bare"]).current_dir(path.parent().unwrap()).arg(path).output().unwrap(); }
-    fn git_add_remote(repo: &std::path::Path, name: &str, url: &std::path::Path) { Command::new("git").args(["remote", "add", name, &url.to_string_lossy()]).current_dir(repo).output().unwrap(); }
-
     #[test] fn test_scan_with_uninitialized_submodule() {
         let tmp = tempfile::tempdir().unwrap(); let parent = tmp.path().join("parent");
         std::fs::create_dir_all(&parent).unwrap(); git_init(&parent); git_commit(&parent, "init");

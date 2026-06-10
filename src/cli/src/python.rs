@@ -62,9 +62,9 @@ mod tests {
     #[test] fn test_py_resolve_path_invalid() { assert!(resolve_path("/__kse_no_such_path__").is_err()); }
     #[test] fn test_state_to_dict_empty() {
         let state = submodule::RepoState {
-            root_path: std::path::PathBuf::from("/tmp"), submodules: vec![], total: 0, clean_count: 0, needs_attention: vec![], parent_dirty: false,
-        };
-        assert!(state_to_dict(&state).is_ok());
+            root_path: std::path::PathBuf::from("/tmp"), submodules: vec![], total: 0, clean_count: 0, needs_attention: vec![],
+
+            assert!(state_to_dict(&state).is_ok());
     }
     #[test] fn test_state_to_dict_with_submodule() {
         let sm = submodule::Submodule {
@@ -74,7 +74,7 @@ mod tests {
             status: submodule::SubmoduleStatus::Clean, ahead_count: 0, behind_count: 0, remote_unreachable: false,
         };
         let state = submodule::RepoState {
-            root_path: std::path::PathBuf::from("/tmp"), submodules: vec![sm], total: 1, clean_count: 1, needs_attention: vec![], parent_dirty: false,
+            root_path: std::path::PathBuf::from("/tmp"), submodules: vec![sm], total: 1, clean_count: 1, needs_attention: vec![],
         };
         assert!(state_to_dict(&state).is_ok());
     }
