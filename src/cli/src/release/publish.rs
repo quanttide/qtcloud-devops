@@ -39,17 +39,9 @@ pub fn publish(version: &str, repo_path: &Path, yes: bool, registry: Option<Regi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{git_commit, git_init};
 
-    fn git_init(path: &std::path::Path) {
-        std::process::Command::new("git").args(["init", "-b", "main"]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["config", "user.email", "t@t"]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["config", "user.name", "t"]).current_dir(path).output().unwrap();
-        std::fs::write(path.join("f"), "").unwrap();
-        std::process::Command::new("git").args(["add", "."]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(path).output().unwrap();
-    }
-
-    #[test] fn test_publish_rejects_missing_changelog() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); let e = publish("v1.0.0", d.path(), true, None).unwrap_err().to_string(); assert!(e.contains("CHANGELOG")); }
+    #[test] fn test_publish_rejects_missing_changelog() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); git_commit(d.path(), "init"); let e = publish("v1.0.0", d.path(), true, None).unwrap_err().to_string(); assert!(e.contains("CHANGELOG")); }
     #[test] fn test_publish_without_stage_succeeds() { let d = tempfile::tempdir().unwrap(); let r = publish("v1.0.0", d.path(), true, None); assert!(r.is_ok() || r.is_err()); }
 }
 

@@ -452,32 +452,8 @@ pub fn describe_issue(status: &SubmoduleStatus) -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{git_commit, git_init, setup_repo_with_submodule};
     use std::process::Command;
-
-    fn git_init(repo_path: &std::path::Path) {
-        Command::new("git").args(["init"]).current_dir(repo_path).output().unwrap();
-        Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(repo_path).output().unwrap();
-        Command::new("git").args(["config", "user.name", "Test"]).current_dir(repo_path).output().unwrap();
-    }
-
-    fn git_commit(repo_path: &std::path::Path, msg: &str) {
-        std::fs::write(repo_path.join("file"), msg).unwrap();
-        Command::new("git").args(["add", "."]).current_dir(repo_path).output().unwrap();
-        Command::new("git").args(["commit", "-m", msg]).current_dir(repo_path).output().unwrap();
-    }
-
-    fn setup_repo_with_submodule(tmp: &std::path::Path) -> PathBuf {
-        let parent = tmp.join("parent");
-        let sub = tmp.join("sub");
-        std::fs::create_dir_all(&sub).unwrap(); git_init(&sub); git_commit(&sub, "init sub");
-        std::fs::create_dir_all(&parent).unwrap(); git_init(&parent);
-        std::fs::write(parent.join("README.md"), "# parent").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(&parent).output().unwrap();
-        Command::new("git").args(["commit", "-m", "init parent"]).current_dir(&parent).output().unwrap();
-        Command::new("git").args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"]).current_dir(&parent).output().unwrap();
-        Command::new("git").args(["commit", "-m", "add submodule"]).current_dir(&parent).output().unwrap();
-        parent
-    }
 
     // ---- SubmoduleStatus tests ----
     #[test] fn test_status_priority_ordering() {

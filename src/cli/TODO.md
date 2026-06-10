@@ -35,6 +35,4 @@ src/
 - [x] `release/` 导出层级统一：工具函数在 mod 层重新导出
 - [x] `code/sync.rs` 做实：返回 `SyncStatus` 业务状态
 
-## P1
 
-- [ ] 测试辅助函数去重：将 `git_init()` 提取为共享测试工具

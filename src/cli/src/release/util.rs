@@ -129,15 +129,7 @@ pub fn rollback_tag(version: &str, repo_path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn git_init(path: &std::path::Path) {
-        std::process::Command::new("git").args(["init", "-b", "main"]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["config", "user.email", "t@t"]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["config", "user.name", "t"]).current_dir(path).output().unwrap();
-        std::fs::write(path.join("f"), "").unwrap();
-        std::process::Command::new("git").args(["add", "."]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(path).output().unwrap();
-    }
+    use crate::test_support::{git_commit, git_init};
 
     #[test] fn test_validate_version_v_prefix() { assert!(validate_version("v1.2.3")); }
     #[test] fn test_validate_version_with_suffix() { assert!(validate_version("v1.2.3-alpha.1")); assert!(validate_version("v1.2.3-rc1")); }
@@ -167,9 +159,9 @@ mod tests {
     #[test] fn test_get_remote_repo_no_git_repo() { assert_eq!(get_remote_repo(tempfile::tempdir().unwrap().path()), None); }
     #[test] fn test_create_release_no_gh() { assert!(!create_release("v0.0.0-test", "", "no/repo")); }
     #[test] fn test_create_tag_in_non_git_dir() { assert!(!create_tag("v0.0.0-test", tempfile::tempdir().unwrap().path())); }
-    #[test] fn test_create_tag_idempotent() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); assert!(create_tag("v0.0.0-test", d.path())); assert!(create_tag("v0.0.0-test", d.path())); }
+    #[test] fn test_create_tag_idempotent() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); git_commit(d.path(), "init"); assert!(create_tag("v0.0.0-test", d.path())); assert!(create_tag("v0.0.0-test", d.path())); }
     #[test] fn test_push_tag_in_non_git_dir() { assert!(!push_tag("v0.0.0-test", tempfile::tempdir().unwrap().path())); }
-    #[test] fn test_push_tag_fails_with_non_existent_remote() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); assert!(create_tag("v0.0.0-test-remote", d.path())); std::process::Command::new("git").args(["remote", "add", "origin", "https://nonexistent.invalid/repo.git"]).current_dir(d.path()).output().unwrap(); assert!(!push_tag("v0.0.0-test-remote", d.path())); }
+    #[test] fn test_push_tag_fails_with_non_existent_remote() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); git_commit(d.path(), "init"); assert!(create_tag("v0.0.0-test-remote", d.path())); std::process::Command::new("git").args(["remote", "add", "origin", "https://nonexistent.invalid/repo.git"]).current_dir(d.path()).output().unwrap(); assert!(!push_tag("v0.0.0-test-remote", d.path())); }
     #[test] fn test_get_remote_repo_in_git_without_remote() { let d = tempfile::tempdir().unwrap(); std::process::Command::new("git").args(["init", "-b", "main"]).current_dir(d.path()).output().unwrap(); assert_eq!(get_remote_repo(d.path()), None); }
     #[test] fn test_rollback_tag_removes_tag() { let d = tempfile::tempdir().unwrap(); std::process::Command::new("git").args(["init", "-b", "main"]).current_dir(d.path()).output().unwrap(); std::fs::write(d.path().join("f"), "").unwrap(); std::process::Command::new("git").args(["add", "."]).current_dir(d.path()).output().unwrap(); std::process::Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"]).current_dir(d.path()).output().unwrap(); assert!(create_tag("v0.0.0-test-rollback", d.path())); rollback_tag("v0.0.0-test-rollback", d.path()); let o = std::process::Command::new("git").args(["tag", "-l"]).current_dir(d.path()).output().unwrap(); assert!(!String::from_utf8_lossy(&o.stdout).contains("v0.0.0-test-rollback")); }
 }

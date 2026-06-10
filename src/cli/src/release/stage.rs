@@ -41,20 +41,12 @@ fn is_prerelease(version: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn git_init(path: &std::path::Path) {
-        std::process::Command::new("git").args(["init", "-b", "main"]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["config", "user.email", "t@t"]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["config", "user.name", "t"]).current_dir(path).output().unwrap();
-        std::fs::write(path.join("f"), "").unwrap();
-        std::process::Command::new("git").args(["add", "."]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(path).output().unwrap();
-    }
+    use crate::test_support::{git_commit, git_init};
 
     #[test] fn test_stage_invalid_version() { assert!(stage("bad", tempfile::tempdir().unwrap().path()).is_err()); }
-    #[test] fn test_stage_formal_rejected() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); let e = stage("v1.0.0", d.path()).unwrap_err().to_string(); assert!(e.contains("仅用于预发布")); }
-    #[test] fn test_stage_idempotent() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); std::fs::write(d.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap(); assert!(stage("v1.0.0-rc.1", d.path()).is_ok()); assert!(stage("v1.0.0-rc.1", d.path()).is_ok()); }
-    #[test] fn test_stage_rejects_missing_changelog() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); let e = stage("v1.0.0-rc.1", d.path()).unwrap_err().to_string(); assert!(e.contains("CHANGELOG")); }
+    #[test] fn test_stage_formal_rejected() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); git_commit(d.path(), "init"); let e = stage("v1.0.0", d.path()).unwrap_err().to_string(); assert!(e.contains("仅用于预发布")); }
+    #[test] fn test_stage_idempotent() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); git_commit(d.path(), "init"); std::fs::write(d.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap(); assert!(stage("v1.0.0-rc.1", d.path()).is_ok()); assert!(stage("v1.0.0-rc.1", d.path()).is_ok()); }
+    #[test] fn test_stage_rejects_missing_changelog() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); git_commit(d.path(), "init"); let e = stage("v1.0.0-rc.1", d.path()).unwrap_err().to_string(); assert!(e.contains("CHANGELOG")); }
     #[test] fn test_is_prerelease_rc() { assert!(is_prerelease("v1.0.0-rc.1")); }
     #[test] fn test_is_prerelease_alpha() { assert!(is_prerelease("v1.0.0-alpha.1")); }
     #[test] fn test_is_prerelease_beta() { assert!(is_prerelease("v1.0.0-beta.2")); }
