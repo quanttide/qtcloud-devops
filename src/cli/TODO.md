@@ -14,10 +14,11 @@ src/
 ├── git/               # 事实源底层：所有 git 操作
 │   ├── mod.rs
 │   └── submodule.rs   # RepoState, SubmoduleStatus, scan, fetch, push, commit…
-└── release/           # 发布子领域（已有，保留）
+└── release/           # 发布子领域
     ├── mod.rs
-    └── status.rs
-    ----publish.rs
+    ├── stage.rs        # stage 命令（预发布）
+    ├── publish.rs      # publish 命令（正式发布）
+    └── util.rs         # 共享工具（validate_version, create_tag, extract_notes…）
 ```
 
 ## P0: `git/` 子领域（事实源底层）
