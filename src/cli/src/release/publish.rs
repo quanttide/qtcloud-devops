@@ -11,6 +11,7 @@ pub fn publish(version: &str, repo_path: &Path, yes: bool, pre_release: bool, re
     if !util::validate_version(version) {
         return Err(format!("版本号格式错误: {}", version).into());
     }
+    let prerelease = pre_release || is_prerelease(version);
     if pre_release && !is_prerelease(version) {
         return Err(format!("--pre-release 版本需要包含后缀（如 -rc.1）: {}", version).into());
     }
@@ -21,7 +22,7 @@ pub fn publish(version: &str, repo_path: &Path, yes: bool, pre_release: bool, re
         return Err(precheck_errors.join("\n").into());
     }
 
-    if !pre_release && !yes {
+    if !prerelease && !yes {
         if !util::confirm_release(version, false) {
             return Err("已取消发布".into());
         }
