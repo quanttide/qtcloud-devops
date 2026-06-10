@@ -147,8 +147,7 @@ code status [path] [--offline]  # 查看组件同步状态
 ### `release` 命令
 
 ```bash
-release stage -v <version>      # 预发布（仅 rc 版本）
-release publish -v <version>    # 正式发布（创建 tag + GitHub Release）
+release publish -v <version> [--pre-release]  # 发布版本（--pre-release 跳过确认，校验版本后缀）
 ```
 
 - 版本号格式：`vX.Y.Z` 或 `scope/vX.Y.Z`

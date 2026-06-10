@@ -21,7 +21,7 @@ cargo test --test code          # 仅 code 集成测试
 src/
 ├── code/       # 业务层：纯抽象，不暴露 git 概念
 ├── git/        # 事实源底层：所有 git 操作
-└── release/    # 发布子领域：stage → publish
+└── release/    # 发布子领域：publish
 ```
 
 ## CLI 命令
@@ -30,13 +30,12 @@ src/
 code sync [name]                # 同步组件（封装 fetch + push + pointer update）
 code status [path] [--offline]  # 查看组件同步状态（Synced/PendingPush/PendingPull/Conflict）
 
-release stage -v <version>      # 预发布（仅 rc 版本，创建 tag + GitHub Release）
-release publish -v <version>    # 正式发布（创建 tag + GitHub Release）
+release publish -v <version> [--pre-release]  # 发布版本（--pre-release 跳过确认，校验版本后缀）
 ```
 
 ### 规则
 
 - `code sync`：`name` 省略时同步全部
 - `code status`：路径默认为当前目录 `.`
-- `release stage`：只用于预发布版本（含 `-rc.N`、`-alpha.N` 等后缀）
-- `release publish`：正式版和 rc 均可
+- `release publish --pre-release`：跳过用户确认，校验版本号需含 `-rc.N` 等后缀
+- `release publish -y`：跳过用户确认（正式版用）

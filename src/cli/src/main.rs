@@ -31,17 +31,15 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ReleaseAction {
-    /// 预发布版本（rc），创建 tag + GitHub Release
-    Stage {
-        #[arg(short = 'v', long)]
-        version: String,
-    },
-    /// 正式发布，创建 tag + GitHub Release
+    /// 发布版本（创建 tag + GitHub Release）
     Publish {
         #[arg(short = 'v', long)]
         version: String,
         #[arg(long, short = 'y')]
         yes: bool,
+        /// 标记为预发布（跳过确认，校验版本号需含 -rc.N 等后缀）
+        #[arg(long)]
+        pre_release: bool,
         #[arg(long, value_enum)]
         registry: Option<Registry>,
     },
@@ -103,12 +101,8 @@ fn main() {
     let result = match cli.command {
         Commands::Code { action } => run_code(action),
         Commands::Release { action } => match action {
-            ReleaseAction::Stage { version } => {
-                qtcloud_devops_cli::release::stage(&version, &repo_path())
-                    .map_err(|e| format!("{}", e))
-            }
-            ReleaseAction::Publish { version, yes, registry } => {
-                qtcloud_devops_cli::release::publish(&version, &repo_path(), yes, registry)
+            ReleaseAction::Publish { version, yes, pre_release, registry } => {
+                qtcloud_devops_cli::release::publish(&version, &repo_path(), yes, pre_release, registry)
                     .map_err(|e| format!("{}", e))
             }
         }

@@ -5,6 +5,7 @@
 ### Breaking
 
 - 模块结构重构：`commands/` + `model/` → `code/` + `git/` + `release/` 三子领域
+- 删除 `release stage` 命令，合并到 `release publish --pre-release`
   - `code/`：业务层，纯抽象，不暴露 git 概念
   - `git/`：事实源底层，所有 git 操作
   - `release/`：发布子领域

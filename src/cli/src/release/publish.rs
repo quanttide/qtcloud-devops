@@ -2,15 +2,31 @@ use std::path::Path;
 
 use super::util::{self, Registry};
 
-pub fn publish(version: &str, repo_path: &Path, yes: bool, registry: Option<Registry>) -> Result<(), Box<dyn std::error::Error>> {
+fn is_prerelease(version: &str) -> bool {
+    let base = version.split('/').last().unwrap_or(version);
+    base.contains('-')
+}
+
+pub fn publish(version: &str, repo_path: &Path, yes: bool, pre_release: bool, registry: Option<Registry>) -> Result<(), Box<dyn std::error::Error>> {
+    if !util::validate_version(version) {
+        return Err(format!("版本号格式错误: {}", version).into());
+    }
+    if pre_release && !is_prerelease(version) {
+        return Err(format!("--pre-release 版本需要包含后缀（如 -rc.1）: {}", version).into());
+    }
+
     let changelog_path = repo_path.join("CHANGELOG.md");
     let precheck_errors = util::precheck_version_changelog(version, &changelog_path);
     if !precheck_errors.is_empty() {
         return Err(precheck_errors.join("\n").into());
     }
-    if !util::confirm_release(version, yes) {
-        return Err("已取消发布".into());
+
+    if !pre_release && !yes {
+        if !util::confirm_release(version, false) {
+            return Err("已取消发布".into());
+        }
     }
+
     if !util::create_tag(version, repo_path) {
         return Err(format!("创建标签 {} 失败", version).into());
     }
@@ -53,7 +69,14 @@ mod tests {
         std::process::Command::new("git").args(["commit", "-m", msg]).current_dir(path).output().unwrap();
     }
 
-    #[test] fn test_publish_rejects_missing_changelog() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); git_commit(d.path(), "init"); let e = publish("v1.0.0", d.path(), true, None).unwrap_err().to_string(); assert!(e.contains("CHANGELOG")); }
-    #[test] fn test_publish_without_stage_succeeds() { let d = tempfile::tempdir().unwrap(); let r = publish("v1.0.0", d.path(), true, None); assert!(r.is_ok() || r.is_err()); }
-}
+    #[test] fn test_is_prerelease_rc() { assert!(is_prerelease("v1.0.0-rc.1")); }
+    #[test] fn test_is_prerelease_alpha() { assert!(is_prerelease("v1.0.0-alpha.1")); }
+    #[test] fn test_is_prerelease_beta() { assert!(is_prerelease("v1.0.0-beta.2")); }
+    #[test] fn test_is_prerelease_scoped() { assert!(is_prerelease("cli/v0.3.2-rc.1")); }
+    #[test] fn test_is_prerelease_formal() { assert!(!is_prerelease("v1.0.0")); }
+    #[test] fn test_is_prerelease_formal_scoped() { assert!(!is_prerelease("cli/v0.3.2")); }
 
+    #[test] fn test_publish_rejects_missing_changelog() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); git_commit(d.path(), "init"); let e = publish("v1.0.0", d.path(), true, false, None).unwrap_err().to_string(); assert!(e.contains("CHANGELOG")); }
+    #[test] fn test_publish_without_stage_succeeds() { let d = tempfile::tempdir().unwrap(); let r = publish("v1.0.0", d.path(), true, false, None); assert!(r.is_ok() || r.is_err()); }
+    #[test] fn test_publish_pre_release_rejects_formal() { let d = tempfile::tempdir().unwrap(); let e = publish("v1.0.0", d.path(), true, true, None).unwrap_err().to_string(); assert!(e.contains("--pre-release")); }
+}

@@ -18,81 +18,52 @@ fn git_commit(repo: &std::path::Path) {
     let mut f = std::fs::File::create(repo.join("f")).unwrap();
     writeln!(f, "x").unwrap();
     std::process::Command::new("git")
-        .args(["add", "."])
-        .current_dir(repo)
-        .output()
-        .unwrap();
+        .args(["add", "."]).current_dir(repo).output().unwrap();
     std::process::Command::new("git")
-        .args(["commit", "-m", "x"])
-        .current_dir(repo)
-        .output()
-        .unwrap();
+        .args(["commit", "-m", "x"]).current_dir(repo).output().unwrap();
 }
 
 #[test]
 fn test_release_create_tag_uses_repo_path() {
     let dir = tempfile::tempdir().unwrap();
-    git_init(dir.path());
-    git_commit(dir.path());
-
+    git_init(dir.path()); git_commit(dir.path());
     let tag = "v999.999.999-test-repo-path";
     assert!(qtcloud_devops_cli::release::create_tag(tag, dir.path()));
-
-    let output = std::process::Command::new("git")
-        .args(["-C", dir.path().to_str().unwrap(), "tag", "-l"])
-        .output()
-        .unwrap();
-    let tags = String::from_utf8_lossy(&output.stdout);
-    assert!(tags.contains(tag));
-
-    let cwd_tags = std::process::Command::new("git")
-        .args(["tag", "-l"])
-        .output()
-        .unwrap();
-    let cwd_tags = String::from_utf8_lossy(&cwd_tags.stdout);
-    assert!(!cwd_tags.contains(tag));
+    let output = std::process::Command::new("git").args(["-C", dir.path().to_str().unwrap(), "tag", "-l"]).output().unwrap();
+    assert!(String::from_utf8_lossy(&output.stdout).contains(tag));
+    let cwd_tags = std::process::Command::new("git").args(["tag", "-l"]).output().unwrap();
+    assert!(!String::from_utf8_lossy(&cwd_tags.stdout).contains(tag));
 }
 
 #[test]
-fn test_release_stage_invalid_version() {
-    let dir = tempfile::tempdir().unwrap();
-    assert!(
-        qtcloud_devops_cli::release::stage("bad", dir.path()).is_err()
-    );
+fn test_release_publish_rejects_invalid_version() {
+    assert!(qtcloud_devops_cli::release::publish("bad", tempfile::tempdir().unwrap().path(), true, false, None).is_err());
 }
 
 #[test]
-fn test_release_stage_rejects_missing_changelog() {
-    let dir = tempfile::tempdir().unwrap();
-    git_init(dir.path());
-    let err = qtcloud_devops_cli::release::stage("v1.0.0-rc.1", dir.path())
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("CHANGELOG"), "预期 CHANGELOG 相关错误，得到: {}", err);
+fn test_release_publish_pre_release_rejects_formal() {
+    assert!(qtcloud_devops_cli::release::publish("v1.0.0", tempfile::tempdir().unwrap().path(), true, true, None).unwrap_err().to_string().contains("--pre-release"));
 }
 
 #[test]
 fn test_release_publish_rejects_missing_changelog() {
-    let dir = tempfile::tempdir().unwrap();
-    git_init(dir.path());
-    let err = qtcloud_devops_cli::release::publish("v1.0.0", dir.path(), true, None)
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("CHANGELOG"), "预期 CHANGELOG 相关错误，得到: {}", err);
+    let dir = tempfile::tempdir().unwrap(); git_init(dir.path());
+    let err = qtcloud_devops_cli::release::publish("v1.0.0", dir.path(), true, false, None).unwrap_err().to_string();
+    assert!(err.contains("CHANGELOG"), "预期 CHANGELOG 错误，得到: {}", err);
 }
 
 #[test]
-fn test_release_stage_idempotent() {
-    let dir = tempfile::tempdir().unwrap();
-    git_init(dir.path());
+fn test_release_publish_idempotent() {
+    let dir = tempfile::tempdir().unwrap(); git_init(dir.path());
     std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap();
-    assert!(qtcloud_devops_cli::release::stage("v1.0.0-rc.1", dir.path()).is_ok());
-    assert!(qtcloud_devops_cli::release::stage("v1.0.0-rc.1", dir.path()).is_ok());
+    assert!(qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, true, None).is_ok());
+    assert!(qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, true, None).is_ok());
 }
 
 #[test]
-fn test_release_publish_without_stage() {
-    let dir = tempfile::tempdir().unwrap();
-    let result = qtcloud_devops_cli::release::publish("v1.0.0", dir.path(), true, None);
-    assert!(result.is_ok() || result.is_err());
+fn test_release_publish_without_changelog_entry() {
+    let dir = tempfile::tempdir().unwrap(); git_init(dir.path());
+    std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0]\n\ncontent\n").unwrap();
+    let err = qtcloud_devops_cli::release::publish("v2.0.0", dir.path(), true, false, None).unwrap_err().to_string();
+    assert!(err.contains("未找到"));
 }
