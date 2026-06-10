@@ -38,4 +38,3 @@ src/
 ## P1
 
 - [ ] 测试辅助函数去重：将 `git_init()` 提取为共享测试工具
-- [ ] 更新 `src/cli/AGENTS.md` CLI 设计规则为新结构

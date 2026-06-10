@@ -6,3 +6,37 @@
 - CONTRIBUTING：面向开发者
 - ROADMAP：版本规划
 - TODO：具体待办
+
+## 测试
+
+```sh
+cargo test                      # 全部测试
+cargo test --test release       # 仅 release 集成测试
+cargo test --test code          # 仅 code 集成测试
+```
+
+## 模块结构
+
+```
+src/
+├── code/       # 业务层：纯抽象，不暴露 git 概念
+├── git/        # 事实源底层：所有 git 操作
+└── release/    # 发布子领域：stage → publish
+```
+
+## CLI 命令
+
+```bash
+code sync [name]                # 同步组件（封装 fetch + push + pointer update）
+code status [path] [--offline]  # 查看组件同步状态（Synced/PendingPush/PendingPull/Conflict）
+
+release stage -v <version>      # 预发布（仅 rc 版本，创建 tag + GitHub Release）
+release publish -v <version>    # 正式发布（创建 tag + GitHub Release）
+```
+
+### 规则
+
+- `code sync`：`name` 省略时同步全部
+- `code status`：路径默认为当前目录 `.`
+- `release stage`：只用于预发布版本（含 `-rc.N`、`-alpha.N` 等后缀）
+- `release publish`：正式版和 rc 均可

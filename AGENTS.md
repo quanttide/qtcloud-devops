@@ -125,37 +125,35 @@ preflight 不通过不发布。
 
 ## CLI 设计规则
 
-### `code` 子命令行为
+### 模块结构
 
 ```
-qtcloud-devops code status [path]                # 三路 commit 比对 + 聚合统计
-qtcloud-devops code sync [name] [--repo path]    # 同步子模块指针到父仓库
-qtcloud-devops code retire <name> [--repo path]  # 退役子模块
+src/
+├── code/       # 业务层：纯抽象，不暴露 git 概念
+├── git/        # 事实源底层：所有 git 操作
+└── release/    # 发布子领域：stage → publish
 ```
 
-### 规则
-
-- `status`：路径默认为当前目录 `.`
-- `sync`：`name` 省略时同步全部子模块
-- `retire`：`name` 为必填参数
-- 所有命令由 Rust 直接实现，无 Python 封装层
-
-### release 命令行为
+### `code` 命令
 
 ```bash
-qtcloud-devops stage -v <version>        # 标记版本，进入 Staged 状态
-qtcloud-devops publish -v <version> [-y] # Staged → Published（标签 + GitHub Release）
-qtcloud-devops cancel -v <version>       # Staged → Cancelled（审计用途，不清理 tag）
-qtcloud-devops retire -v <version>       # Published → Retired
+code sync [name]                # 同步组件（封装 fetch + push + pointer update）
+code status [path] [--offline]  # 查看组件同步状态
 ```
 
-### 规则
+- `sync`：`name` 省略时同步全部
+- `status`：路径默认为当前目录 `.`
 
-- 版本号格式：`vX.Y.Z` 或 `scope/vX.Y.Z`（如 `cli/v0.3.0`）
-- scope 前缀用于多仓库场景，CI 通过 `startsWith(github.ref, 'refs/tags/scope/')` 过滤
-- 发布流程：`stage` → `publish`（两步）。`stage` 只校验版本号，`publish` 执行 tag + GitHub Release
+### `release` 命令
+
+```bash
+release stage -v <version>      # 预发布（仅 rc 版本）
+release publish -v <version>    # 正式发布（创建 tag + GitHub Release）
+```
+
+- 版本号格式：`vX.Y.Z` 或 `scope/vX.Y.Z`
+- `stage` 只用于预发布版本（含 `-rc.N`、`-alpha.N` 等后缀）
 - 回滚：`create_tag` 失败无副作用；`push_tag` 失败删本地 tag；GitHub Release 失败删本地+远程 tag
-- 仓库自动检测：从 `git remote get-url origin` 解析 GitHub 仓库名（`get_remote_repo()`）
 
 ## CI 工作流
 
