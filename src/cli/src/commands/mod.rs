@@ -15,14 +15,11 @@ pub struct HealthIssue {
 pub trait SubmoduleEditor {
     fn root(&self) -> &Path;
 
-    /// 核心贡献：子模块 → 父仓库的指针同步
+    /// 核心：同步子模块指针到父仓库
     fn sync_to_parent(&self, name: &str) -> Result<(), Box<dyn std::error::Error>>;
     fn sync_all_to_parent(&self) -> Result<(), Box<dyn std::error::Error>>;
 
-    /// 半贡献：自动反注册子模块
-    fn retire_submodule(&self, name: &str) -> Result<(), Box<dyn std::error::Error>>;
-
-    /// 核心贡献：三路 commit 比对 + 7 种状态分类
+    /// 核心：三路 commit 比对 + 7 种状态分类
     fn status(&self) -> Result<Vec<HealthIssue>, Box<dyn std::error::Error>>;
 }
 

@@ -2,7 +2,7 @@
 
 ## v0.5.0:
 
-- 取消 `release retire` 命令（保留 `code retire` — 子模块退役，不属 release 流程）
+- 取消 `release retire` 命令
   - `main.rs`: 删除 `ReleaseAction::Retire` 变体及 match 分支
   - `commands/release.rs`: 删除 `retire()` 函数及相关测试（test_retire_*）
 - 取消 `release` 模块的状态。

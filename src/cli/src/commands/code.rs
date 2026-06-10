@@ -19,25 +19,78 @@ impl GitSubmoduleEditor {
 }
 
 impl GitSubmoduleEditor {
-    fn push_submodule(path: &std::path::Path, name: &str, parts: &mut Vec<&str>) {
+    fn fetch_submodule(path: &std::path::Path) -> Result<(), ()> {
+        let has_remote = std::process::Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .current_dir(path)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !has_remote { return Ok(()); }
+        let output = std::process::Command::new("git")
+            .args(["fetch", "origin"])
+            .current_dir(path)
+            .output()
+            .map_err(|_| ())?;
+        if output.status.success() { Ok(()) } else { Err(()) }
+    }
+
+    fn push_submodule(path: &std::path::Path) -> Result<(), String> {
         if !path.exists() {
-            return;
+            return Ok(());
+        }
+        let branch = std::process::Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(path)
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+        if branch.is_empty() || branch == "HEAD" {
+            return Ok(());
+        }
+        let has_remote = std::process::Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .current_dir(path)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !has_remote {
+            return Ok(());
+        }
+        let tracking = format!("origin/{}", branch);
+        let ahead = std::process::Command::new("git")
+            .args(["rev-list", "--count", &format!("{}..{}", tracking, branch)])
+            .current_dir(path)
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8_lossy(&o.stdout).trim().parse::<i32>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+        if ahead <= 0 {
+            return Ok(());
         }
         let output = std::process::Command::new("git")
-            .args(["push", "origin"])
+            .args(["push", "origin", &branch])
             .current_dir(path)
-            .output();
-        match output {
-            Ok(out) if out.status.success() => parts.push("✓ push"),
-            Ok(out) => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                parts.push("✗ push");
-                eprintln!("  {}  push 失败: {}", name, stderr.trim());
-            }
-            Err(e) => {
-                parts.push("✗ push");
-                eprintln!("  {}  push 失败: {}", name, e);
-            }
+            .output()
+            .map_err(|e| format!("git push 无法执行: {}", e))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(stderr.trim().to_string())
         }
     }
 
@@ -45,7 +98,6 @@ impl GitSubmoduleEditor {
         repo: &git2::Repository,
         sm_path: &std::path::Path,
         name: &str,
-        parts: &mut Vec<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut index = repo.index()?;
         index.add_path(sm_path)?;
@@ -54,7 +106,7 @@ impl GitSubmoduleEditor {
         let tree = repo.find_tree(tree_id)?;
         let head = repo.head()?;
         let parent = head.peel_to_commit()?;
-        let signature = git2::Signature::now("kse", "kse@local")?;
+        let signature = repo.signature()?;
         repo.commit(
             Some("HEAD"),
             &signature,
@@ -63,40 +115,46 @@ impl GitSubmoduleEditor {
             &tree,
             &[&parent],
         )?;
-        parts.push("sync");
         Ok(())
     }
 
-    fn push_parent(
-        repo: &git2::Repository,
-        root: &std::path::Path,
-        name: &str,
-        parts: &mut Vec<&str>,
-    ) {
+    fn push_parent(repo: &git2::Repository, root: &std::path::Path) -> Result<(), String> {
+        let has_remote = std::process::Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .current_dir(root)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !has_remote {
+            return Ok(());
+        }
         let branch = repo
             .head()
             .ok()
             .and_then(|r| r.shorthand().map(|s| s.to_string()))
             .unwrap_or_default();
         if branch.is_empty() {
-            return;
+            return Err("无法检测当前分支".into());
         }
         let output = std::process::Command::new("git")
             .args(["push", "origin", &branch])
             .current_dir(root)
-            .output();
-        match output {
-            Ok(out) if out.status.success() => parts.push("✓ push-parent"),
-            Ok(out) => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                parts.push("✗ push-parent");
-                eprintln!("  {}  push-parent 失败: {}", name, stderr.trim());
-            }
-            Err(e) => {
-                parts.push("✗ push-parent");
-                eprintln!("  {}  push-parent 失败: {}", name, e);
-            }
+            .output()
+            .map_err(|e| format!("git push 无法执行: {}", e))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(stderr.trim().to_string())
         }
+    }
+
+    fn revert_parent_commit(root: &std::path::Path) {
+        std::process::Command::new("git")
+            .args(["reset", "--hard", "HEAD~1"])
+            .current_dir(root)
+            .output()
+            .ok();
     }
 }
 
@@ -111,13 +169,24 @@ impl SubmoduleEditor for GitSubmoduleEditor {
         let sm_path = sm.path();
         let full_sm_path = self.root.join(sm_path);
 
-        let mut parts: Vec<&str> = Vec::new();
+        // 1. fetch 远端，确保推送时基于最新状态
+        if full_sm_path.exists() {
+            Self::fetch_submodule(&full_sm_path).ok();
+        }
 
-        Self::push_submodule(&full_sm_path, name, &mut parts);
-        Self::update_parent_pointer(&repo, sm_path, name, &mut parts)?;
-        Self::push_parent(&repo, &self.root, name, &mut parts);
+        // 2. push 子模块本地提交到远端
+        Self::push_submodule(&full_sm_path).map_err(|e| format!("子模块 push 失败: {}", e))?;
 
-        println!("  {:<35} {}", name, parts.join(" · "));
+        // 3. 更新父仓库指针并提交
+        Self::update_parent_pointer(&repo, sm_path, name)?;
+
+        // 4. push 父仓库；失败时回滚第 3 步的提交
+        if let Err(e) = Self::push_parent(&repo, &self.root) {
+            Self::revert_parent_commit(&self.root);
+            return Err(format!("父仓库 push 失败 (已回滚提交): {}", e).into());
+        }
+
+        println!("  ✓ {}", name);
         Ok(())
     }
 
@@ -132,53 +201,6 @@ impl SubmoduleEditor for GitSubmoduleEditor {
                 Err(e) => println!("  {:<35} ✗ 失败: {}", name, e),
             }
         }
-        Ok(())
-    }
-
-    fn retire_submodule(&self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let repo = git2::Repository::open(&self.root)?;
-        let sm = repo.find_submodule(name)?;
-        let sm_path = sm.path().to_path_buf();
-
-        let result = std::process::Command::new("git")
-            .args(["submodule", "deinit", "-f", name])
-            .current_dir(&self.root)
-            .output();
-        match result {
-            Err(e) => eprintln!("警告: git submodule deinit 无法执行: {} (继续处理)", e),
-            Ok(out) if !out.status.success() => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                eprintln!("警告: git submodule deinit 失败: {} (继续处理)", stderr.trim());
-            }
-            _ => {}
-        }
-
-        let gitmodules_path = self.root.join(".gitmodules");
-        if gitmodules_path.exists() {
-            let content = std::fs::read_to_string(&gitmodules_path)?;
-            let mut new_content = String::new();
-            let mut skip = false;
-            let in_submodule_alt = format!("[submodule \"{}\"]", name);
-            for line in content.lines() {
-                if line.trim() == in_submodule_alt {
-                    skip = true;
-                    continue;
-                }
-                if skip && line.trim_start().starts_with('[') {
-                    skip = false;
-                }
-                if !skip {
-                    new_content.push_str(line);
-                    new_content.push('\n');
-                }
-            }
-            std::fs::write(&gitmodules_path, new_content)?;
-        }
-        let mut index = repo.index()?;
-        index.remove_path(&sm_path)?;
-        index.write()?;
-
-        println!("已退役子模块 '{}'", name);
         Ok(())
     }
 
@@ -357,31 +379,6 @@ mod tests {
     }
 
     #[test]
-    fn test_editor_retire_submodule() {
-        let tmp = tempfile::tempdir().unwrap();
-        let parent = setup_repo_with_submodule(tmp.path());
-        let editor = GitSubmoduleEditor::new(parent.clone());
-        let result = editor.retire_submodule("libs/sub");
-        assert!(result.is_ok());
-        // verify .gitmodules no longer has the submodule entry
-        let gitmodules = parent.join(".gitmodules");
-        assert!(!gitmodules.exists()
-            || !std::fs::read_to_string(&gitmodules)
-                .unwrap()
-                .contains("libs/sub"));
-    }
-
-    #[test]
-    fn test_editor_retire_submodule_nonexistent() {
-        let tmp = tempfile::tempdir().unwrap();
-        git_init(tmp.path());
-        git_commit(tmp.path(), "initial");
-        let editor = GitSubmoduleEditor::new(tmp.path().to_path_buf());
-        let result = editor.retire_submodule("no-such-module");
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_editor_status() {
         let tmp = tempfile::tempdir().unwrap();
         let parent = setup_repo_with_submodule(tmp.path());
@@ -401,102 +398,45 @@ mod tests {
     }
 
     #[test]
-    fn test_editor_retire_with_multiple_submodules() {
-        let tmp = tempfile::tempdir().unwrap();
-        let parent = tmp.path().join("parent");
-        let sub1 = tmp.path().join("sub1");
-        let sub2 = tmp.path().join("sub2");
-        std::fs::create_dir_all(&sub1).unwrap();
-        git_init(&sub1);
-        git_commit(&sub1, "init");
-        std::fs::create_dir_all(&sub2).unwrap();
-        git_init(&sub2);
-        git_commit(&sub2, "init");
-        std::fs::create_dir_all(&parent).unwrap();
-        git_init(&parent);
-        git_commit(&parent, "init");
-        Command::new("git")
-            .args(["submodule", "add", &sub1.to_string_lossy(), "libs/sub1"])
-            .current_dir(&parent)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["submodule", "add", &sub2.to_string_lossy(), "libs/sub2"])
-            .current_dir(&parent)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "add submodules"])
-            .current_dir(&parent)
-            .output()
-            .unwrap();
-        let editor = GitSubmoduleEditor::new(parent.clone());
-        let result = editor.retire_submodule("libs/sub1");
-        assert!(result.is_ok());
-        let gitmodules = parent.join(".gitmodules");
-        let content = std::fs::read_to_string(&gitmodules).unwrap();
-        assert!(!content.contains("libs/sub1"));
-        assert!(content.contains("libs/sub2"));
-    }
-
-    #[test]
     fn test_editor_sync_with_remote_push() {
         let tmp = tempfile::tempdir().unwrap();
-        let bare = tmp.path().join("bare");
-        Command::new("git")
-            .args(["init", "--bare", &bare.to_string_lossy()])
-            .current_dir(tmp.path())
-            .output()
-            .unwrap();
+        let bare_sub = tmp.path().join("bare-sub");
+        let bare_parent = tmp.path().join("bare-parent");
+        for b in [&bare_sub, &bare_parent] {
+            Command::new("git")
+                .args(["init", "--bare", &b.to_string_lossy()])
+                .output().unwrap();
+        }
         let sub = tmp.path().join("sub");
         Command::new("git")
-            .args(["clone", &bare.to_string_lossy(), &sub.to_string_lossy()])
-            .current_dir(tmp.path())
-            .output()
-            .unwrap();
+            .args(["clone", &bare_sub.to_string_lossy(), &sub.to_string_lossy()])
+            .current_dir(tmp.path()).output().unwrap();
         git_init(&sub);
         git_commit(&sub, "init");
         Command::new("git")
-            .args(["push", "origin", "main"])
-            .current_dir(&sub)
-            .output()
-            .unwrap();
+            .args(["push", "origin", "main"]).current_dir(&sub).output().unwrap();
         let parent = tmp.path().join("parent");
         std::fs::create_dir_all(&parent).unwrap();
         git_init(&parent);
         git_commit(&parent, "init parent");
-        // Add a remote to parent so push can succeed
         Command::new("git")
-            .args(["remote", "add", "origin", &bare.to_string_lossy()])
-            .current_dir(&parent)
-            .output()
-            .unwrap();
+            .args(["remote", "add", "origin", &bare_parent.to_string_lossy()])
+            .current_dir(&parent).output().unwrap();
         Command::new("git")
-            .args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"])
-            .current_dir(&parent)
-            .output()
-            .unwrap();
+            .args(["submodule", "add", &bare_sub.to_string_lossy(), "libs/sub"])
+            .current_dir(&parent).output().unwrap();
         Command::new("git")
             .args(["commit", "-m", "add submodule"])
-            .current_dir(&parent)
-            .output()
-            .unwrap();
-        // Commit in submodule to make it ahead
+            .current_dir(&parent).output().unwrap();
         git_commit(&sub, "ahead");
         Command::new("git")
-            .args(["push", "origin", "main"])
-            .current_dir(&sub)
-            .output()
-            .unwrap();
+            .args(["push", "origin", "main"]).current_dir(&sub).output().unwrap();
         Command::new("git")
             .args(["fetch", "origin"])
-            .current_dir(&parent.join("libs/sub"))
-            .output()
-            .unwrap();
+            .current_dir(&parent.join("libs/sub")).output().unwrap();
         let editor = GitSubmoduleEditor::new(parent);
-        // This should succeed: submodule push → parent commit → parent push
         let result = editor.sync_to_parent("libs/sub");
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "sync failed: {:?}", result.as_ref().err());
     }
 
     #[test]

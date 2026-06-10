@@ -67,14 +67,6 @@ enum CodeAction {
         #[arg(default_value = ".")]
         repo: PathBuf,
     },
-    /// 退役子模块
-    Retire {
-        name: String,
-        #[arg(long)]
-        dry_run: bool,
-        #[arg(default_value = ".")]
-        repo: PathBuf,
-    },
 }
 
 fn resolve_path(path: &PathBuf) -> Result<PathBuf, String> {
@@ -154,9 +146,6 @@ fn run_code(action: CodeAction) -> Result<(), String> {
         CodeAction::Sync { name: None, dry_run, repo } => {
             run_code_sync_all(dry_run, repo)
         }
-        CodeAction::Retire { name, dry_run, repo } => {
-            run_code_retire(&name, dry_run, repo)
-        }
     }
 }
 
@@ -216,16 +205,6 @@ fn run_code_sync_all(dry_run: bool, repo: PathBuf) -> Result<(), String> {
     }
     let editor = GitSubmoduleEditor::new(root);
     editor.sync_all_to_parent().map_err(|e| format!("同步所有子模块失败: {}", e))
-}
-
-fn run_code_retire(name: &str, dry_run: bool, repo: PathBuf) -> Result<(), String> {
-    let root = resolve_path(&repo)?;
-    if dry_run {
-        println!("[预览] 退役子模块 '{}'", name);
-        return Ok(());
-    }
-    let editor = GitSubmoduleEditor::new(root);
-    editor.retire_submodule(name).map_err(|e| format!("退役子模块 '{}' 失败: {}", name, e))
 }
 
 #[cfg(test)]

@@ -63,11 +63,6 @@ fn editor_sync_all(root: &std::path::Path) -> Result<(), Box<dyn std::error::Err
     editor.sync_all_to_parent()
 }
 
-fn editor_retire(root: &std::path::Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let editor = qtcloud_devops_cli::commands::code::GitSubmoduleEditor::new(root.to_path_buf());
-    editor.retire_submodule(name)
-}
-
 #[test]
 fn test_integration_scan_submodule() {
     let tmp = tempfile::tempdir().unwrap();
@@ -111,27 +106,6 @@ fn test_integration_sync_all_no_submodules() {
     git_init(tmp.path());
     git_commit(tmp.path(), "init");
     assert!(editor_sync_all(tmp.path()).is_ok());
-}
-
-#[test]
-fn test_integration_retire_submodule() {
-    let tmp = tempfile::tempdir().unwrap();
-    let parent = setup_repo_with_submodule(tmp.path());
-    editor_retire(&parent, "libs/sub").unwrap();
-    assert!(
-        !parent.join(".gitmodules").exists()
-            || !std::fs::read_to_string(parent.join(".gitmodules"))
-                .unwrap()
-                .contains("libs/sub")
-    );
-}
-
-#[test]
-fn test_integration_retire_nonexistent() {
-    let tmp = tempfile::tempdir().unwrap();
-    git_init(tmp.path());
-    git_commit(tmp.path(), "init");
-    assert!(editor_retire(tmp.path(), "no-such-module").is_err());
 }
 
 #[test]
