@@ -63,8 +63,8 @@ mod tests {
     #[test] fn test_state_to_dict_empty() {
         let state = submodule::RepoState {
             root_path: std::path::PathBuf::from("/tmp"), submodules: vec![], total: 0, clean_count: 0, needs_attention: vec![],
-
-            assert!(state_to_dict(&state).is_ok());
+        };
+        assert!(state_to_dict(&state).is_ok());
     }
     #[test] fn test_state_to_dict_with_submodule() {
         let sm = submodule::Submodule {
