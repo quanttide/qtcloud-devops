@@ -16,6 +16,38 @@
 
 - 模块结构重构：`commands/` + `model/` → `code/` + `git/` + `release/` 三子领域
 - 删除 `release stage` 命令，只保留 `release publish`
+- 删除 `release retire`、`code retire`、`release status` 命令
+- 删除 release 状态跟踪（`ReleaseStatus` 枚举、`FileStorage` journal 持久化）
+  - `ReleaseStatus`、`ReleaseRecord`、`TransitionError` 移入 `packages/toolkit`
+- `pub use git::submodule` 移除（外部引用需改为 `git::submodule::*`）
+- `HealthIssue.status` 从 `SubmoduleStatus` 枚举改为 `String`
+- `RepoState.parent_dirty` 字段移除
+
+### Added
+
+- `code::status()` 返回业务类型 `StatusReport`（`SyncStatus` 四态）
+- `code::sync()` / `code::sync_all()` 封装 sync 原语
+- `RepoState::scan_offline()` 支持跳过 fetch
+- `SyncStatus::label()` 中文标签输出
+- 测试覆盖率从 65.3% 提升至 77.85%
+
+### Fixed
+
+- `--offline` 标志实际生效
+- `sync` 签名从 `repo.signature()` 读取，原子化三阶段，前序 fetch
+- `python.rs` 绑定和语法错误修复
+- `release publish` API 简化，移除 `--pre-release` 参数
+- Cargo.toml / pyproject.toml 版本同步
+
+### Changed
+
+- `sync` 跳过 detached HEAD 和无远程场景
+- `preflight.sh` 增加 `--features python` 验证
+
+### Breaking
+
+- 模块结构重构：`commands/` + `model/` → `code/` + `git/` + `release/` 三子领域
+- 删除 `release stage` 命令，只保留 `release publish`
   - `code/`：业务层，纯抽象，不暴露 git 概念
   - `git/`：事实源底层，所有 git 操作
   - `release/`：发布子领域
