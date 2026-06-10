@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## [0.5.0-rc.1] - 2026-06-10
+
+测试 CI 构建与发布流程（build-cli → publish-crate / publish-pypi）。无功能变更。
+
 ## [0.5.0] - 2026-06-10
 
 ### Breaking
