@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [0.5.0-rc.2] - 2026-06-10
+
+### Fixed
+
+- Cargo.toml / pyproject.toml 版本同步 rc 版本号，修复 CI version mismatch
+
 ## [0.5.0-rc.1] - 2026-06-10
 
 测试 CI 构建与发布流程（build-cli → publish-crate / publish-pypi）。无功能变更。
