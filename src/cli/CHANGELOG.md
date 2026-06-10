@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## [0.5.0] - 2026-06-10
+
+### Breaking
+
+- 模块结构重构：`commands/` + `model/` → `code/` + `git/` + `release/` 三子领域
+  - `code/`：业务层，纯抽象，不暴露 git 概念
+  - `git/`：事实源底层，所有 git 操作
+  - `release/`：发布子领域
+- 删除 `release retire` 命令
+- 删除 `code retire` 命令
+- 删除 `release status` 命令
+- 删除 release 状态跟踪（`ReleaseStatus` 枚举、`FileStorage` journal 持久化）
+  - `ReleaseStatus`、`ReleaseRecord`、`TransitionError` 移入 `packages/toolkit`
+- `pub use git::submodule` 移除（外部引用需改为 `git::submodule::*`）
+- `HealthIssue.status` 从 `SubmoduleStatus` 枚举改为 `String`
+- `RepoState.parent_dirty` 字段移除
+
+### Added
+
+- `code::status()` 返回业务类型 `StatusReport`（`SyncStatus` 四态：Synced/PendingPush/PendingPull/Conflict）
+- `code::sync()` / `code::sync_all()` 封装 sync 原语
+- `RepoState::scan_offline()` / `scan_with_options(offline)` 支持跳过 fetch
+- `SyncStatus::label()` 中文标签输出
+- 测试覆盖率从 65.3% 提升至 77.85%
+
+### Fixed
+
+- `--offline` 标志实际生效（跳过子模块 fetch）
+- `sync` 提交作者从 `repo.signature()` 读取，替代硬编码 `"kse" <kse@local>`
+- `sync` 三个阶段原子化：push_parent 失败时 revert parent commit
+- `sync` 前先 fetch，确保远端状态最新
+- `python.rs` `retire_submodule` 绑定移除、语法错误修复
+- `src/cli/AGENTS.md` 同步更新 CLI 设计规则
+
+### Changed
+
+- `sync` 推送跳过 detached HEAD 和无远程场景
+- `preflight.sh` 包含 `cargo build --features python` 验证
+
 ## [0.4.3] - 2026-05-25
 
 ### Fixed
