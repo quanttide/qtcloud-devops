@@ -10,6 +10,13 @@
 
 测试 CI 构建与发布流程（build-cli → publish-crate / publish-pypi）。无功能变更。
 
+## [0.5.1] - 2026-06-11
+
+### Fixed
+
+- `code sync` 改为双向同步：先 fetch + rebase 子模块远程更新，再 push 子模块、更新父指针、push 父仓库
+- 父仓库 push 失败后自动回滚父仓库提交
+
 ## [0.5.0] - 2026-06-10
 
 ### Breaking
