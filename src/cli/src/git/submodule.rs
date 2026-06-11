@@ -298,6 +298,29 @@ impl GitSubmoduleEditor {
             .map(|o| if o.status.success() { Ok(()) } else { Err(()) }).unwrap_or(Err(()))
     }
 
+    pub fn rebase_submodule(path: &std::path::Path) -> Result<(), String> {
+        if !path.exists() { return Ok(()); }
+        let branch = std::process::Command::new("git").args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(path).output().ok()
+            .and_then(|o| if o.status.success() { Some(String::from_utf8_lossy(&o.stdout).trim().to_string()) } else { None })
+            .unwrap_or_default();
+        if branch.is_empty() || branch == "HEAD" { return Ok(()); }
+        if !std::process::Command::new("git").args(["remote", "get-url", "origin"])
+            .current_dir(path).output().map(|o| o.status.success()).unwrap_or(false) { return Ok(()); }
+        let output = std::process::Command::new("git")
+            .args(["rebase", &format!("origin/{}", branch)])
+            .current_dir(path).output()
+            .map_err(|e| format!("git rebase 无法执行: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if stderr.contains("up to date") || stderr.contains("up-to-date") {
+                return Ok(());
+            }
+            return Err(format!("rebase 冲突，需手动处理：解决冲突后 git rebase --continue，或 git rebase --abort 放弃\n{}", stderr));
+        }
+        Ok(())
+    }
+
     pub fn push_submodule(path: &std::path::Path) -> Result<(), String> {
         if !path.exists() { return Ok(()); }
         let branch = std::process::Command::new("git").args(["rev-parse", "--abbrev-ref", "HEAD"])
@@ -356,6 +379,7 @@ impl GitSubmoduleEditor {
 
         if full_sm_path.exists() {
             Self::fetch_submodule(&full_sm_path).ok();
+            Self::rebase_submodule(&full_sm_path)?;
         }
         Self::push_submodule(&full_sm_path).map_err(|e| format!("子模块 push 失败: {}", e))?;
         Self::update_parent_pointer(&repo, sm_path, name)?;
@@ -422,7 +446,7 @@ pub struct HealthIssue {
 fn describe_issue(status: &SubmoduleStatus) -> (String, String) {
     match status {
         SubmoduleStatus::AheadOfParent => ("本地领先于父仓库记录".into(), "运行 sync_to_parent 更新父仓库指针".into()),
-        SubmoduleStatus::BehindRemote => ("远程有更新，本地落后".into(), "运行 update 获取最新代码".into()),
+        SubmoduleStatus::BehindRemote => ("远程有更新，本地落后".into(), "运行 code sync 获取最新代码".into()),
         SubmoduleStatus::Detached => ("处于游离 HEAD 状态".into(), "运行 checkout_branch 切换到跟踪分支".into()),
         SubmoduleStatus::Dirty => ("有未提交的修改".into(), "提交或 stash 当前修改".into()),
         SubmoduleStatus::Orphaned => ("父仓库记录的 commit 在远程已不存在".into(), "需手动干预".into()),
@@ -566,6 +590,36 @@ mod tests {
         assert!(GitSubmoduleEditor::new(parent).sync_to_parent("libs/sub").is_ok(), "sync failed");
     }
 
+    #[test] fn test_editor_sync_rebase_catches_up() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bare_sub = tmp.path().join("bare-sub");
+        let bare_parent = tmp.path().join("bare-parent");
+        for b in [&bare_sub, &bare_parent] { Command::new("git").args(["init", "--bare", &b.to_string_lossy()]).output().unwrap(); }
+        let sub = tmp.path().join("sub");
+        Command::new("git").args(["clone", &bare_sub.to_string_lossy(), &sub.to_string_lossy()]).current_dir(tmp.path()).output().unwrap();
+        git_init(&sub); git_commit(&sub, "init");
+        Command::new("git").args(["push", "origin", "main"]).current_dir(&sub).output().unwrap();
+        let init_hash = String::from_utf8_lossy(&Command::new("git").args(["rev-parse", "HEAD"]).current_dir(&sub).output().unwrap().stdout).trim().to_string();
+        let parent = tmp.path().join("parent");
+        std::fs::create_dir_all(&parent).unwrap(); git_init(&parent); git_commit(&parent, "init parent");
+        Command::new("git").args(["remote", "add", "origin", &bare_parent.to_string_lossy()]).current_dir(&parent).output().unwrap();
+        Command::new("git").args(["submodule", "add", &bare_sub.to_string_lossy(), "libs/sub"]).current_dir(&parent).output().unwrap();
+        Command::new("git").args(["commit", "-m", "add submodule"]).current_dir(&parent).output().unwrap();
+        let sm_path = parent.join("libs/sub");
+        assert_eq!(
+            String::from_utf8_lossy(&Command::new("git").args(["rev-parse", "HEAD"]).current_dir(&sm_path).output().unwrap().stdout).trim().to_string(),
+            init_hash, "submodule starts at init"
+        );
+        git_commit(&sub, "remote ahead");
+        Command::new("git").args(["push", "origin", "main"]).current_dir(&sub).output().unwrap();
+        let remote_hash = String::from_utf8_lossy(&Command::new("git").args(["rev-parse", "HEAD"]).current_dir(&sub).output().unwrap().stdout).trim().to_string();
+        assert!(GitSubmoduleEditor::new(parent).sync_to_parent("libs/sub").is_ok(), "sync failed");
+        assert_eq!(
+            String::from_utf8_lossy(&Command::new("git").args(["rev-parse", "HEAD"]).current_dir(&sm_path).output().unwrap().stdout).trim().to_string(),
+            remote_hash, "submodule caught up to remote after sync"
+        );
+    }
+
     #[test] fn test_editor_status_with_dirty_submodule() {
         let t = tempfile::tempdir().unwrap(); let p = setup_repo_with_submodule(t.path());
         std::fs::write(p.join("libs/sub/new-file"), "content").unwrap();
@@ -575,7 +629,7 @@ mod tests {
 
     // ---- describe_issue ----
     #[test] fn test_describe_issue_ahead_of_parent() { let (d, a) = describe_issue(&SubmoduleStatus::AheadOfParent); assert!(d.contains("领先")); assert!(a.contains("sync")); }
-    #[test] fn test_describe_issue_behind_remote() { let (d, a) = describe_issue(&SubmoduleStatus::BehindRemote); assert!(d.contains("落后")); assert!(a.contains("update")); }
+    #[test] fn test_describe_issue_behind_remote() { let (d, a) = describe_issue(&SubmoduleStatus::BehindRemote); assert!(d.contains("落后")); assert!(a.contains("sync")); }
     #[test] fn test_describe_issue_detached() { let (d, a) = describe_issue(&SubmoduleStatus::Detached); assert!(d.contains("游离")); assert!(a.contains("checkout")); }
     #[test] fn test_describe_issue_dirty() { let (d, a) = describe_issue(&SubmoduleStatus::Dirty); assert!(d.contains("修改")); }
     #[test] fn test_describe_issue_orphaned() { let (d, a) = describe_issue(&SubmoduleStatus::Orphaned); assert!(d.contains("不存在")); }
