@@ -11,7 +11,7 @@ features = ["python"]
 
 [project]
 name = "qtcloud-devops-cli"
-version = "0.5.0"
+version = "0.6.0-rc.1"
 description = "DevOps CLI — 发布管理 & 子模块管理"
 requires-python = ">=3.12"
 dependencies = []
