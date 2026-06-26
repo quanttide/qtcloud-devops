@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [0.6.0-rc.1] - 2026-06-26
+
+### Added
+
+- CHANGELOG 自动生成：`release publish` 内置 LLM 调用（`quanttide-agent`），
+  CHANGELOG 缺失当前版本时自动从 git 提交记录生成
+- `llm_changelog` 集成到发布流程，环境变量 `LLM_API_KEY` 或 `DEEPSEEK_API_KEY` 配置
+  - 未配置时降级为提示文本，不阻塞发布
+
 ## [0.5.0-rc.2] - 2026-06-10
 
 ### Fixed

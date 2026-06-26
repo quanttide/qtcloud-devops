@@ -20,9 +20,23 @@ use super::util::{self, Registry};
 /// - `repo_path`: git 仓库路径
 /// - `yes`: 跳过用户确认
 /// - `registry`: CI 发布目标提示（仅打印，不执行）
-pub fn publish(version: &str, repo_path: &Path, yes: bool, registry: Option<Registry>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn publish(
+    version: &str,
+    repo_path: &Path,
+    yes: bool,
+    registry: Option<Registry>,
+) -> Result<(), Box<dyn std::error::Error>> {
     if !util::validate_version(version) {
         return Err(format!("版本号格式错误: {}", version).into());
+    }
+
+    // 自动生成 CHANGELOG（如果不存在当前版本记录）
+    if let Err(e) = super::ensure_changelog(repo_path, version) {
+        eprintln!(
+            "⚠ CHANGELOG 生成失败: {}\n   发布将继续，但请确保 CHANGELOG.md 包含版本 {} 的记录。",
+            e, version
+        );
+        // 不阻塞发布，仅输出警告
     }
 
     let changelog_path = repo_path.join("CHANGELOG.md");
@@ -66,19 +80,68 @@ mod tests {
     use std::path::Path;
 
     fn git_init(path: &Path) {
-        std::process::Command::new("git").args(["init", "-b", "main"]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["config", "user.name", "Test"]).current_dir(path).output().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(path)
+            .output()
+            .unwrap();
     }
 
     fn git_commit(path: &Path, msg: &str) {
         std::fs::write(path.join("file"), msg).unwrap();
-        std::process::Command::new("git").args(["add", "."]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["commit", "-m", msg]).current_dir(path).output().unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", msg])
+            .current_dir(path)
+            .output()
+            .unwrap();
     }
 
-    #[test] fn test_publish_rejects_invalid_version() { assert!(publish("bad", tempfile::tempdir().unwrap().path(), true, None).is_err()); }
-    #[test] fn test_publish_rejects_missing_changelog() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); git_commit(d.path(), "init"); let e = publish("v1.0.0", d.path(), true, None).unwrap_err().to_string(); assert!(e.contains("CHANGELOG")); }
-    #[test] fn test_publish_formal_with_yes() { let d = tempfile::tempdir().unwrap(); let r = publish("v1.0.0", d.path(), true, None); assert!(r.is_ok() || r.is_err()); }
-    #[test] fn test_publish_prerelease_with_yes() { let d = tempfile::tempdir().unwrap(); git_init(d.path()); git_commit(d.path(), "init"); std::fs::write(d.path().join("CHANGELOG.md"), "## [1.0.0-rc.1]\n\ncontent\n").unwrap(); let r = publish("v1.0.0-rc.1", d.path(), true, None); assert!(r.is_ok() || r.is_err()); }
+    #[test]
+    fn test_publish_rejects_invalid_version() {
+        assert!(publish("bad", tempfile::tempdir().unwrap().path(), true, None).is_err());
+    }
+    #[test]
+    fn test_publish_rejects_missing_changelog() {
+        let d = tempfile::tempdir().unwrap();
+        git_init(d.path());
+        git_commit(d.path(), "init");
+        let e = publish("v1.0.0", d.path(), true, None)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("CHANGELOG"));
+    }
+    #[test]
+    fn test_publish_formal_with_yes() {
+        let d = tempfile::tempdir().unwrap();
+        let r = publish("v1.0.0", d.path(), true, None);
+        assert!(r.is_ok() || r.is_err());
+    }
+    #[test]
+    fn test_publish_prerelease_with_yes() {
+        let d = tempfile::tempdir().unwrap();
+        git_init(d.path());
+        git_commit(d.path(), "init");
+        std::fs::write(
+            d.path().join("CHANGELOG.md"),
+            "## [1.0.0-rc.1]\n\ncontent\n",
+        )
+        .unwrap();
+        let r = publish("v1.0.0-rc.1", d.path(), true, None);
+        assert!(r.is_ok() || r.is_err());
+    }
 }
