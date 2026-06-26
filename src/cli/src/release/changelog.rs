@@ -52,18 +52,17 @@ fn llm_changelog(git_log: &str, version: &str) -> Result<String, String> {
     );
 
     let settings = Settings::from_env();
-    let api_key = if settings.llm_api_key.is_empty() {
-        std::env::var("DEEPSEEK_API_KEY").unwrap_or_default()
-    } else {
-        settings.llm_api_key.clone()
-    };
-    if api_key.is_empty() {
+    if settings.llm_api_key.is_empty() {
         return Err(format!(
-            "LLM 未配置（LLM_API_KEY 或 DEEPSEEK_API_KEY 未设置）。请将以下文本发送给 AI 生成 CHANGELOG：\n\n{hint}"
+            "LLM 未配置（LLM_API_KEY 未设置）。请将以下文本发送给 AI 生成 CHANGELOG：\n\n{hint}"
         ));
     }
 
-    let llm = LLM::new(&settings.llm_model, &settings.llm_base_url, &api_key);
+    let llm = LLM::new(
+        &settings.llm_model,
+        &settings.llm_base_url,
+        &settings.llm_api_key,
+    );
     let messages = vec![
         Message::new(
             "system",
@@ -82,14 +81,13 @@ fn llm_changelog(git_log: &str, version: &str) -> Result<String, String> {
 
 /// 将生成的 CHANGELOG 条目写入文件。
 pub fn write_changelog(path: &Path, version: &str, content: &str) -> Result<(), String> {
-    let entry = format!("\n## [{}] - {}\n\n{}\n", version, today(), content);
-    let mut existing = String::new();
-    if path.exists() {
-        existing =
-            std::fs::read_to_string(path).map_err(|e| format!("读取 CHANGELOG.md 失败: {}", e))?;
+    let ver = super::util::normalize_version(version);
+    let entry = format!("\n## [{}] - {}\n\n{}\n", ver, today(), content);
+    let mut existing = if path.exists() {
+        std::fs::read_to_string(path).map_err(|e| format!("读取 CHANGELOG.md 失败: {}", e))?
     } else {
-        existing = "# CHANGELOG\n".to_string();
-    }
+        "# CHANGELOG\n".to_string()
+    };
     if let Some(pos) = existing.find("\n## ") {
         existing.insert_str(pos, &entry);
     } else {
@@ -122,7 +120,7 @@ pub fn ensure_changelog(repo_path: &Path, version: &str) -> Result<(), String> {
     if changelog_path.exists() {
         let content = std::fs::read_to_string(&changelog_path)
             .map_err(|e| format!("读取 CHANGELOG.md 失败: {}", e))?;
-        if content.contains(&format!("[{}]", version)) {
+        if content.contains(&format!("[{}]", super::util::normalize_version(version))) {
             return Ok(());
         }
     }
@@ -194,25 +192,25 @@ mod tests {
         let path = d.path().join("CHANGELOG.md");
         write_changelog(&path, "v0.1.0", "### Added\n- new feature").unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("## [v0.1.0]"));
+        assert!(content.contains("## [0.1.0]"));
     }
 
     #[test]
     fn test_write_changelog_append() {
         let d = tempfile::tempdir().unwrap();
         let path = d.path().join("CHANGELOG.md");
-        std::fs::write(&path, "# CHANGELOG\n\n## [v0.1.0]\n\nold\n").unwrap();
+        std::fs::write(&path, "# CHANGELOG\n\n## [0.1.0]\n\nold\n").unwrap();
         write_changelog(&path, "v0.2.0", "### Added\n- new").unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("## [v0.2.0]"));
-        assert!(content.contains("## [v0.1.0]"));
+        assert!(content.contains("## [0.2.0]"));
+        assert!(content.contains("## [0.1.0]"));
     }
 
     #[test]
     fn test_ensure_changelog_skips_if_exists() {
         let d = tempfile::tempdir().unwrap();
         let path = d.path().join("CHANGELOG.md");
-        std::fs::write(&path, "# CHANGELOG\n\n## [v0.1.0]\n\ncontent\n").unwrap();
+        std::fs::write(&path, "# CHANGELOG\n\n## [0.1.0]\n\ncontent\n").unwrap();
         assert!(ensure_changelog(d.path(), "v0.1.0").is_ok());
     }
 
