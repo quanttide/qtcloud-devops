@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [0.6.0] - 2026-06-26
+
+### Added
+
+- CHANGELOG 自动生成：`release publish` 内置 LLM 调用（`quanttide-agent` 库），
+  CHANGELOG 缺失当前版本时自动从 git 提交记录生成
+  - 环境变量 `LLM_API_KEY` 配置，未配置时降级为提示文本，不阻塞发布
+  - 写入后自动 `git add + git commit`，确保标签包含 CHANGELOG 修改
+  - 版本号自动 normalize（去掉 scope 和 `v` 前缀），与预检查格式一致
+
+### Fixed
+
+- `write_changelog` 版本号 normalize 后写入，与 `precheck_version_changelog` 搜索格式一致
+- `ensure_changelog` 写入后自动提交，避免标签创建时遗漏 CHANGELOG 修改
+- `pyproject.toml` 版本与 `Cargo.toml` 同步，修复 CI validate-version 失败
+
 ## [0.6.0-rc.3] - 2026-06-26
 
 ### Changed
