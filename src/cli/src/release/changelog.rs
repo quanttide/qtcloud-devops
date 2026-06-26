@@ -128,6 +128,30 @@ pub fn ensure_changelog(repo_path: &Path, version: &str) -> Result<(), String> {
     let changelog_content = llm_changelog(&git_log, version)?;
     write_changelog(&changelog_path, version, &changelog_content)?;
     println!("✓ CHANGELOG.md 已更新（版本 {})", version);
+
+    // 提交 CHANGELOG 修改，确保后续标签包含它
+    let ver = super::util::normalize_version(version);
+    let add = std::process::Command::new("git")
+        .args(["add", "CHANGELOG.md"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("git add 失败: {}", e))?;
+    if !add.status.success() {
+        return Err("git add CHANGELOG.md 失败".into());
+    }
+    let commit = std::process::Command::new("git")
+        .args([
+            "commit",
+            "-m",
+            &format!("chore: add CHANGELOG entry for {}", ver),
+        ])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("git commit 失败: {}", e))?;
+    if !commit.status.success() {
+        return Err("git commit CHANGELOG.md 失败".into());
+    }
+    println!("✓ CHANGELOG 修改已提交");
     Ok(())
 }
 

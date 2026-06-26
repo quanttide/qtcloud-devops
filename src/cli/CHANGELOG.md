@@ -1,8 +1,9 @@
 # CHANGELOG
 
-## [cli/v0.6.0-rc.2] - 2026-06-26
+## [0.6.0-rc.2] - 2026-06-26
 
-
+### Fixed
+- CHANGELOG 自动生成：版本号 normalize 后写入，与 precheck 搜索格式一致
 
 ## [0.6.0-rc.1] - 2026-06-26
 
@@ -10,7 +11,7 @@
 
 - CHANGELOG 自动生成：`release publish` 内置 LLM 调用（`quanttide-agent`），
   CHANGELOG 缺失当前版本时自动从 git 提交记录生成
-- `llm_changelog` 集成到发布流程，环境变量 `LLM_API_KEY` 或 `DEEPSEEK_API_KEY` 配置
+- `llm_changelog` 集成到发布流程，环境变量 `LLM_API_KEY` 配置
   - 未配置时降级为提示文本，不阻塞发布
 
 ## [0.5.0-rc.2] - 2026-06-10
