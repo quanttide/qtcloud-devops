@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## [0.6.0-rc.3] - 2026-06-26
+
+### Changed
+- Bumped version to v0.6.0-rc.3.
+
 ## [0.6.0-rc.2] - 2026-06-26
 
 ### Fixed
