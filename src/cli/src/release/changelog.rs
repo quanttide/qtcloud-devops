@@ -47,8 +47,15 @@ fn get_latest_tag(repo_path: &Path) -> Option<String> {
 /// 返回提示文本让用户手动发送给 AI（不阻塞发布流程）。
 fn llm_changelog(git_log: &str, version: &str) -> Result<String, String> {
     let hint = format!(
-        "根据以下 git 提交记录生成 CHANGELOG 条目，按 Added / Changed / Fixed / Removed 分类：\n\n\
-         提交记录：\n{git_log}\n\n版本号：{version}"
+        "根据以下 git 提交记录，为版本 {} 生成 CHANGELOG 条目。\n\n\
+         要求：\n\
+         1. 按 Added / Changed / Fixed / Removed 分类\n\
+         2. 同类提交合并为概括性条目，不要逐条罗列\n\
+         3. 用中文描述\n\
+         4. 每类不超过 5 条\n\
+         5. 仅输出内容，不要版本头部和日期\n\n\
+         提交记录：\n{git_log}",
+        version
     );
 
     let settings = Settings::from_env();
@@ -67,7 +74,8 @@ fn llm_changelog(git_log: &str, version: &str) -> Result<String, String> {
         Message::new(
             "system",
             "你是一个帮助生成 CHANGELOG 的助手。\
-             严格按 Keep a Changelog 格式输出，分类为 Added / Changed / Fixed / Removed。\
+             将 git 提交记录按 Added / Changed / Fixed / Removed 分类\
+             并合并为概括性条目，用中文描述。不要逐条罗列 commit message。\
              只输出分类后的条目内容，不要输出版本头部（## 行）和日期。",
         ),
         Message::new("user", &hint),
