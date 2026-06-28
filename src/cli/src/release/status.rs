@@ -1,9 +1,8 @@
 use std::path::Path;
 
-/// 显示发布状态信息。事实源是 git tag，按 scope 分组展示。
+/// 显示发布状态信息。按 scope 分组，每个 scope 检查对应子目录。
 pub fn status(repo_path: &Path) {
     let latest_tags = get_latest_tags_by_scope(repo_path);
-    let proj_ver = read_project_version(repo_path);
     let dirty = is_dirty(repo_path);
 
     println!("发布状态");
@@ -11,33 +10,52 @@ pub fn status(repo_path: &Path) {
 
     if latest_tags.is_empty() {
         println!("  最新标签:     (无)");
-        match &proj_ver {
-            Some(v) => println!("  当前版本:     {}", v),
-            None => println!("  当前版本:     (未识别)"),
-        }
-    } else {
-        for (scope, tag) in &latest_tags {
-            let tag_only = tag.split('/').last().unwrap_or(tag);
-            let ver = tag_only.strip_prefix('v').unwrap_or(tag_only);
-            let matched = proj_ver.as_deref() == Some(ver);
+        return;
+    }
 
-            if matched {
-                let unreleased = count_unreleased(repo_path, tag);
-                let changelog_ok = check_changelog(repo_path, ver);
-                println!("  [{}]", scope);
-                println!("    最新标签:     {}", tag);
-                println!("    未发布提交:   {}", unreleased);
-                check_config_version(repo_path, "Cargo.toml", ver);
-                if repo_path.join("pyproject.toml").exists() {
-                    check_config_version(repo_path, "pyproject.toml", ver);
-                }
-                if changelog_ok {
+    for (scope, tag) in &latest_tags {
+        let tag_only = tag.split('/').last().unwrap_or(tag);
+        let ver = tag_only.strip_prefix('v').unwrap_or(tag_only);
+
+        // scope 子目录：常规名，不存在则回退到当前目录
+        let scope_dir = if scope == "(root)" {
+            repo_path.to_path_buf()
+        } else {
+            let d = repo_path.join(scope);
+            if d.is_dir() {
+                d
+            } else {
+                repo_path.to_path_buf()
+            }
+        };
+
+        if scope == "(root)" {
+            println!("  [root]");
+        } else if scope_dir == repo_path {
+            println!("  [{}]", scope);
+        } else {
+            println!("  [{}]  ({})", scope, scope_dir.display());
+        }
+        println!("    最新标签:     {}", tag);
+
+        let unreleased = count_unreleased(repo_path, tag);
+        println!("    未发布提交:   {}", unreleased);
+
+        let proj_ver = read_project_version(&scope_dir);
+        match proj_ver {
+            Some(pv) if pv == ver => {
+                println!("    版本一致:     {} ✅", pv);
+                if check_changelog(&scope_dir, ver) {
                     println!("    CHANGELOG:    ✅");
                 } else {
                     println!("    CHANGELOG:    ❌");
                 }
-            } else {
-                println!("  [{}]     {}", scope, tag);
+            }
+            Some(pv) => {
+                println!("    配置文件:     {} ❌ (期望 {})", pv, ver);
+            }
+            None => {
+                println!("    配置文件:     未找到版本信息");
             }
         }
     }
@@ -49,7 +67,6 @@ pub fn status(repo_path: &Path) {
     }
 }
 
-/// 按 scope 分组，取每个 scope 最新的 tag（优先正式版）。
 fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
     let output = std::process::Command::new("git")
         .args([
@@ -116,22 +133,6 @@ fn read_version(repo_path: &Path, filename: &str) -> String {
         }
     }
     String::new()
-}
-
-fn check_config_version(repo_path: &Path, filename: &str, expected: &str) {
-    let actual = read_version(repo_path, filename);
-    if actual == *expected {
-        println!("    {:<12} {} ✅", format!("{}:", filename), actual);
-    } else if actual.is_empty() {
-        // 文件不存在或无版本字段，不显示
-    } else {
-        println!(
-            "    {:<12} {} ❌ (期望 {})",
-            format!("{}:", filename),
-            actual,
-            expected
-        );
-    }
 }
 
 fn count_unreleased(repo_path: &Path, tag: &str) -> usize {
