@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [0.6.1] - 2026-06-28
+
+### Added
+- 新增 `release status` 命令，支持 GitHub Release 检测、多语言配置文件版本检测及 scope→子目录映射（通过 `.quanttide/devops/contract.yaml` 定义）。
+
+### Changed
+- 更新依赖（Cargo.lock）并将版本升级至 v0.6.0。
+
+### Fixed
+- 修复 `release status` 命令的多项问题：按 scope 分组展示 tag 与未发布提交、子目录检查回退、配置文件检测优化、以 tag 为事实源等。
+- 修复 `extract_notes` 对版本标题行的处理逻辑（跳过 `## [` 而非 break），并支持 `v` 前缀格式。
+- 修复 `ensure_changelog` 跳过检查时同时兼容 `[0.1.0]` 和 `[v0.1.0]` 两种格式。
+
 ## [0.6.0] - 2026-06-26
 
 ### Added
