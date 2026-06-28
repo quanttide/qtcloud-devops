@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::path::Path;
 
-/// 显示发布状态信息。按 scope 分组，每个 scope 检查对应子目录。
+/// 显示发布状态信息。按 scope 分组，从 contract 读取子目录映射。
 pub fn status(repo_path: &Path) {
+    let scopes_map = read_contract_scopes(repo_path);
     let latest_tags = get_latest_tags_by_scope(repo_path);
     let dirty = is_dirty(repo_path);
 
@@ -10,6 +12,9 @@ pub fn status(repo_path: &Path) {
 
     if latest_tags.is_empty() {
         println!("  最新标签:     (无)");
+        if let Some(v) = read_project_version(repo_path) {
+            println!("  当前版本:     {}", v);
+        }
         return;
     }
 
@@ -17,15 +22,20 @@ pub fn status(repo_path: &Path) {
         let tag_only = tag.split('/').last().unwrap_or(tag);
         let ver = tag_only.strip_prefix('v').unwrap_or(tag_only);
 
-        // scope 子目录：常规名，不存在则回退到当前目录
+        // 从 contract 获取子目录，未配置时按 scope 名猜测
         let scope_dir = if scope == "(root)" {
             repo_path.to_path_buf()
         } else {
-            let d = repo_path.join(scope);
-            if d.is_dir() {
-                d
-            } else {
-                repo_path.to_path_buf()
+            match scopes_map.get(scope) {
+                Some(rel) => repo_path.join(rel),
+                None => {
+                    let d = repo_path.join(scope);
+                    if d.is_dir() {
+                        d
+                    } else {
+                        repo_path.to_path_buf()
+                    }
+                }
             }
         };
 
@@ -65,6 +75,45 @@ pub fn status(repo_path: &Path) {
     } else {
         println!("  工作区:       ✅ 干净");
     }
+}
+
+/// 读取 `.quanttide/devops/contract.yaml` 中的 scopes 映射。
+fn read_contract_scopes(repo_path: &Path) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let path = repo_path.join(".quanttide/devops/contract.yaml");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return map,
+    };
+
+    // 简易 YAML 解析：只解析 scopes: 下的 key: value 行
+    let mut in_scopes = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "scopes:" {
+            in_scopes = true;
+            continue;
+        }
+        if in_scopes {
+            if trimmed.starts_with('#') || trimmed.is_empty() {
+                continue;
+            }
+            if !trimmed.starts_with('-') && trimmed.contains(':') {
+                // "  cli: ." → ("cli", ".")
+                if let Some(idx) = trimmed.find(':') {
+                    let key = trimmed[..idx].trim().to_string();
+                    let val = trimmed[idx + 1..].trim().to_string();
+                    if !key.is_empty() {
+                        map.insert(key, val);
+                    }
+                }
+            } else if !trimmed.starts_with(' ') && !trimmed.starts_with('-') {
+                // 新顶层键，退出 scopes
+                break;
+            }
+        }
+    }
+    map
 }
 
 fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {

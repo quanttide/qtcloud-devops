@@ -1,0 +1,4 @@
+# 项目结构与工具契约
+# 定义 scope 到子目录的映射，供 release status / publish 使用
+scopes:
+  cli: .
