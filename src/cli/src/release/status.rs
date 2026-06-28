@@ -6,6 +6,13 @@ pub fn status(repo_path: &Path) {
     let latest_tags = get_latest_tags_by_scope(repo_path);
     let dirty = is_dirty(repo_path);
 
+    // 收集所有非 root scope 的路径，供 Go 扫描排除
+    let other_scope_dirs: Vec<std::path::PathBuf> = scopes_map
+        .iter()
+        .filter(|(k, _)| *k != "(root)")
+        .map(|(_, v)| repo_path.join(v))
+        .collect();
+
     println!("发布状态");
     println!("{}", "─".repeat(40));
 
@@ -35,7 +42,6 @@ pub fn status(repo_path: &Path) {
         };
 
         println!("  [{}]", scope);
-
         let rel_path = scopes_map.get(scope).cloned().unwrap_or_else(|| {
             if scope == "(root)" {
                 ".".to_string()
@@ -55,7 +61,7 @@ pub fn status(repo_path: &Path) {
             println!("    CHANGELOG:    ❌ 缺少 {} 条目", ver);
         }
 
-        check_all_configs(&scope_dir, ver);
+        check_all_configs(&scope_dir, &other_scope_dirs, ver);
     }
 
     if dirty {
@@ -67,40 +73,41 @@ pub fn status(repo_path: &Path) {
 
 fn read_contract_scopes(repo_path: &Path) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    let path = repo_path.join(".quanttide/devops/contract.yaml");
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(_) => return map,
-    };
+    let content = std::fs::read_to_string(repo_path.join(".quanttide/devops/contract.yaml"))
+        .unwrap_or_default();
     let mut in_scopes = false;
     for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed == "scopes:" {
+        let t = line.trim();
+        if t == "scopes:" {
             in_scopes = true;
             continue;
         }
         if in_scopes {
-            if trimmed.starts_with('#') || trimmed.is_empty() {
+            if t.starts_with('#') || t.is_empty() {
                 continue;
             }
-            if !trimmed.starts_with('-') && trimmed.contains(':') {
-                if let Some(idx) = trimmed.find(':') {
-                    let key = trimmed[..idx].trim().to_string();
-                    let val = trimmed[idx + 1..].trim().to_string();
+            if !t.starts_with('-') && t.contains(':') {
+                if let Some(idx) = t.find(':') {
+                    let key = t[..idx].trim().to_string();
+                    let val = t[idx + 1..].trim().to_string();
                     if !key.is_empty() {
                         map.insert(key, val);
                     }
                 }
-            } else if !trimmed.starts_with(' ') && !trimmed.starts_with('-') {
+            } else if !t.starts_with(' ') && !t.starts_with('-') {
                 break;
             }
         }
+    }
+    // 确保 (root) 在 map 中
+    if !map.contains_key("(root)") {
+        map.insert("(root)".to_string(), ".".to_string());
     }
     map
 }
 
 fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
-    let output = std::process::Command::new("git")
+    let out = std::process::Command::new("git")
         .args([
             "-C",
             &repo_path.to_string_lossy(),
@@ -109,27 +116,26 @@ fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
         ])
         .output()
         .ok();
-    let output = match output {
+    let out = match out {
         Some(o) if o.status.success() => o,
         _ => return vec![],
     };
-    let all_tags: Vec<&str> = std::str::from_utf8(&output.stdout)
+    let all: Vec<&str> = std::str::from_utf8(&out.stdout)
         .unwrap_or("")
         .lines()
         .collect();
     let mut scopes: Vec<(String, String)> = Vec::new();
-    for t in all_tags {
+    for t in all {
         let scope = if t.contains('/') {
             t.split('/').next().unwrap_or("").to_string()
         } else {
             "(root)".to_string()
         };
         let tag_only = t.split('/').last().unwrap_or(t);
-        let is_prerelease = tag_only.contains('-');
+        let pre = tag_only.contains('-');
         if let Some(pos) = scopes.iter().position(|(s, _)| s == &scope) {
-            let existing = &scopes[pos].1;
-            let existing_tag = existing.split('/').last().unwrap_or(existing);
-            if !is_prerelease && existing_tag.contains('-') {
+            let et = scopes[pos].1.split('/').last().unwrap_or(&scopes[pos].1);
+            if !pre && et.contains('-') {
                 scopes[pos] = (scope, t.to_string());
             }
         } else {
@@ -142,7 +148,7 @@ fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
 fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usize {
     let range = format!("{}..HEAD", tag);
     if scope_dir == repo_path {
-        let output = std::process::Command::new("git")
+        let out = std::process::Command::new("git")
             .args([
                 "-C",
                 &repo_path.to_string_lossy(),
@@ -152,7 +158,7 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usi
             ])
             .output()
             .ok();
-        return match output {
+        return match out {
             Some(o) if o.status.success() => std::str::from_utf8(&o.stdout)
                 .unwrap_or("0")
                 .trim()
@@ -163,7 +169,7 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usi
     }
     let rel = scope_dir.strip_prefix(repo_path).unwrap_or(scope_dir);
     let rel_str = rel.to_string_lossy().trim_start_matches('/').to_string();
-    let output = std::process::Command::new("git")
+    let out = std::process::Command::new("git")
         .args([
             "-C",
             &repo_path.to_string_lossy(),
@@ -175,7 +181,7 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usi
         ])
         .output()
         .ok();
-    match output {
+    match out {
         Some(o) if o.status.success() => std::str::from_utf8(&o.stdout)
             .unwrap_or("0")
             .trim()
@@ -185,19 +191,16 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usi
     }
 }
 
-/// 检查所有能找到的配置文件，每个都显示版本对比。
-fn check_all_configs(repo_path: &Path, expected: &str) {
-    let checks: Vec<(&str, Box<dyn Fn(&str) -> Option<String>>)> = vec![
-        ("Cargo.toml", Box::new(|c| extract_kv(c, "version"))),
-        ("pyproject.toml", Box::new(|c| extract_kv(c, "version"))),
-        ("package.json", Box::new(extract_json_version)),
-        ("pubspec.yaml", Box::new(|c| extract_kv_yaml(c, "version"))),
-        ("setup.cfg", Box::new(|c| extract_kv(c, "version"))),
+fn check_all_configs(repo_path: &Path, other_scope_dirs: &[std::path::PathBuf], expected: &str) {
+    let checks: [(&str, fn(&str) -> Option<String>); 5] = [
+        ("Cargo.toml", |c| extract_kv(c, "version")),
+        ("pyproject.toml", |c| extract_kv(c, "version")),
+        ("package.json", extract_json_version),
+        ("pubspec.yaml", |c| extract_kv_yaml(c, "version")),
+        ("setup.cfg", |c| extract_kv(c, "version")),
     ];
-
     for (name, extract) in &checks {
-        let path = repo_path.join(name);
-        let content = match std::fs::read_to_string(&path) {
+        let content = match std::fs::read_to_string(&repo_path.join(name)) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -212,11 +215,10 @@ fn check_all_configs(repo_path: &Path, expected: &str) {
             None => println!("    {:<15} (未找到版本字段)", format!("{}:", name)),
         }
     }
-
     // Go: VERSION 文件
     let vf = repo_path.join("VERSION");
-    if let Ok(content) = std::fs::read_to_string(&vf) {
-        let v = content.trim().to_string();
+    if let Ok(c) = std::fs::read_to_string(&vf) {
+        let v = c.trim().to_string();
         if !v.is_empty() {
             if v == expected {
                 println!("    VERSION          {} ✅", v);
@@ -225,47 +227,35 @@ fn check_all_configs(repo_path: &Path, expected: &str) {
             }
         }
     }
-
-    // Go: version.go 文件中的 Version 声明
-    if let Ok(entries) = std::fs::read_dir(repo_path) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.extension().and_then(|e| e.to_str()) != Some("go") {
-                continue;
-            }
-            if !p.is_file() {
-                continue;
-            }
-            let content = match std::fs::read_to_string(&p) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            for prefix in &[
-                "var Version = \"",
-                "var VERSION = \"",
-                "const Version = \"",
-                "const VERSION = \"",
-            ] {
-                for line in content.lines() {
-                    let t = line.trim();
-                    if let Some(rest) = t.strip_prefix(prefix) {
-                        if let Some(end) = rest.find('"') {
-                            let v = rest[..end].to_string();
-                            if !v.is_empty() {
-                                let name = p
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .unwrap_or("version.go");
-                                if v == expected {
-                                    println!("    {:<15} {} ✅", format!("{}:", name), v);
-                                } else {
-                                    println!(
-                                        "    {:<15} {} ❌ (期望 {})",
-                                        format!("{}:", name),
-                                        v,
-                                        expected
-                                    );
-                                }
+    // Go: 递归查找 .go 文件中的 Version 声明（排除其他 scope 的子目录）
+    for p in find_go_files(repo_path, other_scope_dirs) {
+        let content = match std::fs::read_to_string(&p) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        for prefix in &[
+            "var Version = \"",
+            "var VERSION = \"",
+            "const Version = \"",
+            "const VERSION = \"",
+        ] {
+            for line in content.lines() {
+                let t = line.trim();
+                if let Some(rest) = t.strip_prefix(prefix) {
+                    if let Some(end) = rest.find('"') {
+                        let v = rest[..end].to_string();
+                        if !v.is_empty() {
+                            let rel = p.strip_prefix(repo_path).unwrap_or(&p);
+                            let name = rel.to_string_lossy();
+                            if v == expected {
+                                println!("    {:<15} {} ✅", format!("{}:", name), v);
+                            } else {
+                                println!(
+                                    "    {:<15} {} ❌ (期望 {})",
+                                    format!("{}:", name),
+                                    v,
+                                    expected
+                                );
                             }
                         }
                     }
@@ -275,22 +265,51 @@ fn check_all_configs(repo_path: &Path, expected: &str) {
     }
 }
 
+/// 递归查找 .go 文件，跳过排除目录（其他 scope 的子目录）。
+fn find_go_files(dir: &Path, excludes: &[std::path::PathBuf]) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return files,
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            // 跳过排除目录
+            if excludes.iter().any(|e| p == *e) {
+                continue;
+            }
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if !name.starts_with('.')
+                && name != "node_modules"
+                && name != "target"
+                && name != "vendor"
+            {
+                files.extend(find_go_files(&p, excludes));
+            }
+        } else if p.extension().and_then(|e| e.to_str()) == Some("go") {
+            files.push(p);
+        }
+    }
+    files
+}
+
 fn extract_kv(content: &str, key: &str) -> Option<String> {
-    let prefix = format!("{} = \"", key);
-    let prefix2 = format!("{} = '", key);
+    let p1 = format!("{} = \"", key);
+    let p2 = format!("{} = '", key);
     for line in content.lines() {
         let t = line.trim();
-        if let Some(rest) = t.strip_prefix(&prefix) {
-            if let Some(end) = rest.find('"') {
-                let v = rest[..end].to_string();
+        if let Some(r) = t.strip_prefix(&p1) {
+            if let Some(e) = r.find('"') {
+                let v = r[..e].to_string();
                 if !v.is_empty() {
                     return Some(v);
                 }
             }
         }
-        if let Some(rest) = t.strip_prefix(&prefix2) {
-            if let Some(end) = rest.find('\'') {
-                let v = rest[..end].to_string();
+        if let Some(r) = t.strip_prefix(&p2) {
+            if let Some(e) = r.find('\'') {
+                let v = r[..e].to_string();
                 if !v.is_empty() {
                     return Some(v);
                 }
@@ -303,8 +322,8 @@ fn extract_kv(content: &str, key: &str) -> Option<String> {
 fn extract_json_version(content: &str) -> Option<String> {
     for line in content.lines() {
         let t = line.trim();
-        if let Some(rest) = t.strip_prefix("\"version\":") {
-            let v = rest
+        if let Some(r) = t.strip_prefix("\"version\":") {
+            let v = r
                 .trim()
                 .trim_matches('"')
                 .trim_matches('\'')
@@ -318,11 +337,11 @@ fn extract_json_version(content: &str) -> Option<String> {
 }
 
 fn extract_kv_yaml(content: &str, key: &str) -> Option<String> {
-    let prefix = format!("{}:", key);
+    let p = format!("{}:", key);
     for line in content.lines() {
         let t = line.trim();
-        if let Some(rest) = t.strip_prefix(&prefix) {
-            let v = rest.trim();
+        if let Some(r) = t.strip_prefix(&p) {
+            let v = r.trim();
             if !v.is_empty() && !v.starts_with('#') {
                 return Some(v.to_string());
             }
@@ -335,17 +354,17 @@ fn check_changelog(repo_path: &Path, version: &str) -> bool {
     if version.is_empty() {
         return false;
     }
-    let path = repo_path.join("CHANGELOG.md");
-    let content = std::fs::read_to_string(&path).unwrap_or_default();
-    content.contains(&format!("[{}]", version))
+    std::fs::read_to_string(repo_path.join("CHANGELOG.md"))
+        .unwrap_or_default()
+        .contains(&format!("[{}]", version))
 }
 
 fn is_dirty(repo_path: &Path) -> bool {
-    let output = std::process::Command::new("git")
+    let out = std::process::Command::new("git")
         .args(["-C", &repo_path.to_string_lossy(), "status", "--porcelain"])
         .output()
         .ok();
-    match output {
+    match out {
         Some(o) => !o.stdout.is_empty(),
         None => false,
     }
