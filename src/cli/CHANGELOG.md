@@ -3,10 +3,23 @@
 ## [0.6.1] - 2026-06-28
 
 ### Added
-- 新增 `release status` 命令，支持 GitHub Release 检测、多语言配置文件版本检测及 scope→子目录映射（通过 `.quanttide/devops/contract.yaml` 定义）。
+
+- `release status` 命令：按 scope 分组展示发布状态
+  - GitHub Release 存在性和 body 同步检测
+  - 多语言配置文件版本检测（Rust/Python/JS/Dart/Go）
+  - scope→子目录映射（`.quanttide/devops/contract.yaml`）
+  - 未发布提交按 scope 子目录过滤
+
+### Fixed
+
+- `extract_notes`: 同版本 `## [` 跳过，不同版本 `break`（修复吞 CHANGELOG bug）
+- `publish`: 自动更新 `Cargo.toml`/`pyproject.toml` 版本号
+- `publish`: 从 `contract.yaml` 解析 scope 子目录
+- CHANGELOG 生成 prompt: 合并同类提交为概括性条目，用中文
 
 ### Changed
-- 更新依赖（Cargo.lock）并将版本升级至 v0.6.0。
+
+- 依赖更新（`quanttide-agent`）
 
 ### Fixed
 - 修复 `release status` 命令的多项问题：按 scope 分组展示 tag 与未发布提交、子目录检查回退、配置文件检测优化、以 tag 为事实源等。
