@@ -53,7 +53,11 @@ pub fn extract_notes(version: &str, changelog_path: &Path) -> Option<String> {
         }
         if capture {
             if line.starts_with("## [") {
-                continue;
+                // 同版本重复头部（LLM 混入）跳过，不同版本停止
+                if line.contains(&ver) || line.contains(&format!("v{}", ver)) {
+                    continue;
+                }
+                break;
             }
             notes.push(line);
         }
