@@ -22,7 +22,7 @@ pub fn status(repo_path: &Path) {
         let tag_only = tag.split('/').last().unwrap_or(tag);
         let ver = tag_only.strip_prefix('v').unwrap_or(tag_only);
 
-        // 从 contract 获取子目录，未配置时按 scope 名猜测
+        // scope 子目录：从 contract 读取，未配置时按 scope 名猜测
         let scope_dir = if scope == "(root)" {
             repo_path.to_path_buf()
         } else {
@@ -39,16 +39,17 @@ pub fn status(repo_path: &Path) {
             }
         };
 
-        if scope == "(root)" {
-            println!("  [root]");
-        } else if scope_dir == repo_path {
-            println!("  [{}]", scope);
-        } else {
-            println!("  [{}]  ({})", scope, scope_dir.display());
-        }
+        println!("  [{}]", scope);
+
+        let rel_path = match scopes_map.get(scope) {
+            Some(rel) => rel.clone(),
+            None if scope == "(root)" => ".".to_string(),
+            None => scope.clone(),
+        };
+        println!("    路径:         {}", rel_path);
         println!("    最新标签:     {}", tag);
 
-        let unreleased = count_unreleased(repo_path, tag);
+        let unreleased = count_unreleased_in_dir(repo_path, tag, &scope_dir);
         println!("    未发布提交:   {}", unreleased);
 
         let proj_ver = read_project_version(&scope_dir);
@@ -86,7 +87,6 @@ fn read_contract_scopes(repo_path: &Path) -> HashMap<String, String> {
         Err(_) => return map,
     };
 
-    // 简易 YAML 解析：只解析 scopes: 下的 key: value 行
     let mut in_scopes = false;
     for line in content.lines() {
         let trimmed = line.trim();
@@ -99,7 +99,6 @@ fn read_contract_scopes(repo_path: &Path) -> HashMap<String, String> {
                 continue;
             }
             if !trimmed.starts_with('-') && trimmed.contains(':') {
-                // "  cli: ." → ("cli", ".")
                 if let Some(idx) = trimmed.find(':') {
                     let key = trimmed[..idx].trim().to_string();
                     let val = trimmed[idx + 1..].trim().to_string();
@@ -108,7 +107,6 @@ fn read_contract_scopes(repo_path: &Path) -> HashMap<String, String> {
                     }
                 }
             } else if !trimmed.starts_with(' ') && !trimmed.starts_with('-') {
-                // 新顶层键，退出 scopes
                 break;
             }
         }
@@ -116,6 +114,7 @@ fn read_contract_scopes(repo_path: &Path) -> HashMap<String, String> {
     map
 }
 
+/// 按 scope 分组，取每个 scope 最新的 tag（优先正式版）。
 fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
     let output = std::process::Command::new("git")
         .args([
@@ -158,6 +157,55 @@ fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
     scopes
 }
 
+/// 统计 tag 之后、影响 scope_dir 路径的未发布提交数。
+fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usize {
+    let range = format!("{}..HEAD", tag);
+
+    if scope_dir == repo_path {
+        let output = std::process::Command::new("git")
+            .args([
+                "-C",
+                &repo_path.to_string_lossy(),
+                "rev-list",
+                "--count",
+                &range,
+            ])
+            .output()
+            .ok();
+        return match output {
+            Some(o) if o.status.success() => std::str::from_utf8(&o.stdout)
+                .unwrap_or("0")
+                .trim()
+                .parse()
+                .unwrap_or(0),
+            _ => 0,
+        };
+    }
+
+    let rel = scope_dir.strip_prefix(repo_path).unwrap_or(scope_dir);
+    let rel_str = rel.to_string_lossy().trim_start_matches('/').to_string();
+    let output = std::process::Command::new("git")
+        .args([
+            "-C",
+            &repo_path.to_string_lossy(),
+            "rev-list",
+            "--count",
+            &range,
+            "--",
+            &rel_str,
+        ])
+        .output()
+        .ok();
+    match output {
+        Some(o) if o.status.success() => std::str::from_utf8(&o.stdout)
+            .unwrap_or("0")
+            .trim()
+            .parse()
+            .unwrap_or(0),
+        _ => 0,
+    }
+}
+
 fn read_project_version(repo_path: &Path) -> Option<String> {
     let v = read_version(repo_path, "Cargo.toml");
     if !v.is_empty() {
@@ -182,28 +230,6 @@ fn read_version(repo_path: &Path, filename: &str) -> String {
         }
     }
     String::new()
-}
-
-fn count_unreleased(repo_path: &Path, tag: &str) -> usize {
-    let range = format!("{}..HEAD", tag);
-    let output = std::process::Command::new("git")
-        .args([
-            "-C",
-            &repo_path.to_string_lossy(),
-            "rev-list",
-            "--count",
-            &range,
-        ])
-        .output()
-        .ok();
-    match output {
-        Some(o) if o.status.success() => std::str::from_utf8(&o.stdout)
-            .unwrap_or("0")
-            .trim()
-            .parse()
-            .unwrap_or(0),
-        _ => 0,
-    }
 }
 
 fn check_changelog(repo_path: &Path, version: &str) -> bool {
