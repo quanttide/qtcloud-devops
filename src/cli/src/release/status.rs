@@ -12,9 +12,6 @@ pub fn status(repo_path: &Path) {
 
     if latest_tags.is_empty() {
         println!("  最新标签:     (无)");
-        if let Some(v) = read_project_version(repo_path) {
-            println!("  当前版本:     {}", v);
-        }
         return;
     }
 
@@ -22,7 +19,7 @@ pub fn status(repo_path: &Path) {
         let tag_only = tag.split('/').last().unwrap_or(tag);
         let ver = tag_only.strip_prefix('v').unwrap_or(tag_only);
 
-        // scope 子目录：从 contract 读取，未配置时按 scope 名猜测
+        // scope 子目录：从 contract 读取，未配置时按 scopename 猜测
         let scope_dir = if scope == "(root)" {
             repo_path.to_path_buf()
         } else {
@@ -41,34 +38,29 @@ pub fn status(repo_path: &Path) {
 
         println!("  [{}]", scope);
 
-        let rel_path = match scopes_map.get(scope) {
-            Some(rel) => rel.clone(),
-            None if scope == "(root)" => ".".to_string(),
-            None => scope.clone(),
-        };
+        let rel_path = scopes_map.get(scope).cloned().unwrap_or_else(|| {
+            if scope == "(root)" {
+                ".".to_string()
+            } else {
+                scope.clone()
+            }
+        });
         println!("    路径:         {}", rel_path);
         println!("    最新标签:     {}", tag);
 
         let unreleased = count_unreleased_in_dir(repo_path, tag, &scope_dir);
         println!("    未发布提交:   {}", unreleased);
 
-        let proj_ver = read_project_version(&scope_dir);
-        match proj_ver {
-            Some(pv) if pv == ver => {
-                println!("    版本一致:     {} ✅", pv);
-                if check_changelog(&scope_dir, ver) {
-                    println!("    CHANGELOG:    ✅");
-                } else {
-                    println!("    CHANGELOG:    ❌");
-                }
-            }
-            Some(pv) => {
-                println!("    配置文件:     {} ❌ (期望 {})", pv, ver);
-            }
-            None => {
-                println!("    配置文件:     未找到版本信息");
-            }
+        // CHANGELOG 检查：只依赖 tag 版本，不依赖配置文件
+        let changelog_ok = check_changelog(&scope_dir, ver);
+        if changelog_ok {
+            println!("    CHANGELOG:    ✅");
+        } else {
+            println!("    CHANGELOG:    ❌ 缺少 {} 条目", ver);
         }
+
+        // 配置文件版本检查：辅助信息，文件不存在时不报错
+        check_config(&scope_dir, ver);
     }
 
     if dirty {
@@ -78,7 +70,6 @@ pub fn status(repo_path: &Path) {
     }
 }
 
-/// 读取 `.quanttide/devops/contract.yaml` 中的 scopes 映射。
 fn read_contract_scopes(repo_path: &Path) -> HashMap<String, String> {
     let mut map = HashMap::new();
     let path = repo_path.join(".quanttide/devops/contract.yaml");
@@ -114,7 +105,6 @@ fn read_contract_scopes(repo_path: &Path) -> HashMap<String, String> {
     map
 }
 
-/// 按 scope 分组，取每个 scope 最新的 tag（优先正式版）。
 fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
     let output = std::process::Command::new("git")
         .args([
@@ -157,10 +147,8 @@ fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
     scopes
 }
 
-/// 统计 tag 之后、影响 scope_dir 路径的未发布提交数。
 fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usize {
     let range = format!("{}..HEAD", tag);
-
     if scope_dir == repo_path {
         let output = std::process::Command::new("git")
             .args([
@@ -181,7 +169,6 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usi
             _ => 0,
         };
     }
-
     let rel = scope_dir.strip_prefix(repo_path).unwrap_or(scope_dir);
     let rel_str = rel.to_string_lossy().trim_start_matches('/').to_string();
     let output = std::process::Command::new("git")
@@ -206,30 +193,53 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usi
     }
 }
 
-fn read_project_version(repo_path: &Path) -> Option<String> {
-    let v = read_version(repo_path, "Cargo.toml");
-    if !v.is_empty() {
-        return Some(v);
+fn check_config(repo_path: &Path, expected: &str) {
+    for filename in &["Cargo.toml", "pyproject.toml", "package.json"] {
+        let path = repo_path.join(filename);
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let actual = extract_version(&content, filename);
+        match actual {
+            Some(v) if v == expected => {
+                println!("    {:<12} {} ✅", format!("{}:", filename), v);
+                return;
+            }
+            Some(v) => {
+                println!(
+                    "    {:<12} {} ❌ (期望 {})",
+                    format!("{}:", filename),
+                    v,
+                    expected
+                );
+                return;
+            }
+            None => continue,
+        }
     }
-    let v = read_version(repo_path, "pyproject.toml");
-    if !v.is_empty() {
-        return Some(v);
-    }
-    None
 }
 
-fn read_version(repo_path: &Path, filename: &str) -> String {
-    let path = repo_path.join(filename);
-    let content = std::fs::read_to_string(&path).unwrap_or_default();
+fn extract_version(content: &str, filename: &str) -> Option<String> {
     for line in content.lines() {
         let trimmed = line.trim();
-        if let Some(ver) = trimmed.strip_prefix("version = \"") {
-            if let Some(end) = ver.find('"') {
-                return ver[..end].to_string();
+        if filename == "Cargo.toml" || filename == "pyproject.toml" {
+            if let Some(ver) = trimmed.strip_prefix("version = \"") {
+                if let Some(end) = ver.find('"') {
+                    return Some(ver[..end].to_string());
+                }
+            }
+        }
+        if filename == "package.json" {
+            if let Some(rest) = trimmed.strip_prefix("\"version\":") {
+                let v = rest.trim().trim_matches('"').trim_matches(',');
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
             }
         }
     }
-    String::new()
+    None
 }
 
 fn check_changelog(repo_path: &Path, version: &str) -> bool {
