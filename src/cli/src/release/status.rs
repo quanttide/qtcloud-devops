@@ -2,33 +2,40 @@ use std::path::Path;
 
 /// 显示发布状态信息。事实源是 git tag，配置文件版本应与 tag 一致。
 pub fn status(repo_path: &Path) {
-    let latest_tag = get_latest_tag(repo_path);
-    let tag_ver = normalize_tag(&latest_tag);
+    let latest_tags = get_latest_tags_by_scope(repo_path);
+    let cargo_ver = read_version(repo_path, "Cargo.toml");
     let dirty = is_dirty(repo_path);
 
     println!("发布状态");
     println!("{}", "─".repeat(40));
 
-    match &latest_tag {
-        Some(t) => {
-            let unreleased = count_unreleased(repo_path, &latest_tag);
-            let changelog_ok = check_changelog(repo_path, &tag_ver);
-
-            println!("  最新标签:     {}", t);
-            println!("  未发布提交:   {}", unreleased);
-            check_config_version(repo_path, "Cargo.toml", &tag_ver);
-            if repo_path.join("pyproject.toml").exists() {
-                check_config_version(repo_path, "pyproject.toml", &tag_ver);
-            }
-            if changelog_ok {
-                println!("  CHANGELOG:    ✅ 条目存在");
+    if latest_tags.is_empty() {
+        println!("  最新标签:     (无)");
+        println!("  Cargo.toml:   {}", cargo_ver);
+    } else {
+        for (scope, tag) in &latest_tags {
+            let tag_only = tag.split('/').last().unwrap_or(tag);
+            let ver = tag_only.strip_prefix('v').unwrap_or(tag_only);
+            if ver == &cargo_ver {
+                // 匹配当前仓库，显示详细信息
+                let unreleased = count_unreleased(repo_path, tag);
+                let changelog_ok = check_changelog(repo_path, ver);
+                println!("  [{}]", scope);
+                println!("    最新标签:     {}", tag);
+                println!("    未发布提交:   {}", unreleased);
+                check_config_version(repo_path, "Cargo.toml", ver, true);
+                if repo_path.join("pyproject.toml").exists() {
+                    check_config_version(repo_path, "pyproject.toml", ver, true);
+                }
+                if changelog_ok {
+                    println!("    CHANGELOG:    ✅");
+                } else {
+                    println!("    CHANGELOG:    ❌ 缺少 {} 条目", ver);
+                }
             } else {
-                println!("  CHANGELOG:    ❌ 缺少 {} 条目", tag_ver);
+                // 不匹配，简略显示
+                println!("  [{}]     {}", scope, tag);
             }
-        }
-        None => {
-            println!("  最新标签:     (无)");
-            println!("  Cargo.toml:   {}", read_version(repo_path, "Cargo.toml"));
         }
     }
 
@@ -39,15 +46,48 @@ pub fn status(repo_path: &Path) {
     }
 }
 
-/// 从 tag 中提取版本号（去掉 scope 前缀和 v 前缀）。
-fn normalize_tag(tag: &Option<String>) -> String {
-    match tag {
-        Some(t) => {
-            let s = t.split('/').last().unwrap_or(t);
-            s.strip_prefix('v').unwrap_or(s).to_string()
+/// 按 scope 分组，取每个 scope 最新的 tag。
+fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
+    let output = std::process::Command::new("git")
+        .args([
+            "-C",
+            &repo_path.to_string_lossy(),
+            "tag",
+            "--sort=-version:refname",
+        ])
+        .output()
+        .ok();
+    let output = match output {
+        Some(o) if o.status.success() => o,
+        _ => return vec![],
+    };
+    let all_tags: Vec<&str> = std::str::from_utf8(&output.stdout)
+        .unwrap_or("")
+        .lines()
+        .collect();
+
+    let mut scopes: Vec<(String, String)> = Vec::new();
+    for t in all_tags {
+        let scope = if t.contains('/') {
+            t.split('/').next().unwrap_or("").to_string()
+        } else {
+            "(root)".to_string()
+        };
+        let tag_only = t.split('/').last().unwrap_or(t);
+        let is_prerelease = tag_only.contains('-');
+
+        if let Some(pos) = scopes.iter().position(|(s, _)| s == &scope) {
+            // 已有该 scope 的 tag，如果当前是正式版且已有的是预发布版，替换
+            let existing = &scopes[pos].1;
+            let existing_tag = existing.split('/').last().unwrap_or(existing);
+            if !is_prerelease && existing_tag.contains('-') {
+                scopes[pos] = (scope, t.to_string());
+            }
+        } else {
+            scopes.push((scope, t.to_string()));
         }
-        None => String::new(),
     }
+    scopes
 }
 
 fn read_version(repo_path: &Path, filename: &str) -> String {
@@ -64,15 +104,17 @@ fn read_version(repo_path: &Path, filename: &str) -> String {
     String::new()
 }
 
-fn check_config_version(repo_path: &Path, filename: &str, expected: &str) {
+fn check_config_version(repo_path: &Path, filename: &str, expected: &str, matched: bool) {
     let actual = read_version(repo_path, filename);
     if actual == *expected {
-        println!("  {:<14} {} ✅", format!("{}:", filename), actual);
+        println!("    {:<12} {} ✅", format!("{}:", filename), actual);
     } else if actual.is_empty() {
-        println!("  {:<14} ❌ 文件不存在或无法解析", format!("{}:", filename));
+        if matched {
+            println!("    {:<12} ❌ 无法解析", format!("{}:", filename));
+        }
     } else {
         println!(
-            "  {:<14} {} ❌ (期望 {})",
+            "    {:<12} {} ❌ (期望 {})",
             format!("{}:", filename),
             actual,
             expected
@@ -80,35 +122,8 @@ fn check_config_version(repo_path: &Path, filename: &str, expected: &str) {
     }
 }
 
-fn get_latest_tag(repo_path: &Path) -> Option<String> {
-    let output = std::process::Command::new("git")
-        .args([
-            "-C",
-            &repo_path.to_string_lossy(),
-            "tag",
-            "--sort=-version:refname",
-        ])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let tags: Vec<&str> = std::str::from_utf8(&output.stdout).ok()?.lines().collect();
-    // 先找最新的正式版 tag（不含 -rc / -alpha / -beta）
-    for t in &tags {
-        let ver = t.split('/').last().unwrap_or(t);
-        if !ver.contains('-') {
-            return Some(t.to_string());
-        }
-    }
-    tags.first().map(|s| s.to_string())
-}
-
-fn count_unreleased(repo_path: &Path, latest_tag: &Option<String>) -> usize {
-    let range = match latest_tag {
-        Some(tag) => format!("{}..HEAD", tag),
-        None => "--all".to_string(),
-    };
+fn count_unreleased(repo_path: &Path, tag: &str) -> usize {
+    let range = format!("{}..HEAD", tag);
     let output = std::process::Command::new("git")
         .args([
             "-C",
