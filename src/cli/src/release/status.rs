@@ -55,7 +55,7 @@ pub fn status(repo_path: &Path) {
             println!("    CHANGELOG:    ❌ 缺少 {} 条目", ver);
         }
 
-        check_config(&scope_dir, ver);
+        check_all_configs(&scope_dir, ver);
     }
 
     if dirty {
@@ -185,96 +185,86 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usi
     }
 }
 
-fn check_config(repo_path: &Path, expected: &str) {
-    // 标准配置文件
-    for filename in &[
-        "Cargo.toml",
-        "pyproject.toml",
-        "package.json",
-        "pubspec.yaml",
-        "setup.cfg",
-    ] {
-        let path = repo_path.join(filename);
+/// 检查所有能找到的配置文件，每个都显示版本对比。
+fn check_all_configs(repo_path: &Path, expected: &str) {
+    let checks: Vec<(&str, Box<dyn Fn(&str) -> Option<String>>)> = vec![
+        ("Cargo.toml", Box::new(|c| extract_kv(c, "version"))),
+        ("pyproject.toml", Box::new(|c| extract_kv(c, "version"))),
+        ("package.json", Box::new(extract_json_version)),
+        ("pubspec.yaml", Box::new(|c| extract_kv_yaml(c, "version"))),
+        ("setup.cfg", Box::new(|c| extract_kv(c, "version"))),
+    ];
+
+    for (name, extract) in &checks {
+        let path = repo_path.join(name);
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(_) => continue,
         };
-        let ver = match *filename {
-            "Cargo.toml" | "pyproject.toml" | "setup.cfg" => extract_kv(&content, "version"),
-            "package.json" => extract_json_version(&content),
-            "pubspec.yaml" => extract_kv_yaml(&content, "version"),
-            _ => continue,
-        };
-        match ver {
-            Some(v) if v == expected => {
-                println!("    {:<15} {} ✅", format!("{}:", filename), v);
-                return;
-            }
-            Some(v) => {
-                println!(
-                    "    {:<15} {} ❌ (期望 {})",
-                    format!("{}:", filename),
-                    v,
-                    expected
-                );
-                return;
-            }
-            None => continue,
+        match extract(&content) {
+            Some(v) if v == expected => println!("    {:<15} {} ✅", format!("{}:", name), v),
+            Some(v) => println!(
+                "    {:<15} {} ❌ (期望 {})",
+                format!("{}:", name),
+                v,
+                expected
+            ),
+            None => println!("    {:<15} (未找到版本字段)", format!("{}:", name)),
         }
     }
+
     // Go: VERSION 文件
-    let version_file = repo_path.join("VERSION");
-    if let Ok(content) = std::fs::read_to_string(&version_file) {
+    let vf = repo_path.join("VERSION");
+    if let Ok(content) = std::fs::read_to_string(&vf) {
         let v = content.trim().to_string();
         if !v.is_empty() {
             if v == expected {
                 println!("    VERSION          {} ✅", v);
-                return;
             } else {
                 println!("    VERSION          {} ❌ (期望 {})", v, expected);
-                return;
             }
         }
     }
-    // Go: scan version.go files
+
+    // Go: version.go 文件中的 Version 声明
     if let Ok(entries) = std::fs::read_dir(repo_path) {
         for entry in entries.flatten() {
             let p = entry.path();
-            if p.extension().and_then(|e| e.to_str()) == Some("go") {
-                if let Ok(content) = std::fs::read_to_string(&p) {
-                    for prefix in &[
-                        "var Version = \"",
-                        "var VERSION = \"",
-                        "const Version = \"",
-                        "const VERSION = \"",
-                    ] {
-                        for line in content.lines() {
-                            let t = line.trim();
-                            if let Some(rest) = t.strip_prefix(prefix) {
-                                if let Some(end) = rest.find('"') {
-                                    let v = rest[..end].to_string();
-                                    if !v.is_empty() {
-                                        if v == expected {
-                                            println!(
-                                                "    {}             {} ✅",
-                                                p.file_name()
-                                                    .and_then(|n| n.to_str())
-                                                    .unwrap_or("version.go"),
-                                                v
-                                            );
-                                            return;
-                                        } else {
-                                            println!(
-                                                "    {}             {} ❌ (期望 {})",
-                                                p.file_name()
-                                                    .and_then(|n| n.to_str())
-                                                    .unwrap_or("version.go"),
-                                                v,
-                                                expected
-                                            );
-                                            return;
-                                        }
-                                    }
+            if p.extension().and_then(|e| e.to_str()) != Some("go") {
+                continue;
+            }
+            if !p.is_file() {
+                continue;
+            }
+            let content = match std::fs::read_to_string(&p) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            for prefix in &[
+                "var Version = \"",
+                "var VERSION = \"",
+                "const Version = \"",
+                "const VERSION = \"",
+            ] {
+                for line in content.lines() {
+                    let t = line.trim();
+                    if let Some(rest) = t.strip_prefix(prefix) {
+                        if let Some(end) = rest.find('"') {
+                            let v = rest[..end].to_string();
+                            if !v.is_empty() {
+                                let name = p
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("version.go");
+                                if v == expected {
+                                    println!("    {:<15} {} ✅", format!("{}:", name), v);
+                                } else {
+                                    println!(
+                                        "    {:<15} {} ❌ (期望 {})",
+                                        format!("{}:", name),
+                                        v,
+                                        expected
+                                    );
                                 }
                             }
                         }
