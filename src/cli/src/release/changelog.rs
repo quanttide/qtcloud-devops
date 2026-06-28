@@ -68,7 +68,7 @@ fn llm_changelog(git_log: &str, version: &str) -> Result<String, String> {
             "system",
             "你是一个帮助生成 CHANGELOG 的助手。\
              严格按 Keep a Changelog 格式输出，分类为 Added / Changed / Fixed / Removed。\
-             只输出内容，不要包含任何解释。",
+             只输出分类后的条目内容，不要输出版本头部（## 行）和日期。",
         ),
         Message::new("user", &hint),
     ];
@@ -120,7 +120,8 @@ pub fn ensure_changelog(repo_path: &Path, version: &str) -> Result<(), String> {
     if changelog_path.exists() {
         let content = std::fs::read_to_string(&changelog_path)
             .map_err(|e| format!("读取 CHANGELOG.md 失败: {}", e))?;
-        if content.contains(&format!("[{}]", super::util::normalize_version(version))) {
+        let ver = super::util::normalize_version(version);
+        if content.contains(&format!("[{}]", ver)) || content.contains(&format!("[v{}]", ver)) {
             return Ok(());
         }
     }

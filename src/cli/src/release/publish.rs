@@ -116,14 +116,15 @@ mod tests {
         assert!(publish("bad", tempfile::tempdir().unwrap().path(), true, None).is_err());
     }
     #[test]
-    fn test_publish_rejects_missing_changelog() {
+    fn test_publish_auto_generates_changelog() {
         let d = tempfile::tempdir().unwrap();
         git_init(d.path());
         git_commit(d.path(), "init");
-        let e = publish("v1.0.0", d.path(), true, None)
-            .unwrap_err()
-            .to_string();
-        assert!(e.contains("CHANGELOG"));
+        // publish 现在会自动生成 CHANGELOG，应成功
+        let result = publish("v1.0.0", d.path(), true, None);
+        assert!(result.is_ok());
+        let changelog = std::fs::read_to_string(d.path().join("CHANGELOG.md")).unwrap_or_default();
+        assert!(changelog.contains("## [1.0.0]"));
     }
     #[test]
     fn test_publish_formal_with_yes() {
