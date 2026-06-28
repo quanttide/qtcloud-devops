@@ -6,7 +6,6 @@ pub fn status(repo_path: &Path) {
     let latest_tags = get_latest_tags_by_scope(repo_path);
     let dirty = is_dirty(repo_path);
 
-    // 收集所有非 root scope 的路径，供 Go 扫描排除
     let other_scope_dirs: Vec<std::path::PathBuf> = scopes_map
         .iter()
         .filter(|(k, _)| *k != "(root)")
@@ -61,6 +60,7 @@ pub fn status(repo_path: &Path) {
             println!("    CHANGELOG:    ❌ 缺少 {} 条目", ver);
         }
 
+        check_github_release(repo_path, tag, &scope_dir, ver);
         check_all_configs(&scope_dir, &other_scope_dirs, ver);
     }
 
@@ -68,6 +68,47 @@ pub fn status(repo_path: &Path) {
         println!("  工作区:       ❌ 有未提交变更");
     } else {
         println!("  工作区:       ✅ 干净");
+    }
+}
+
+/// 检查 GitHub Release 是否存在，以及 body 是否与 CHANGELOG 同步。
+fn check_github_release(repo_path: &Path, tag: &str, scope_dir: &Path, _version: &str) {
+    // 解析 GitHub 仓库
+    let repo = get_github_repo(repo_path);
+    let repo = match repo {
+        Some(r) => r,
+        None => return,
+    };
+
+    // 查询 Release
+    let out = std::process::Command::new("gh")
+        .args([
+            "release", "view", tag, "--repo", &repo, "--json", "body", "--jq", ".body",
+        ])
+        .output()
+        .ok();
+
+    let body = match out {
+        Some(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        _ => {
+            println!("    GitHub Release: ❌ 不存在");
+            return;
+        }
+    };
+
+    // 从 CHANGELOG 提取当前版本的 notes
+    let changelog_path = scope_dir.join("CHANGELOG.md");
+    let notes = super::util::extract_notes(tag, &changelog_path);
+    let notes = notes.unwrap_or_default();
+
+    if body == notes {
+        println!("    GitHub Release: ✅ body 与 CHANGELOG 一致");
+    } else if body.trim().is_empty() {
+        println!("    GitHub Release: ⚠️ body 为空");
+    } else if notes.is_empty() {
+        println!("    GitHub Release: ✅ 已创建 (CHANGELOG 无此版本条目)");
+    } else {
+        println!("    GitHub Release: ⚠️ body 与 CHANGELOG 不同步");
     }
 }
 
@@ -99,7 +140,6 @@ fn read_contract_scopes(repo_path: &Path) -> HashMap<String, String> {
             }
         }
     }
-    // 确保 (root) 在 map 中
     if !map.contains_key("(root)") {
         map.insert("(root)".to_string(), ".".to_string());
     }
@@ -191,6 +231,26 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usi
     }
 }
 
+fn get_github_repo(repo_path: &Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .args([
+            "-C",
+            &repo_path.to_string_lossy(),
+            "remote",
+            "get-url",
+            "origin",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let url = std::str::from_utf8(&out.stdout).ok()?.trim().to_string();
+    let re = regex::Regex::new(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?$").ok()?;
+    let caps = re.captures(&url)?;
+    Some(caps.get(1)?.as_str().to_string())
+}
+
 fn check_all_configs(repo_path: &Path, other_scope_dirs: &[std::path::PathBuf], expected: &str) {
     let checks: [(&str, fn(&str) -> Option<String>); 5] = [
         ("Cargo.toml", |c| extract_kv(c, "version")),
@@ -215,7 +275,6 @@ fn check_all_configs(repo_path: &Path, other_scope_dirs: &[std::path::PathBuf], 
             None => println!("    {:<15} (未找到版本字段)", format!("{}:", name)),
         }
     }
-    // Go: VERSION 文件
     let vf = repo_path.join("VERSION");
     if let Ok(c) = std::fs::read_to_string(&vf) {
         let v = c.trim().to_string();
@@ -227,7 +286,6 @@ fn check_all_configs(repo_path: &Path, other_scope_dirs: &[std::path::PathBuf], 
             }
         }
     }
-    // Go: 递归查找 .go 文件中的 Version 声明（排除其他 scope 的子目录）
     for p in find_go_files(repo_path, other_scope_dirs) {
         let content = match std::fs::read_to_string(&p) {
             Ok(c) => c,
@@ -265,7 +323,6 @@ fn check_all_configs(repo_path: &Path, other_scope_dirs: &[std::path::PathBuf], 
     }
 }
 
-/// 递归查找 .go 文件，跳过排除目录（其他 scope 的子目录）。
 fn find_go_files(dir: &Path, excludes: &[std::path::PathBuf]) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
     let entries = match std::fs::read_dir(dir) {
@@ -275,7 +332,6 @@ fn find_go_files(dir: &Path, excludes: &[std::path::PathBuf]) -> Vec<std::path::
     for entry in entries.flatten() {
         let p = entry.path();
         if p.is_dir() {
-            // 跳过排除目录
             if excludes.iter().any(|e| p == *e) {
                 continue;
             }
