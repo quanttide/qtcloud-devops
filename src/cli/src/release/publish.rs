@@ -5,21 +5,13 @@ use super::util::{self, Registry};
 /// 发布版本。
 ///
 /// 内部处理流程：
-/// 1. 校验版本号格式（需匹配 `vX.Y.Z` 或 `scope/vX.Y.Z`）
-/// 2. 校验 CHANGELOG.md 存在且包含对应版本记录
-/// 3. 用户确认（除非 `yes = true`）
-/// 4. 创建 git tag（幂等，已存在时跳过）
-/// 5. 推送 tag 到远端（无远端时静默跳过）
-/// 6. 创建 GitHub Release（幂等，已存在时跳过）
-/// 7. 打印 registry 发布提示（不实际发布，由 CI 执行）
-///
-/// 回滚：步骤 5 失败时删除本地 tag；步骤 6 失败时删除本地和远端 tag。
-///
-/// # 参数
-/// - `version`: 版本号。格式 `vX.Y.Z` 或 `scope/vX.Y.Z`（如 `cli/v0.5.0`）
-/// - `repo_path`: git 仓库路径
-/// - `yes`: 跳过用户确认
-/// - `registry`: CI 发布目标提示（仅打印，不执行）
+/// 1. 校验版本号格式
+/// 2. 从 contract.yaml 获取 scope 子目录
+/// 3. 自动更新 Cargo.toml / pyproject.toml 版本号
+/// 4. 自动生成 CHANGELOG（如有需要）并提交
+/// 5. 校验 CHANGELOG 包含对应版本记录
+/// 6. 用户确认（除非 `yes = true`）
+/// 7. 创建 git tag → 推送 → 创建 GitHub Release
 pub fn publish(
     version: &str,
     repo_path: &Path,
@@ -30,16 +22,34 @@ pub fn publish(
         return Err(format!("版本号格式错误: {}", version).into());
     }
 
-    // 自动生成 CHANGELOG（如果不存在当前版本记录）
-    if let Err(e) = super::ensure_changelog(repo_path, version) {
+    let ver = util::normalize_version(version);
+
+    // 从 version 提取 scope 前缀，从 contract.yaml 获取子目录
+    let scope_dir = resolve_scope_dir(repo_path, version);
+
+    // 自动更新配置文件版本（scope 子目录下）
+    update_config_version(&scope_dir, &ver);
+    // git add 配置文件，让 ensure_changelog 的 commit 一并提交
+    for f in &["Cargo.toml", "pyproject.toml"] {
+        let path = scope_dir.join(f);
+        if path.exists() {
+            std::process::Command::new("git")
+                .args(["add", f])
+                .current_dir(repo_path)
+                .output()
+                .ok();
+        }
+    }
+
+    // 自动生成 CHANGELOG（scope 子目录下）
+    if let Err(e) = super::ensure_changelog(&scope_dir, version) {
         eprintln!(
             "⚠ CHANGELOG 生成失败: {}\n   发布将继续，但请确保 CHANGELOG.md 包含版本 {} 的记录。",
             e, version
         );
-        // 不阻塞发布，仅输出警告
     }
 
-    let changelog_path = repo_path.join("CHANGELOG.md");
+    let changelog_path = scope_dir.join("CHANGELOG.md");
     let precheck_errors = util::precheck_version_changelog(version, &changelog_path);
     if !precheck_errors.is_empty() {
         return Err(precheck_errors.join("\n").into());
@@ -72,6 +82,77 @@ pub fn publish(
     }
     println!("✓ 版本 {} 已发布", version);
     Ok(())
+}
+
+/// 从 version 字符串提取 scope，查 contract.yaml 得到子目录。
+fn resolve_scope_dir(repo_path: &Path, version: &str) -> std::path::PathBuf {
+    // "cli/v0.6.0" → scope="cli", "v0.1.0" → scope="(root)"
+    let scope = if version.contains('/') {
+        version.split('/').next().unwrap_or("")
+    } else {
+        "(root)"
+    };
+    if scope == "(root)" || scope.is_empty() {
+        return repo_path.to_path_buf();
+    }
+    // 读 contract.yaml
+    if let Ok(content) = std::fs::read_to_string(repo_path.join(".quanttide/devops/contract.yaml"))
+    {
+        let search = format!("  {}:", scope);
+        for line in content.lines() {
+            let t = line.trim();
+            if let Some(rest) = t.strip_prefix(&format!("{}:", scope)) {
+                let rel = rest.trim();
+                if !rel.is_empty() && !rel.starts_with('#') {
+                    let d = repo_path.join(rel);
+                    if d.exists() {
+                        return d;
+                    }
+                }
+            }
+        }
+    }
+    // 回退：scope 名作为子目录
+    let d = repo_path.join(scope);
+    if d.is_dir() {
+        d
+    } else {
+        repo_path.to_path_buf()
+    }
+}
+
+/// 更新 Cargo.toml / pyproject.toml 中的版本号。
+fn update_config_version(repo_path: &Path, version: &str) {
+    for filename in &["Cargo.toml", "pyproject.toml"] {
+        let path = repo_path.join(filename);
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let updated = update_version_in_content(&content, version);
+        if updated != content {
+            std::fs::write(&path, &updated).ok();
+            println!("✓ {} 版本已更新为 {}", filename, version);
+        }
+    }
+}
+
+fn update_version_in_content(content: &str, new_ver: &str) -> String {
+    let mut result = String::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("version = \"") {
+            let indent = &line[..line.find("version = \"").unwrap()];
+            result.push_str(&format!("{}version = \"{}\"\n", indent, new_ver));
+        } else if trimmed.starts_with("\"version\":") {
+            let indent = &line[..line.find("\"version\":").unwrap()];
+            result.push_str(&format!("{}\"version\": \"{}\",\n", indent, new_ver));
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -120,7 +201,6 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         git_init(d.path());
         git_commit(d.path(), "init");
-        // publish 现在会自动生成 CHANGELOG，应成功
         let result = publish("v1.0.0", d.path(), true, None);
         assert!(result.is_ok());
         let changelog = std::fs::read_to_string(d.path().join("CHANGELOG.md")).unwrap_or_default();
@@ -144,5 +224,19 @@ mod tests {
         .unwrap();
         let r = publish("v1.0.0-rc.1", d.path(), true, None);
         assert!(r.is_ok() || r.is_err());
+    }
+    #[test]
+    fn test_update_version_in_content_toml() {
+        let content = "name = \"foo\"\nversion = \"0.1.0\"\n";
+        assert_eq!(
+            update_version_in_content(content, "0.2.0"),
+            "name = \"foo\"\nversion = \"0.2.0\"\n"
+        );
+    }
+    #[test]
+    fn test_update_version_in_content_json() {
+        let content = "{\n  \"version\": \"1.0.0\",\n}\n";
+        let result = update_version_in_content(content, "2.0.0");
+        assert!(result.contains("\"version\": \"2.0.0\""));
     }
 }
