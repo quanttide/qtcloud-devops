@@ -1,36 +1,52 @@
 use std::path::Path;
 
-/// 显示发布状态信息。
+/// 显示发布状态信息。事实源是 git tag，配置文件版本应与 tag 一致。
 pub fn status(repo_path: &Path) {
-    let version = read_version(repo_path, "Cargo.toml");
-    let pyproject_ver = read_version(repo_path, "pyproject.toml");
     let latest_tag = get_latest_tag(repo_path);
-    let unreleased = count_unreleased(repo_path, &latest_tag);
-    let changelog_ok = check_changelog(repo_path, &version);
+    let tag_ver = normalize_tag(&latest_tag);
     let dirty = is_dirty(repo_path);
 
     println!("发布状态");
     println!("{}", "─".repeat(40));
-    println!("  当前版本:     {}", version);
-    if pyproject_ver == version {
-        println!("  pyproject:    {} ✅", pyproject_ver);
-    } else {
-        println!("  pyproject:    {} ❌ (期望 {})", pyproject_ver, version);
-    }
+
     match &latest_tag {
-        Some(t) => println!("  最新标签:     {}", t),
-        None => println!("  最新标签:     (无)"),
+        Some(t) => {
+            let unreleased = count_unreleased(repo_path, &latest_tag);
+            let changelog_ok = check_changelog(repo_path, &tag_ver);
+
+            println!("  最新标签:     {}", t);
+            println!("  未发布提交:   {}", unreleased);
+            check_config_version(repo_path, "Cargo.toml", &tag_ver);
+            if repo_path.join("pyproject.toml").exists() {
+                check_config_version(repo_path, "pyproject.toml", &tag_ver);
+            }
+            if changelog_ok {
+                println!("  CHANGELOG:    ✅ 条目存在");
+            } else {
+                println!("  CHANGELOG:    ❌ 缺少 {} 条目", tag_ver);
+            }
+        }
+        None => {
+            println!("  最新标签:     (无)");
+            println!("  Cargo.toml:   {}", read_version(repo_path, "Cargo.toml"));
+        }
     }
-    println!("  未发布提交:   {}", unreleased);
-    if changelog_ok {
-        println!("  CHANGELOG:    ✅ 条目存在");
-    } else {
-        println!("  CHANGELOG:    ❌ 缺少 {} 条目", version);
-    }
+
     if dirty {
         println!("  工作区:       ❌ 有未提交变更");
     } else {
         println!("  工作区:       ✅ 干净");
+    }
+}
+
+/// 从 tag 中提取版本号（去掉 scope 前缀和 v 前缀）。
+fn normalize_tag(tag: &Option<String>) -> String {
+    match tag {
+        Some(t) => {
+            let s = t.split('/').last().unwrap_or(t);
+            s.strip_prefix('v').unwrap_or(s).to_string()
+        }
+        None => String::new(),
     }
 }
 
@@ -45,7 +61,23 @@ fn read_version(repo_path: &Path, filename: &str) -> String {
             }
         }
     }
-    "unknown".to_string()
+    String::new()
+}
+
+fn check_config_version(repo_path: &Path, filename: &str, expected: &str) {
+    let actual = read_version(repo_path, filename);
+    if actual == *expected {
+        println!("  {:<14} {} ✅", format!("{}:", filename), actual);
+    } else if actual.is_empty() {
+        println!("  {:<14} ❌ 文件不存在或无法解析", format!("{}:", filename));
+    } else {
+        println!(
+            "  {:<14} {} ❌ (期望 {})",
+            format!("{}:", filename),
+            actual,
+            expected
+        );
+    }
 }
 
 fn get_latest_tag(repo_path: &Path) -> Option<String> {
@@ -61,11 +93,15 @@ fn get_latest_tag(repo_path: &Path) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    std::str::from_utf8(&output.stdout)
-        .ok()?
-        .lines()
-        .next()
-        .map(|s| s.to_string())
+    let tags: Vec<&str> = std::str::from_utf8(&output.stdout).ok()?.lines().collect();
+    // 先找最新的正式版 tag（不含 -rc / -alpha / -beta）
+    for t in &tags {
+        let ver = t.split('/').last().unwrap_or(t);
+        if !ver.contains('-') {
+            return Some(t.to_string());
+        }
+    }
+    tags.first().map(|s| s.to_string())
 }
 
 fn count_unreleased(repo_path: &Path, latest_tag: &Option<String>) -> usize {
@@ -94,11 +130,12 @@ fn count_unreleased(repo_path: &Path, latest_tag: &Option<String>) -> usize {
 }
 
 fn check_changelog(repo_path: &Path, version: &str) -> bool {
+    if version.is_empty() {
+        return false;
+    }
     let path = repo_path.join("CHANGELOG.md");
     let content = std::fs::read_to_string(&path).unwrap_or_default();
-    // 支持 [0.1.0] 和 [v0.1.0] 两种格式
-    let ver = version.strip_prefix('v').unwrap_or(version);
-    content.contains(&format!("[{}]", ver))
+    content.contains(&format!("[{}]", version))
 }
 
 fn is_dirty(repo_path: &Path) -> bool {
