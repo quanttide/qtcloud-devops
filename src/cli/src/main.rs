@@ -43,6 +43,8 @@ enum ReleaseAction {
         #[arg(long, value_enum)]
         registry: Option<Registry>,
     },
+    /// 查看发布状态：版本号、标签、CHANGELOG、工作区状态
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -66,8 +68,7 @@ enum CodeAction {
 }
 
 fn resolve_path(path: &PathBuf) -> Result<PathBuf, String> {
-    std::fs::canonicalize(path)
-        .map_err(|e| format!("无法解析路径 '{}': {}", path.display(), e))
+    std::fs::canonicalize(path).map_err(|e| format!("无法解析路径 '{}': {}", path.display(), e))
 }
 
 fn print_report(report: &StatusReport) {
@@ -101,11 +102,17 @@ fn main() {
     let result = match cli.command {
         Commands::Code { action } => run_code(action),
         Commands::Release { action } => match action {
-            ReleaseAction::Publish { version, yes, registry } => {
-                qtcloud_devops_cli::release::publish(&version, &repo_path(), yes, registry)
-                    .map_err(|e| format!("{}", e))
+            ReleaseAction::Publish {
+                version,
+                yes,
+                registry,
+            } => qtcloud_devops_cli::release::publish(&version, &repo_path(), yes, registry)
+                .map_err(|e| format!("{}", e)),
+            ReleaseAction::Status => {
+                qtcloud_devops_cli::release::status(&repo_path());
+                Ok(())
             }
-        }
+        },
     };
 
     if let Err(e) = result {
@@ -117,12 +124,16 @@ fn main() {
 fn run_code(action: CodeAction) -> Result<(), String> {
     match action {
         CodeAction::Status { path, offline } => run_code_status(path, offline),
-        CodeAction::Sync { name: Some(n), dry_run, repo } => {
-            run_code_sync_one(&n, dry_run, repo)
-        }
-        CodeAction::Sync { name: None, dry_run, repo } => {
-            run_code_sync_all(dry_run, repo)
-        }
+        CodeAction::Sync {
+            name: Some(n),
+            dry_run,
+            repo,
+        } => run_code_sync_one(&n, dry_run, repo),
+        CodeAction::Sync {
+            name: None,
+            dry_run,
+            repo,
+        } => run_code_sync_all(dry_run, repo),
     }
 }
 
