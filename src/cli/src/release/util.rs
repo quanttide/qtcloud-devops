@@ -29,7 +29,8 @@ pub fn precheck_version_changelog(version: &str, changelog_path: &Path) -> Vec<S
         let content = std::fs::read_to_string(changelog_path).unwrap_or_default();
         let ver = normalize_version(version);
         let marker = format!("## [{}]", ver);
-        if !content.contains(&marker) {
+        let v_marker = format!("## [v{}]", ver);
+        if !content.contains(&marker) && !content.contains(&v_marker) {
             errors.push(format!("CHANGELOG.md 未找到 {} 版本记录", ver));
         }
     } else {
@@ -42,16 +43,17 @@ pub fn extract_notes(version: &str, changelog_path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(changelog_path).ok()?;
     let ver = normalize_version(version);
     let start_marker = format!("## [{}]", ver);
+    let start_marker_v = format!("## [v{}]", ver);
     let mut capture = false;
     let mut notes: Vec<&str> = Vec::new();
     for line in content.lines() {
-        if line.trim().starts_with(&start_marker) {
+        if line.trim().starts_with(&start_marker) || line.trim().starts_with(&start_marker_v) {
             capture = true;
             continue;
         }
         if capture {
             if line.starts_with("## [") {
-                break;
+                continue;
             }
             notes.push(line);
         }
@@ -262,6 +264,23 @@ mod tests {
         std::fs::write(d.path().join("C.md"), "## [1.0.0]\n\ncontent").unwrap();
         assert!(extract_notes("v2.0.0", &d.path().join("C.md")).is_none());
     }
+    #[test]
+    fn test_extract_notes_filters_header_lines() {
+        let d = tempfile::tempdir().unwrap();
+        // 模拟 LLM 产物中混入版本头部行
+        std::fs::write(
+            d.path().join("C.md"),
+            "## [1.0.0] - 2026-06-26\n\n\
+             ## [v1.0.0] - 2023-08-31\n\n\
+             ### Added\n- feature\n",
+        )
+        .unwrap();
+        let notes = extract_notes("v1.0.0", &d.path().join("C.md")).unwrap_or_default();
+        assert!(!notes.contains("## ["), "提取内容应过滤 ## [ 行: {}", notes);
+        assert!(notes.contains("### Added"));
+        assert!(notes.contains("- feature"));
+    }
+
     #[test]
     fn test_confirm_release_yes_flag() {
         assert!(confirm_release("v1.0.0", true));

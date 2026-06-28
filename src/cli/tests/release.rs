@@ -123,3 +123,40 @@ fn test_release_publish_without_changelog_entry() {
     );
     assert!(changelog.contains("## [1.0.0]"), "原有的 v1.0.0 条目应保留");
 }
+
+#[test]
+fn test_release_publish_with_v_prefix_changelog() {
+    // CHANGELOG 已含 [v0.1.0]（v 前缀），publish v0.1.0 不应产生重复
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    std::fs::write(
+        dir.path().join("CHANGELOG.md"),
+        "# CHANGELOG\n\n## [v0.1.0]\n\n### Added\n- init\n",
+    )
+    .unwrap();
+    let result = qtcloud_devops_cli::release::publish("v0.1.0", dir.path(), true, None);
+    assert!(result.is_ok());
+    let changelog = std::fs::read_to_string(dir.path().join("CHANGELOG.md")).unwrap_or_default();
+    // 应只有一个 [v0.1.0] 条目，没有 [0.1.0] 重复
+    assert_eq!(changelog.matches("## [").count(), 1, "不应产生重复标题");
+}
+
+#[test]
+fn test_release_publish_extract_notes_filters_headers() {
+    // LLM 产物混入日期头部，extract_notes 应过滤
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    std::fs::write(
+        dir.path().join("CHANGELOG.md"),
+        "# CHANGELOG\n\n## [1.0.0] - 2026-06-28\n\n\
+         ## [v1.0.0] - 2023-08-31\n\n\
+         ### Added\n- init\n",
+    )
+    .unwrap();
+    let notes =
+        qtcloud_devops_cli::release::extract_notes("v1.0.0", &dir.path().join("CHANGELOG.md"))
+            .unwrap_or_default();
+    assert!(!notes.contains("## ["), "Release notes 应过滤 ## [ 行");
+    assert!(notes.contains("### Added"));
+    assert!(notes.contains("- init"));
+}

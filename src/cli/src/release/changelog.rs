@@ -232,6 +232,16 @@ mod tests {
     }
 
     #[test]
+    fn test_write_changelog_scope_version() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("CHANGELOG.md");
+        write_changelog(&path, "cli/v0.1.0", "### Added\n- feature").unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("## [0.1.0]"));
+        assert!(!content.contains("## [cli/v0.1.0]"));
+    }
+
+    #[test]
     fn test_ensure_changelog_skips_if_exists() {
         let d = tempfile::tempdir().unwrap();
         let path = d.path().join("CHANGELOG.md");
@@ -244,6 +254,19 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let result = ensure_changelog(d.path(), "v0.1.0");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ensure_changelog_skips_with_v_prefix() {
+        let d = tempfile::tempdir().unwrap();
+        git_init(d.path());
+        git_commit(d.path(), "init");
+        std::fs::write(
+            d.path().join("CHANGELOG.md"),
+            "# CHANGELOG\n\n## [v0.1.0]\n\ncontent\n",
+        )
+        .unwrap();
+        assert!(ensure_changelog(d.path(), "v0.1.0").is_ok());
     }
 
     #[test]
