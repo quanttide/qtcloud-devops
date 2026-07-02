@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [0.7.0-beta.6] - 2026-07-02
+
+### Fixed
+
+- `release status` 不再过滤 prerelease tag，正确显示最新 tag 而非最新稳定版
+
 ## [0.7.0-beta.5] - 2026-07-02
 
 ### Changed

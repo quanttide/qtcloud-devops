@@ -155,14 +155,7 @@ pub fn collect_latest_tags(tags: &[&str]) -> Vec<(String, String)> {
         } else {
             "(root)".to_string()
         };
-        let tag_only = t.split('/').last().unwrap_or(t);
-        let pre = tag_only.contains('-');
-        if let Some(pos) = scopes.iter().position(|(s, _)| s == &scope) {
-            let et = scopes[pos].1.split('/').last().unwrap_or(&scopes[pos].1);
-            if !pre && et.contains('-') {
-                scopes[pos] = (scope, t.to_string());
-            }
-        } else {
+        if !scopes.iter().any(|(s, _)| s == &scope) {
             scopes.push((scope, t.to_string()));
         }
     }
@@ -436,23 +429,17 @@ mod tests {
     }
 
     #[test]
-    fn test_collect_tags_prerelease_not_preferred() {
+    fn test_collect_tags_prerelease_is_kept() {
+        // 输入已按版本降序，首个 tag 胜出（含 prerelease）
         let tags = collect_latest_tags(&["cli/v0.2.0-rc.1", "cli/v0.1.0"]);
         assert_eq!(tags.len(), 1);
-        assert_eq!(tags[0].1, "cli/v0.1.0");
+        assert_eq!(tags[0].1, "cli/v0.2.0-rc.1");
     }
 
     #[test]
     fn test_collect_tags_prerelease_as_fallback() {
         let tags = collect_latest_tags(&["cli/v0.1.0-rc.2", "cli/v0.1.0-rc.1"]);
         assert_eq!(tags.len(), 1);
-        assert_eq!(tags[0].1, "cli/v0.1.0-rc.2");
-    }
-
-    #[test]
-    fn test_collect_tags_no_release_upgrades_prerelease() {
-        // 先出现 rc2（非预发布标志无，因为它有 '-'），后出现 rc1
-        let tags = collect_latest_tags(&["cli/v0.1.0-rc.2", "cli/v0.1.0-rc.1"]);
         assert_eq!(tags[0].1, "cli/v0.1.0-rc.2");
     }
 
