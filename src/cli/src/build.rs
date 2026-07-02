@@ -99,7 +99,14 @@ fn print_scope(
 
 fn check_ci(scope: &str, ci_workflow: Option<&str>) -> String {
     // workflow 名称：scope 的 ci_workflow 字段优先，无则按约定 build-{scope}
-    let workflow = ci_workflow.unwrap_or(scope);
+    let owned: String;
+    let workflow = match ci_workflow {
+        Some(w) => w,
+        None => {
+            owned = format!("build-{}", scope);
+            &owned
+        }
+    };
     let output = match std::process::Command::new("gh")
         .args([
             "run",
@@ -135,11 +142,12 @@ fn check_ci(scope: &str, ci_workflow: Option<&str>) -> String {
         .nth(1)
         .and_then(|s| s.split('"').nth(1))
         .unwrap_or("?");
-    let number = out
+    let number: String = out
         .split("\"number\":")
         .nth(1)
-        .and_then(|s| s.split(',').next())
-        .unwrap_or("?");
+        .map(|s| s.chars().take_while(|c| c.is_ascii_digit()).collect())
+        .filter(|s: &String| !s.is_empty())
+        .unwrap_or_else(|| "?".into());
 
     if conclusion.is_empty() {
         return "⚠ 无 CI 运行记录".into();
