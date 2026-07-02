@@ -37,7 +37,7 @@ contract.yaml → Contract
 | Language | 命令 |
 |----------|------|
 | `Rust` | `cargo check` |
-| `Python` | `uv pip compile pyproject.toml` |
+| `Python` | `uv check` |
 | `Go` | `go vet` |
 | `Dart` | `dart analyze` |
 | `TypeScript` | `tsc --noEmit` 或 `npm run lint` |
