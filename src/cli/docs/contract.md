@@ -108,6 +108,8 @@ pub struct Scope {
     pub registry: Registry,
     pub release: StageRelease,
     pub test_threshold: Option<f64>,
+    /// CI workflow 名称。未设置时按 build-{scope} 约定推导。
+    pub ci_workflow: Option<String>,
 }
 ```
 
@@ -165,6 +167,12 @@ scopes:
     language: rust
     build_tool: cargo
     registry: crates
+  cli:
+    dir: src/cli
+    language: rust
+    build_tool: cargo
+    registry: crates
+    # ci_workflow 不写则默认 build-cli
   studio:
     dir: src/studio
     language: dart
@@ -172,6 +180,7 @@ scopes:
     registry: pubdev
     release:
       changelog: src/studio/CHANGELOG.md
+    ci_workflow: studio-pipeline  # 显式指定，不走约定
 ```
 
 旧格式兼容：
@@ -229,6 +238,7 @@ Scope 级有值就用 scope 的，没有就用全局的。不是深度合并。
 - `scope.test_threshold = Some(90)` → 覆盖全局 `stages.test.threshold`
 - `scope.test_threshold = None` → 使用 `stages.test.threshold`（默认 70.0）
 - `scope.release.changelog = "src/cli/CHANGELOG.md"` → 只覆盖 changelog，`pre_publish` 走全局
+- `scope.ci_workflow = Some("build-cli")` → 使用指定 workflow 名；`None` → 按 `build-{scope}` 约定推导
 
 ## 依赖
 

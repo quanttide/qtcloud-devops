@@ -30,11 +30,22 @@ contract.yaml → Contract
 
 | 检查 | 功能 | 数据来源 | 回答的问题 |
 |------|------|---------|-----------|
-| **CI 状态** | 展示 CI 最近一次构建结果 | `gh run list` | "CI 上构建通过了吗？" |
+| **CI 状态** | 展示 CI 最近一次构建结果 | `gh run list --workflow <name>` | "CI 上构建通过了吗？" |
 | **语法校验** | 本地快速检查能否编译 | `cargo check` / `uv check` 等 | "本地代码有语法/类型错误吗？" |
 | **版本一致** | tag 版本 vs 配置文件版本 | `contract::version_status()` | "待发布的版本号对齐了吗？" |
 
 三路检查回答了三个不同的问题，合在一起才是完整的"构建状态"。
+
+### CI 状态查询
+
+按 scope 查对应 workflow，workflow 名称来源：
+
+| 来源 | 优先级 | 示例 |
+|------|--------|------|
+| `scope.ci_workflow` | 高 | `ci_workflow: my-pipeline` → `--workflow my-pipeline` |
+| 约定 `build-{scope}` | 低 | scope `cli` → `--workflow build-cli` |
+
+匹配 `.github/workflows/build-cli.yml` 文件。workflow 不存在时输出 `⚠ 无 CI 运行记录`。
 
 ### 语法校验命令表
 
@@ -104,7 +115,8 @@ pub fn status(repo_path: &Path)
 1. `contract::load(repo_path)` 加载契约
 2. 遍历 scopes（无 scope 时构造 root Scope）
 3. 对每个 scope：查 CI → 语法校验 → 版本一致性检查
-4. 显示工作区状态（`git status --porcelain`）
+4. 查 CI 时优先用 `scope.ci_workflow`，无则按 `build-{scope}` 约定
+5. 显示工作区状态（`git status --porcelain`）
 
 ### 第二步：注册模块
 
@@ -131,7 +143,7 @@ enum BuildAction {
 
 ## 参考
 
-- 实验室原型：`examples/default/src/build.rs`（3 测试）
+- 实验室原型：`examples/default/src/build.rs`（3 测试，含多语言语法校验 + ci_workflow）
 - 设计文档：`examples/default/docs/build.md`
 - 蓝图来源：`data/roadmap/platform/build-command.md`
 - 依赖模块：`contract::{load, version_status, scope_release, resolve_language}`
