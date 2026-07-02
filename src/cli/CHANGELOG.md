@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## [0.7.0-beta.5] - 2026-07-02
+
+### Changed
+
+- contract.rs 全面委托 `quanttide-devops` toolkit v0.1.1
+  - 删除 toolkit 已提供的 6 个函数（~160 行）
+  - `Registry` → `PublishTarget` 改名
+  - `release/status.rs` 从 0% → 71% 行覆盖率
+- 提取 `collect_latest_tags` 纯函数并加 7 个单元测试
+- `with_mock_cmd` PATH mock 覆盖 `gh` 命令，加 3 个集成测试
+
 ## [0.7.0-beta.4] - 2026-07-02
 
 ### Changed

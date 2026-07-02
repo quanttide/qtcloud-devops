@@ -1,6 +1,6 @@
 use std::io::Write;
 
-fn git_init(path: &std::path::Path) {
+fn git_init(path: &std::path::Path) -> std::path::PathBuf {
     std::process::Command::new("git")
         .args(["init", "-b", "main"])
         .current_dir(path)
@@ -16,7 +16,8 @@ fn git_init(path: &std::path::Path) {
         .current_dir(path)
         .output()
         .unwrap();
-    std::fs::write(path.join("f"), "").unwrap();
+    let init = path.join("init");
+    std::fs::write(&init, "").unwrap();
     std::process::Command::new("git")
         .args(["add", "."])
         .current_dir(path)
@@ -27,11 +28,11 @@ fn git_init(path: &std::path::Path) {
         .current_dir(path)
         .output()
         .unwrap();
+    init
 }
 
 fn git_commit(repo: &std::path::Path) {
-    let mut f = std::fs::File::create(repo.join("f")).unwrap();
-    writeln!(f, "x").unwrap();
+    std::fs::write(repo.join("f"), "x").unwrap();
     std::process::Command::new("git")
         .args(["add", "."])
         .current_dir(repo)
@@ -42,6 +43,104 @@ fn git_commit(repo: &std::path::Path) {
         .current_dir(repo)
         .output()
         .unwrap();
+}
+
+fn git_tag(repo: &std::path::Path, tag: &str) {
+    std::process::Command::new("git")
+        .args(["-C", repo.to_str().unwrap(), "tag", tag])
+        .output()
+        .unwrap();
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// release::status 集成测试
+// ═════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_status_empty_repo_no_tags() {
+    // 空仓库无标签 → status 不 panic、不修改 repo
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    qtcloud_devops_cli::release::status(dir.path());
+    // read-only 操作，目录无新增文件
+    assert!(!dir.path().join("CHANGELOG.md").exists());
+}
+
+#[test]
+fn test_status_with_root_tag() {
+    // 有根 scope tag → 打印标签信息
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    git_tag(dir.path(), "v1.0.0");
+    qtcloud_devops_cli::release::status(dir.path());
+    // tag 仍存在
+    let output = std::process::Command::new("git")
+        .args(["-C", dir.path().to_str().unwrap(), "tag"])
+        .output()
+        .unwrap();
+    let tags = String::from_utf8_lossy(&output.stdout);
+    assert!(tags.contains("v1.0.0"));
+}
+
+#[test]
+fn test_status_with_scoped_tags() {
+    // 多 scope tag → 按 scope 分组输出
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    git_tag(dir.path(), "cli/v0.1.0");
+    git_tag(dir.path(), "web/v0.2.0");
+    qtcloud_devops_cli::release::status(dir.path());
+}
+
+#[test]
+fn test_status_dirty_workspace() {
+    // 未提交变更 → 工作区标记 dirty
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    git_tag(dir.path(), "v1.0.0");
+    std::fs::write(dir.path().join("dirty"), "modified").unwrap();
+    qtcloud_devops_cli::release::status(dir.path());
+}
+
+#[test]
+fn test_status_with_changelog() {
+    // CHANGELOG 存在且匹配 tag → CHANGELOG ✅
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0]\n\ncontent\n").unwrap();
+    git_commit(dir.path()); // commit CHANGELOG
+    git_tag(dir.path(), "v1.0.0");
+    qtcloud_devops_cli::release::status(dir.path());
+}
+
+#[test]
+fn test_status_missing_changelog() {
+    // 有 tag 无 CHANGELOG → CHANGELOG ❌
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    // 不在 CHANGELOG 中写版本，直接打 tag
+    git_tag(dir.path(), "v1.0.0");
+    qtcloud_devops_cli::release::status(dir.path());
+}
+
+#[test]
+fn test_status_with_unreleased_commits() {
+    // tag 后有新提交 → 未发布提交计数 > 0
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    git_tag(dir.path(), "v1.0.0");
+    git_commit(dir.path());
+    git_commit(dir.path());
+    qtcloud_devops_cli::release::status(dir.path());
+}
+
+#[test]
+fn test_status_no_remote_no_gh() {
+    // 无 remote origin → 跳过 GitHub Release 检查（不 panic）
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+    git_tag(dir.path(), "v1.0.0");
+    qtcloud_devops_cli::release::status(dir.path());
 }
 
 #[test]

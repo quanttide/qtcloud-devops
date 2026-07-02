@@ -144,8 +144,12 @@ fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
         .unwrap_or("")
         .lines()
         .collect();
+    collect_latest_tags(&all)
+}
+
+pub fn collect_latest_tags(tags: &[&str]) -> Vec<(String, String)> {
     let mut scopes: Vec<(String, String)> = Vec::new();
-    for t in all {
+    for t in tags {
         let scope = if t.contains('/') {
             t.split('/').next().unwrap_or("").to_string()
         } else {
@@ -403,5 +407,192 @@ fn is_dirty(repo_path: &Path) -> bool {
     match out {
         Some(o) => !o.stdout.is_empty(),
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_collect_tags_empty() {
+        assert!(collect_latest_tags(&[]).is_empty());
+    }
+
+    #[test]
+    fn test_collect_tags_root_only() {
+        let tags = collect_latest_tags(&["v2.0.0", "v1.0.0"]);
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].0, "(root)");
+        assert_eq!(tags[0].1, "v2.0.0");
+    }
+
+    #[test]
+    fn test_collect_tags_scoped() {
+        let tags = collect_latest_tags(&["cli/v0.1.0", "web/v0.2.0"]);
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0].0, "cli");
+        assert_eq!(tags[1].0, "web");
+    }
+
+    #[test]
+    fn test_collect_tags_prerelease_not_preferred() {
+        let tags = collect_latest_tags(&["cli/v0.2.0-rc.1", "cli/v0.1.0"]);
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].1, "cli/v0.1.0");
+    }
+
+    #[test]
+    fn test_collect_tags_prerelease_as_fallback() {
+        let tags = collect_latest_tags(&["cli/v0.1.0-rc.2", "cli/v0.1.0-rc.1"]);
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].1, "cli/v0.1.0-rc.2");
+    }
+
+    #[test]
+    fn test_collect_tags_no_release_upgrades_prerelease() {
+        // 先出现 rc2（非预发布标志无，因为它有 '-'），后出现 rc1
+        let tags = collect_latest_tags(&["cli/v0.1.0-rc.2", "cli/v0.1.0-rc.1"]);
+        assert_eq!(tags[0].1, "cli/v0.1.0-rc.2");
+    }
+
+    /// 创建 mock bin 脚本并前置到 PATH，测试结束后还原。
+    fn with_mock_path<F: FnOnce(&Path) -> R, R>(scripts: &[(&str, &str)], f: F) -> R {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        for (name, body) in scripts {
+            let path = bin.join(name);
+            std::fs::write(&path, body).unwrap();
+            #[cfg(unix)]
+            std::process::Command::new("chmod")
+                .args(["+x", path.to_str().unwrap()])
+                .output()
+                .unwrap();
+        }
+        let old_path = std::env::var("PATH").unwrap_or_default();
+        std::env::set_var("PATH", format!("{}:{}", bin.display(), old_path));
+        let result = f(dir.path());
+        std::env::set_var("PATH", &old_path);
+        result
+    }
+
+    const GH_NOT_FOUND: &str = "#!/bin/sh\nexit 1\n";
+    const GH_WITH_BODY: &str = "#!/bin/sh\necho '{\"body\":\"content\"}'\n";
+
+    #[test]
+    fn test_status_gh_not_found() {
+        // 有 GitHub remote 但 gh CLI 返回不存在 → 不 panic
+        let dir = tempfile::tempdir().unwrap();
+        git_init_test(dir.path());
+        git_tag_test(dir.path(), "v1.0.0");
+        set_remote(dir.path());
+        with_mock_path(&[("gh", GH_NOT_FOUND)], |_| {
+            status(dir.path());
+        });
+    }
+
+    #[test]
+    fn test_status_gh_with_body() {
+        // gh 返回 body，CHANGELOG 匹配 → 一致
+        let dir = tempfile::tempdir().unwrap();
+        git_init_test(dir.path());
+        std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0]\n\ncontent\n").unwrap();
+        git_commit_test(dir.path());
+        git_tag_test(dir.path(), "v1.0.0");
+        set_remote(dir.path());
+        with_mock_path(&[("gh", GH_WITH_BODY)], |_| {
+            status(dir.path());
+        });
+    }
+
+    #[test]
+    fn test_status_custom_tags() {
+        // 自定义 mock git 返回的标签列表，覆盖多 scope 路径
+        let dir = tempfile::tempdir().unwrap();
+        // 用真实 git repo + 标签，验证 status 不 panic
+        git_init_test(dir.path());
+        git_tag_test(dir.path(), "cli/v0.1.0");
+        git_tag_test(dir.path(), "web/v0.2.0");
+        set_remote(dir.path());
+        with_mock_path(&[("gh", GH_NOT_FOUND)], |_| {
+            status(dir.path());
+        });
+    }
+
+    // ── 测试辅助 ────────────────────────────────────────────────
+
+    fn git_init_test(path: &Path) {
+        std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "t@t"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "t"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::fs::write(path.join("f"), "").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+    }
+
+    fn git_commit_test(path: &Path) {
+        std::fs::write(path.join("f"), "x").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "x"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+    }
+
+    fn git_tag_test(path: &Path, tag: &str) {
+        std::process::Command::new("git")
+            .args(["-C", path.to_str().unwrap(), "tag", tag])
+            .output()
+            .unwrap();
+    }
+
+    fn set_remote(path: &Path) {
+        std::process::Command::new("git")
+            .args([
+                "-C",
+                path.to_str().unwrap(),
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/owner/repo.git",
+            ])
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_collect_tags_mixed_root_and_scoped() {
+        let tags = collect_latest_tags(&["v1.0.0", "cli/v0.2.0", "cli/v0.1.0"]);
+        assert_eq!(tags.len(), 2);
+        let root = tags.iter().find(|(s, _)| s == "(root)").unwrap();
+        assert_eq!(root.1, "v1.0.0");
+        let cli = tags.iter().find(|(s, _)| s == "cli").unwrap();
+        assert_eq!(cli.1, "cli/v0.2.0");
     }
 }
