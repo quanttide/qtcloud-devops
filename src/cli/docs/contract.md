@@ -183,43 +183,28 @@ scopes:
     ci_workflow: studio-pipeline  # 显式指定，不走约定
 ```
 
-旧格式兼容：
-
-```yaml
-scopes:
-  cli: src/cli
-  studio: src/studio
-```
-
-## 两阶段解析
+## 解析
 
 ```
 YAML 文件
    │
-   ├─ 尝试 serde::from_str<ContractYaml>（新格式）
+   ├─ 尝试 serde::from_str<ContractYaml>
    │    成功 → into_contract() → Contract
-   │    失败 → ─┐
-   │            ├─ YAML 语法合法 → eprintln 警告"无法按新格式解析"
-   │            │
-   ▼            ▼
-   ├─ 尝试 serde::from_str<OldContractYaml>（旧格式）
-   │    成功 → into_contract() → Contract（自动语言检测）
-   │    失败 → eprintln 警告"建议迁移到新格式"
+   │    失败 → YAML 语法合法 → eprintln 警告
    │
-   └─ 都失败 → default_contract()
-               eprintln 警告"使用默认值"
+   └─ 返回 default_contract()
 ```
 
-### 错误反馈
+旧格式兼容代码已删除，所有 contract.yaml 使用新格式（四维架构）。
 
-每条解析路径都有 `eprintln` 输出：
+### 错误反馈
 
 | 场景 | 输出 |
 |------|------|
 | contract.yaml 不存在 | `ℹ contract.yaml 不存在，使用默认契约` |
-| YAML 语法合法但新格式不匹配 | `⚠ contract.yaml: 无法按新格式解析，尝试旧格式...` |
-| 旧格式匹配成功 | `⚠ contract.yaml: 检测到旧格式，建议迁移到新格式` |
-| 全部失败 | `⚠ contract.yaml: 无法按任何格式解析，使用默认值` |
+| YAML 语法合法但无法解析 | `⚠ contract.yaml: 无法按新格式解析，使用默认值` |
+
+旧格式兼容代码已删除，所有 contract.yaml 均使用新格式（四维架构）。
 
 ## 版本一致性检查
 

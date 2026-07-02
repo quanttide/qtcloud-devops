@@ -266,16 +266,9 @@ fn parse(content: &str) -> Contract {
     if let Ok(parsed) = serde_yaml::from_str::<ContractYaml>(content) {
         return parsed.into_contract();
     }
-    // 新格式解析失败。如果 YAML 语法本身合法，说明是字段不匹配，给出警告
     if serde_yaml::from_str::<serde_yaml::Value>(content).is_ok() {
-        eprintln!("⚠ contract.yaml: 无法按新格式解析，尝试旧格式...");
+        eprintln!("⚠ contract.yaml: 无法按新格式解析，使用默认值");
     }
-    // 兼容旧格式：scopes 是简单映射
-    if let Ok(old) = serde_yaml::from_str::<OldContractYaml>(content) {
-        eprintln!("⚠ contract.yaml: 检测到旧格式，建议迁移到新格式");
-        return old.into_contract();
-    }
-    eprintln!("⚠ contract.yaml: 无法按任何格式解析，使用默认值");
     default_contract()
 }
 
@@ -603,41 +596,6 @@ impl ContractYaml {
     }
 }
 
-/// 兼容旧格式：`scopes: { cli: src/cli }`
-#[derive(Debug, serde::Deserialize)]
-struct OldContractYaml {
-    scopes: std::collections::BTreeMap<String, String>,
-}
-
-impl OldContractYaml {
-    fn into_contract(self) -> Contract {
-        let scopes = self
-            .scopes
-            .into_iter()
-            .map(|(name, dir)| {
-                let lang = detect_by_files(&Path::new(".").join(&dir));
-                Scope {
-                    name,
-                    dir,
-                    language: lang,
-                    framework: String::new(),
-                    build_tool: BuildTool::Unknown("auto".into()),
-                    registry: Registry::None,
-                    release: StageRelease::default(),
-                    test_threshold: None,
-                    ci_workflow: None,
-                }
-            })
-            .collect();
-        Contract {
-            stages: Stages::default(),
-            platforms: Platforms::default(),
-            sources: Sources::default(),
-            scopes,
-        }
-    }
-}
-
 fn parse_registry(s: Option<&str>) -> Registry {
     match s {
         Some("crates") => Registry::Crates,
@@ -804,24 +762,6 @@ scopes:
         // 未声明的用默认值
         assert_eq!(c.stages.test.threshold, 70.0);
         assert_eq!(c.platforms.source_control, "github");
-    }
-
-    // ── 旧格式兼容 ──────────────────────────────────────────────────
-
-    #[test]
-    fn test_load_old_format() {
-        let d = tempfile::tempdir().unwrap();
-        let dir = d.path().join(".quanttide/devops");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("contract.yaml"),
-            "scopes:\n  cli: src/cli\n  studio: src/studio\n",
-        )
-        .unwrap();
-
-        let scopes = load_scopes(d.path());
-        assert_eq!(scopes.len(), 2);
-        assert_eq!(scopes[0].name, "cli");
     }
 
     #[test]
