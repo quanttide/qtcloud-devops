@@ -1,6 +1,6 @@
 [package]
 name = "qtcloud-devops-cli"
-version = "0.7.0-beta.2"
+version = "0.7.0-beta.3"
 edition = "2021"
 description = "量潮DevOps云命令行工具"
 authors = ["QuantTide <opensource@quanttide.com>"]

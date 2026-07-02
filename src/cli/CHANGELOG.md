@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.7.0-beta.3] - 2026-07-02
+
+### Fixed
+
+- `build status` CI 检查：workflow 名回退路径改为 `build-{scope}`（之前裸用 scope 名）
+- `build status` CI 检查：number JSON 解析改用 `take_while(is_ascii_digit)`（修复 `#36}]` 脏数据）
+- 提取 `resolve_workflow` 纯函数并加 4 个测试
+
 ## [0.7.0-beta.2] - 2026-07-02
 
 ### Added
