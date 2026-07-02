@@ -1,5 +1,27 @@
 # CONTRIBUTING
 
+## 模块结构
+
+```
+src/
+├── code/       # 业务层：纯抽象，不暴露 git 概念
+├── git/        # 事实源底层：所有 git 操作
+├── release/    # 发布子领域：publish + status
+├── build.rs    # 构建状态查询
+├── test.rs     # 测试状态查询
+└── contract.rs # 契约适配层（委托 toolkit）
+```
+
+## 测试
+
+```sh
+cargo test                      # 全部测试（175）
+cargo test --test release       # 仅 release 集成测试
+cargo test --test code          # 仅 code 集成测试
+cargo test --test cli           # 仅 cli 集成测试
+cargo llvm-cov report           # 覆盖率报告
+```
+
 ## 维护
 
 ### 项目结构
