@@ -46,3 +46,29 @@ pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionStatus {
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_version_status_git_error_returns_fallback() {
+        // 不存在的路径 → git2 打开失败 → version_status 返回 Err → fallback
+        let scope = Scope {
+            name: "test".into(),
+            dir: ".".into(),
+            language: Language::Rust,
+            framework: String::new(),
+            build_tool: BuildTool::Cargo,
+            registry: Registry::None,
+            release: StageRelease::default(),
+            test_threshold: None,
+            ci_workflow: None,
+        };
+        let vs = version_status(Path::new("/nonexistent"), &scope);
+        assert!(!vs.consistent);
+        assert_eq!(vs.tag_version, None);
+        assert_eq!(vs.config_version, None);
+        assert!(vs.config_files.is_empty());
+    }
+}
