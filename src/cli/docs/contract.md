@@ -1,5 +1,11 @@
 # Contract 模块开发蓝图
 
+> 枚举命名约定：按**文件/工具**命名，不按语言或运行时。
+> - `SourceType::Pyproject`（而非 `Python`）
+> - `SourceType::PackageJson`（而非 `Node`）
+> - `SourceType::TagOnly`（不从配置文件读版本，只从 tag 读）
+> - `BuildTool::Pip`（而非 `Uv`）
+
 将四维契约模型从实验室（`examples/default/src/contract.rs`）迁移到 CLI 产线（`apps/qtcloud-devops/src/cli/src/contract.rs`），替代当前散落在 `publish.rs` 和 `status.rs` 中的手写 YAML 解析。
 
 ## 现状
