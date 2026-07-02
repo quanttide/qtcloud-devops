@@ -97,16 +97,16 @@ fn print_scope(
     println!("    changelog:  {}", release.changelog);
 }
 
+/// 解析 CI workflow 名称。ci_workflow 优先，无则按约定 build-{scope}。
+pub fn resolve_workflow(scope: &str, ci_workflow: Option<&str>) -> String {
+    match ci_workflow {
+        Some(w) => w.to_string(),
+        None => format!("build-{}", scope),
+    }
+}
+
 fn check_ci(scope: &str, ci_workflow: Option<&str>) -> String {
-    // workflow 名称：scope 的 ci_workflow 字段优先，无则按约定 build-{scope}
-    let owned: String;
-    let workflow = match ci_workflow {
-        Some(w) => w,
-        None => {
-            owned = format!("build-{}", scope);
-            &owned
-        }
-    };
+    let workflow = resolve_workflow(scope, ci_workflow);
     let output = match std::process::Command::new("gh")
         .args([
             "run",
@@ -114,7 +114,7 @@ fn check_ci(scope: &str, ci_workflow: Option<&str>) -> String {
             "--limit",
             "1",
             "--workflow",
-            workflow,
+            &workflow,
             "--json",
             "conclusion,displayTitle,headBranch,number",
         ])
@@ -256,6 +256,18 @@ mod tests {
     fn test_is_working_tree_dirty_empty_repo() {
         let d = tempfile::tempdir().unwrap();
         assert!(!is_working_tree_dirty(d.path()));
+    }
+
+    #[test]
+    fn test_resolve_workflow_default() {
+        assert_eq!(resolve_workflow("cli", None), "build-cli");
+        assert_eq!(resolve_workflow("studio", None), "build-studio");
+    }
+
+    #[test]
+    fn test_resolve_workflow_custom() {
+        assert_eq!(resolve_workflow("cli", Some("my-pipeline")), "my-pipeline");
+        assert_eq!(resolve_workflow("cli", Some("release-ci")), "release-ci");
     }
 
     #[test]
