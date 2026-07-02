@@ -242,6 +242,8 @@ pub struct VersionStatus {
     pub tag_version: Option<String>,
     pub config_version: Option<String>,
     pub consistent: bool,
+    /// 所有配置文件的版本号明细。(文件名, 版本号)
+    pub config_files: Vec<(String, Option<String>)>,
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -334,20 +336,93 @@ pub fn detect_by_files(dir: &Path) -> Language {
 // 版本状态
 // ═══════════════════════════════════════════════════════════════════════
 
+/// 检查 scope 下所有已知配置文件的版本，判断与 tag 是否一致。
 pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionStatus {
     let tag_version = latest_tag_for_scope(repo_path, &scope.name);
     let scope_dir = repo_path.join(&scope.dir);
-    let config_version = read_config_version(&scope_dir, &scope.language);
-    let consistent = match (&tag_version, &config_version) {
-        (Some(t), Some(c)) => t == c,
-        (None, None) => true,
-        _ => false,
+    let config_files = read_all_config_versions(&scope_dir);
+    let config_version = config_files
+        .iter()
+        .find(|(_, v)| v.is_some())
+        .and_then(|(_, v)| v.clone());
+    let consistent = match &tag_version {
+        Some(t) => config_files.iter().all(|(_, v)| match v {
+            Some(cv) => cv == t,
+            None => true, // 文件存在但无版本字段，不阻断
+        }),
+        None => config_version.is_none(),
     };
     VersionStatus {
         tag_version,
         config_version,
         consistent,
+        config_files,
     }
+}
+
+/// 读取 scope 目录下所有已知配置文件的版本号。
+pub fn read_all_config_versions(dir: &Path) -> Vec<(String, Option<String>)> {
+    let checks: &[(&str, fn(&str) -> Option<String>)] = &[
+        ("Cargo.toml", |c| extract_kv_version(c, "version")),
+        ("pyproject.toml", |c| extract_kv_version(c, "version")),
+        ("package.json", extract_json_version),
+        ("pubspec.yaml", |c| extract_kv_yaml(c, "version")),
+    ];
+    checks
+        .iter()
+        .filter_map(|(name, extract)| {
+            let path = dir.join(name);
+            if path.exists() {
+                let content = std::fs::read_to_string(&path).ok()?;
+                Some((name.to_string(), extract(&content)))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn extract_kv_version(content: &str, key: &str) -> Option<String> {
+    let p = format!("{} = \"", key);
+    for line in content.lines() {
+        let t = line.trim();
+        if let Some(r) = t.strip_prefix(&p) {
+            if let Some(e) = r.find('"') {
+                let v = r[..e].to_string();
+                if !v.is_empty() {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn extract_json_version(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let t = line.trim();
+        if let Some(r) = t.strip_prefix("\"version\":") {
+            let v = r.trim().trim_matches('"').trim_matches(',').trim();
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn extract_kv_yaml(content: &str, key: &str) -> Option<String> {
+    let p = format!("{}:", key);
+    for line in content.lines() {
+        let t = line.trim();
+        if let Some(r) = t.strip_prefix(&p) {
+            let v = r.trim();
+            if !v.is_empty() && !v.starts_with('#') {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn latest_tag_for_scope(repo_path: &Path, scope_name: &str) -> Option<String> {
@@ -378,37 +453,6 @@ fn normalize_version(version: &str) -> String {
         .strip_prefix('v')
         .unwrap_or(after_scope)
         .to_string()
-}
-
-fn read_config_version(dir: &Path, lang: &Language) -> Option<String> {
-    let filename = match lang {
-        Language::Rust => "Cargo.toml",
-        Language::Python => "pyproject.toml",
-        Language::TypeScript => "package.json",
-        Language::Dart => "pubspec.yaml",
-        _ => return None,
-    };
-    let path = dir.join(filename);
-    let content = std::fs::read_to_string(path).ok()?;
-    for line in content.lines() {
-        let t = line.trim();
-        if t.starts_with("version = \"") {
-            if let Some(v) = t.strip_prefix("version = \"") {
-                if let Some(end) = v.find('"') {
-                    return Some(v[..end].to_string());
-                }
-            }
-        }
-        if t.starts_with("\"version\":") {
-            if let Some(rest) = t.strip_prefix("\"version\":") {
-                let v = rest.trim().trim_matches(',').trim_matches('"');
-                if !v.is_empty() {
-                    return Some(v.to_string());
-                }
-            }
-        }
-    }
-    None
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -853,15 +897,53 @@ scopes:
     }
 
     #[test]
-    fn test_read_config_version_cargo() {
+    fn test_read_all_config_versions_cargo_only() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(
             d.path().join("Cargo.toml"),
             "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n",
         )
         .unwrap();
-        let v = read_config_version(d.path(), &Language::Rust);
-        assert_eq!(v.as_deref(), Some("0.1.0"));
+        let files = read_all_config_versions(d.path());
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].0, "Cargo.toml");
+        assert_eq!(files[0].1.as_deref(), Some("0.1.0"));
+    }
+
+    #[test]
+    fn test_read_all_config_versions_multi() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join("Cargo.toml"),
+            "[package]\nversion = \"0.2.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            d.path().join("pyproject.toml"),
+            "[project]\nversion = \"0.2.0\"\n",
+        )
+        .unwrap();
+        let files = read_all_config_versions(d.path());
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().all(|(_, v)| v.as_deref() == Some("0.2.0")));
+    }
+
+    #[test]
+    fn test_read_all_config_versions_mismatch() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join("Cargo.toml"),
+            "[package]\nversion = \"0.2.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            d.path().join("pyproject.toml"),
+            "[project]\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let files = read_all_config_versions(d.path());
+        assert_eq!(files.len(), 2);
+        assert_ne!(files[0].1, files[1].1);
     }
 
     // ── 边缘测试 ────────────────────────────────────────────────────

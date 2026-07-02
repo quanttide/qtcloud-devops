@@ -72,11 +72,26 @@ fn print_scope(
     println!("    CI:         {}", check_ci(name, ci_workflow));
     println!("    build:      {}", check_syntax(lang, dir));
     match (&vs.tag_version, &vs.config_version) {
-        (Some(t), Some(cv)) if t == cv => println!("    version:    ✅ {}（一致）", t),
-        (Some(t), Some(cv)) => println!("    version:    ⚠ tag {} ≠ 配置 {}", t, cv),
+        (Some(t), Some(_)) if vs.consistent => println!("    version:    ✅ {}（一致）", t),
+        (Some(t), Some(_)) => println!("    version:    ⚠ {}（配置不一致）", t),
         (Some(t), None) => println!("    version:    tag {}（无配置文件）", t),
-        (None, Some(cv)) => println!("    version:    配置 {}（无 tag）", cv),
+        (None, Some(_)) => println!("    version:    有配置版本（无 tag）"),
         (None, None) => println!("    version:    暂无发布"),
+    }
+    for (fname, ver) in &vs.config_files {
+        match (ver, &vs.tag_version) {
+            (Some(v), Some(t)) if v == t => {
+                println!("      {:<15} {} ✅", format!("{}:", fname), v)
+            }
+            (Some(v), Some(_)) => println!(
+                "      {:<15} {} ❌（期望 {})",
+                format!("{}:", fname),
+                v,
+                vs.tag_version.as_deref().unwrap_or("?")
+            ),
+            (Some(v), None) => println!("      {:<15} {}（无 tag）", format!("{}:", fname), v),
+            (None, _) => println!("      {:<15} （未找到版本字段）", format!("{}:", fname)),
+        }
     }
     println!("    registry:   {}", c.platforms.artifact_registry.name());
     println!("    changelog:  {}", release.changelog);
@@ -215,6 +230,7 @@ mod tests {
             tag_version: Some("0.1.0".into()),
             config_version: Some("0.1.0".into()),
             consistent: true,
+            config_files: vec![("Cargo.toml".into(), Some("0.1.0".into()))],
         };
         let release = contract::StageRelease::default();
         print_scope(

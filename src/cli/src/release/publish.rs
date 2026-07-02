@@ -28,6 +28,23 @@ pub fn publish(
     // 从 version 提取 scope 前缀，从契约获取子目录
     let scope_dir = resolve_scope_dir(version, repo_path);
 
+    // 预检：所有配置文件版本号一致
+    let config_files = contract::read_all_config_versions(&scope_dir);
+    let inconsistent: Vec<&(String, Option<String>)> = config_files
+        .iter()
+        .filter(|(_, v)| match v {
+            Some(cv) => cv != &ver,
+            None => false,
+        })
+        .collect();
+    if !inconsistent.is_empty() {
+        for (fname, v) in &inconsistent {
+            let v_display = v.as_deref().unwrap_or("?");
+            eprintln!("⚠ {}: 版本 {} 与目标 {} 不一致", fname, v_display, ver);
+        }
+        return Err("存在版本号不一致的配置文件，请先同步".into());
+    }
+
     // 自动更新配置文件版本（scope 子目录下）
     update_config_version(&scope_dir, &ver);
     // git add 配置文件，让 ensure_changelog 的 commit 一并提交
