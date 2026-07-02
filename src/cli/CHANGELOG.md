@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## [0.7.0-beta.1] - 2026-07-02
+
+### Added
+
+- `build status` 命令：三路检查（CI/本地编译/版本一致性）
+  - CI 状态：`gh run list --workflow`，支持 `ci_workflow` 配置
+  - 本地编译：多语言语法校验（Rust/Python/Go/Dart/TS）
+  - 版本一致：`contract::version_status()`
+  - 工作区脏状态检测
+- `test status` 命令：测试结果与覆盖率
+  - 多语言测试运行（Rust/Python/Go/Dart/TS）
+  - lcov/Cobertura 覆盖率解析
+  - 阈值从契约读取（scope 级 → 全局默认）
+- 四维契约模型（`contract` 模块）
+  - Stages / Platforms / Sources / Scopes 四维架构
+  - `scope_release()`、`scope_test_threshold()` 便捷函数
+  - `find_scope_by_path()` 按路径自动匹配 scope
+  - `ci_workflow` scope 字段
+
+### Changed
+
+- `release publish`/`release status` 改用 contract 模块替代手写 YAML 解析
+- `contract.yaml` 从旧格式迁移到四维架构新格式
+- 枚举重命名：按文件/工具/行为命名（如 `SourceType::Pyproject`）
+
+### Removed
+
+- 旧格式 YAML 解析代码（`OldContractYaml`）
+- `validate` 模块（功能已合并至 contract/preflight）
+
 ## [0.6.1] - 2026-06-28
 
 ### Added
