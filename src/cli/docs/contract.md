@@ -1,12 +1,70 @@
 # Contract 模块开发蓝图
 
-> 枚举命名约定：按**文件/工具**命名，不按语言或运行时。
-> - `SourceType::Pyproject`（而非 `Python`）
-> - `SourceType::PackageJson`（而非 `Node`）
-> - `SourceType::TagOnly`（不从配置文件读版本，只从 tag 读）
-> - `BuildTool::Pip`（而非 `Uv`）
+> 枚举命名约定：按**文件/工具/行为**命名，不按语言或运行时。
+> 例外：`BuildTool::Uv` 保留原名，因 `uv` 是其官方项目名，且用户群体已认知。
 
-将四维契约模型从实验室（`examples/default/src/contract.rs`）迁移到 CLI 产线（`apps/qtcloud-devops/src/cli/src/contract.rs`），替代当前散落在 `publish.rs` 和 `status.rs` 中的手写 YAML 解析。
+## 枚举定义
+
+### `Language` — 编程语言
+
+```rust
+pub enum Language {
+    Rust,              // Cargo.toml 存在
+    Python,            // pyproject.toml 或 requirements.txt 存在
+    Go,                // go.mod 存在
+    Dart,              // pubspec.yaml 存在
+    TypeScript,        // package.json 存在
+    Unknown(String),   // 无法识别，携带原始标识符以便调试
+}
+```
+
+检测策略（`detect_by_files`）：按优先级检查根目录下的标志文件，`Cargo.toml` > `pyproject.toml` > `go.mod` > `pubspec.yaml` > `package.json`。无匹配时返回 `Unknown`。
+
+### `BuildTool` — 构建工具
+
+```rust
+pub enum BuildTool {
+    Cargo,             // Rust 项目
+    Uv,                // Python 项目（uv，兼容 pip CLI）
+    Go,                // Go 项目（go build）
+    Flutter,           // Dart/Flutter 项目（flutter build）
+    Npm,               // Node/TypeScript 项目（npm run build）
+    Unknown(String),   // 无法识别
+}
+```
+
+### `Registry` — 制品库
+
+```rust
+pub enum Registry {
+    Crates,            // crates.io
+    PyPI,              // Python Package Index
+    PubDev,            // pub.dev（Dart/Flutter）
+    Npm,               // npm registry
+    GitHubReleases,    // GitHub Releases（不通过包管理器分发时使用）
+    Docker,            // Docker Hub / 容器镜像仓库
+    None,              // 无制品库 / 暂未配置
+}
+```
+
+### `SourceType` — 版本号来源
+
+```rust
+pub enum SourceType {
+    Cargo,             // 从 Cargo.toml 的 version 字段读取
+    Pyproject,         // 从 pyproject.toml 的 version 字段读取（PEP 621）
+    TagOnly,           // 不从配置文件读版本，只从 git tag 读取（如 Go 项目）
+    Dart,              // 从 pubspec.yaml 的 version 字段读取
+    PackageJson,       // 从 package.json 的 version 字段读取
+    Auto,              // 自动检测（默认值）
+}
+```
+
+所有枚举遵循**兜底原则**：`Unknown` / `None` 变体保证任何未知输入不会导致崩溃。
+
+## 设计记录
+
+将四维契约模型从实验室（`examples/default/src/contract.rs`）迁移到 CLI 产线（`apps/qtcloud-devops/src/cli/src/contract.rs`），替代当前散落在 `publish.rs` 和 `status.rs` 中的手写 YAML 解析。（`examples/default/src/contract.rs`）迁移到 CLI 产线（`apps/qtcloud-devops/src/cli/src/contract.rs`），替代当前散落在 `publish.rs` 和 `status.rs` 中的手写 YAML 解析。
 
 ## 现状
 
