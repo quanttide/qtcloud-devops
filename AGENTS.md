@@ -20,48 +20,41 @@ AI 不得在不读取文件内容的情况下删除文件。删除前必须：
 
 **工作纪律 1：AI 禁止直接 publish**
 
-AI 的 git 操作止步于 `commit && push`。tag、stage、publish 由人执行（或经人确认后 AI 可执行 `stage`/`publish` 命令，但 tag 必须指向已提交的代码）。
+AI 的 git 操作止步于 `commit && push`。tag、release 由人执行（或经人确认后 AI 可执行 `release publish` 命令，但 tag 必须指向已提交的代码）。
 
 ```
 ❌ AI 不应直接运行：
+   gh release create cli/v0.3.0 ...
    git tag cli/v0.3.0 && git push origin cli/v0.3.0
-   qtcloud-devops publish -v cli/v0.3.0 -y
 
 ✅ AI 可以做的事：
-   edit Cargo.toml + CHANGELOG → git commit && git push
-   → 由人打 tag 或确认后 AI 执行 stage/publish
+   edit version + CHANGELOG → git commit && git push
+   → 由人打 tag 或确认后 AI 执行 release publish
 ```
 
 **工作纪律 1.5：版本号同步**
 
-发版时 `Cargo.toml` 和 `pyproject.toml` 的 `version` 字段必须同步更新。`validate-version.sh` 脚本会同时校验两者，不一致时 CI 会失败。
+发版时 `Cargo.toml` 和 `pyproject.toml` 的 `version` 字段必须同步更新。
 
 ```bash
 # Cargo.toml
-version = "0.7.0-beta.1"
+version = "0.7.0"
 
 # pyproject.toml（必须一致）
-version = "0.7.0-beta.1"
+version = "0.7.0"
 ```
 
 **工作纪律 2：发布前预验证**
 
-push 之前，运行预验证脚本：
-
-```bash
-./scripts/preflight.sh
-```
-
-脚本内容应至少包含：
+push 之前，确认以下检查通过：
 
 ```bash
 cargo build --release                    # 确认编译通过
-cargo test                               # 确认测试通过
+cargo test                               # 确认测试通过（175 测试）
 cargo publish --dry-run --registry crates-io  # 确认 crates.io 发布可行
-maturin build --release --out dist       # 确认 wheel 构建可行
 ```
 
-preflight 不通过不发布。
+预验证不通过不发布。
 
 **工作纪律 3：最少预发布版本数**
 
@@ -73,23 +66,22 @@ preflight 不通过不发布。
 
 如果一次 rc 因为某个问题失败，修复后应预期其余步骤不受影响（而不是出现新的问题）。出现新问题说明本地预验证不足。
 
-**工作纪律 4：stage 关联预发布**
+**工作纪律 4：rc → stable 发布流程**
 
-`stage` 只用于 rc 版本，不直接 stage 正式版。
+rc 版本用于 CI 验证，验证通过后发布 stable 版本。
 
 ```
 ✅ 正确流程：
-   stage -v cli/v0.3.2-rc.1    ← 标记 rc
+   release publish -v cli/v0.3.2-rc.1 -y   ← 发布 rc
    # CI 验证 rc 通过
-   publish -v cli/v0.3.2 -y     ← 正式发布
+   release publish -v cli/v0.3.2 -y         ← 正式发布
 
 ✅ rc 失败时：
-   直接 stage 下一个，不 cancel（旧 tag 保留作为记录）
-   stage -v cli/v0.3.2-rc.2     ← 递增 rc 序号
+   递增 rc 序号，不删除旧 tag
+   release publish -v cli/v0.3.2-rc.2 -y   ← 下一个 rc
 
 ❌ 错误做法（跳过 rc）：
-   stage -v cli/v0.3.2          ← stage 不应直接用于正式版
-   publish -v cli/v0.3.2 -y     ← 应走 rc → publish 流程
+   release publish -v cli/v0.3.2 -y         ← 跳过 rc 直接发正式版
 ```
 
 **工作纪律 5：测试与发布分离**
@@ -102,12 +94,12 @@ preflight 不通过不发布。
 每新增一条发布层面的拒绝规则，必须在三个层次各加一个测试：
 
 1. **单元/辅助函数层** — 验证拒绝逻辑本身正确
-2. **生产路径层**（`stage`/`publish` 直接调用） — 验证拒绝规则在真实流程中被执行
+2. **生产路径层**（`release publish` 直接调用） — 验证拒绝规则在真实流程中被执行
 3. **CLI 子进程层**（端到端） — 验证用户看到的错误消息正确
 
 测试方式：`.is_err()` + 检查错误消息关键字。只测 `.is_err()` 不检查消息会被视为不完整。
 
-反面案例（踩过的坑）：`precheck_version_changelog` 有独立单元测试，但 `stage`/`publish` 没有测试"缺少 CHANGELOG 时应当拒绝"这个场景，导致该规则虽然存在但从未被执行。
+反面案例（踩过的坑）：`precheck_version_changelog` 有独立单元测试，但 `publish` 没有测试"缺少 CHANGELOG 时应当拒绝"这个场景，导致该规则虽然存在但从未被执行。
 
 ### 重构原则
 
@@ -149,14 +141,29 @@ preflight 不通过不发布。
 src/
 ├── code/       # 业务层：纯抽象，不暴露 git 概念
 ├── git/        # 事实源底层：所有 git 操作
-└── release/    # 发布子领域：stage → publish
+├── release/    # 发布子领域：publish + status
+├── build.rs    # 构建状态查询
+├── test.rs     # 测试状态查询
+└── contract.rs # 契约适配层（委托 toolkit）
+```
+
+### `build` 命令
+
+```bash
+build status                        # 查看构建状态（CI 运行记录、版本一致性）
+```
+
+### `test` 命令
+
+```bash
+test status                         # 查看测试状态（通过数、覆盖率）
 ```
 
 ### `code` 命令
 
 ```bash
-code sync [name]                # 同步组件（封装 fetch + push + pointer update）
-code status [path] [--offline]  # 查看组件同步状态
+code sync [name]                    # 同步组件（封装 fetch + push + pointer update）
+code status [path] [--offline]      # 查看组件同步状态
 ```
 
 - `sync`：`name` 省略时同步全部
@@ -165,11 +172,12 @@ code status [path] [--offline]  # 查看组件同步状态
 ### `release` 命令
 
 ```bash
-release publish -v <version> [-y]  # 发布版本（-y 跳过确认）
+release publish -v <version> [-y] [--registry <target>]  # 发布版本
+release status                      # 查看发布状态（tag、CHANGELOG、GitHub Release）
 ```
 
 - 版本号格式：`vX.Y.Z` 或 `scope/vX.Y.Z`
-- `stage` 只用于预发布版本（含 `-rc.N`、`-alpha.N` 等后缀）
+- rc 版本（含 `-rc.N`、`-alpha.N` 等后缀）先发 rc，验证通过后发 stable
 - 回滚：`create_tag` 失败无副作用；`push_tag` 失败删本地 tag；GitHub Release 失败删本地+远程 tag
 
 ## CI 工作流
