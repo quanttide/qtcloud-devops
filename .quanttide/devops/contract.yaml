@@ -1,4 +1,4 @@
-# 项目结构与工具契约
+# qtcloud-devops 治理契约
 # 四维架构：Stages / Platforms / Sources / Scopes
 
 stages:
@@ -9,7 +9,6 @@ stages:
     threshold: 80
   release:
     changelog: CHANGELOG.md
-    pre_publish:
 
 platforms:
   source_control: github
@@ -23,7 +22,7 @@ sources:
 
 scopes:
   cli:
-    dir: .
+    dir: src/cli
     language: rust
     build_tool: cargo
     registry: crates
