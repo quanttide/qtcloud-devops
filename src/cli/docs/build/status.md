@@ -24,13 +24,17 @@ contract.yaml → Contract
                    └── stages.test.threshold   → 显示测试阈值
 ```
 
-## 每 scope 三路检查
+## 三路检查
 
-| 检查项 | 实现 | 说明 |
-|--------|------|------|
-| CI 状态 | `gh run list --workflow <scope> --limit 1` | 查最近一次 CI 结果；gh 未安装时标记 `⚠` |
-| 语法校验 | `cargo check` / `go vet` / `dart analyze` 等 | 按 `Language` 调对应命令 |
-| 版本一致 | `contract::version_status()` | tag 版本 vs 配置文件版本 |
+`build status` 不做本机构建。真正的构建由 CI 完成，`build status` 展示构建管线的整体状态——从三个维度覆盖：
+
+| 检查 | 功能 | 数据来源 | 回答的问题 |
+|------|------|---------|-----------|
+| **CI 状态** | 展示 CI 最近一次构建结果 | `gh run list` | "CI 上构建通过了吗？" |
+| **语法校验** | 本地快速检查能否编译 | `cargo check` / `uv check` 等 | "本地代码有语法/类型错误吗？" |
+| **版本一致** | tag 版本 vs 配置文件版本 | `contract::version_status()` | "待发布的版本号对齐了吗？" |
+
+三路检查回答了三个不同的问题，合在一起才是完整的"构建状态"。
 
 ### 语法校验命令表
 
@@ -67,6 +71,15 @@ contract.yaml → Contract
 
 ## 关键设计
 
+### 为什么不做本机构建
+
+| 理由 | 说明 |
+|------|------|
+| **CI 才是真相** | 本地编译通过不代表 CI 能过（环境差异、依赖版本）。CI 的构建结果才是门禁标准。 |
+| **耗时不对称** | `cargo check` 秒级，`cargo build` 分钟级。`status` 是只读诊断命令，不应让用户等。 |
+| **只读语义** | `status` 不修改文件系统。`cargo build` 会产生构建产物，`cargo check` 只读。 |
+| **各语言差异大** | Rust 有 `cargo check`，Go 有 `go vet`，但 Python/JS 没有等价的"编译但不产生产物"命令。强行统一为"构建"会破坏一致性。 |
+
 ### scope 复用 contract 模块
 
 根 scope（无 `contract.yaml`）和命名 scope 都走同一套 `contract::version_status()` + `contract::scope_release()` 接口，不重复实现。
@@ -76,11 +89,6 @@ contract.yaml → Contract
 - CI 状态查询失败（gh 未安装或无网络）：输出 `⚠ gh CLI 未安装`，不 panic
 - 语法校验命令不存在：输出 `⚠ {tool} 未安装`，不阻断
 - scope 目录不存在：输出 `⚠ 目录不存在`，跳过该 scope
-
-### 不做的
-
-- 不主动触发构建（CI 自动执行）
-- 不做全量编译（`cargo check` 而非 `cargo build`）
 
 ## 实现步骤
 
