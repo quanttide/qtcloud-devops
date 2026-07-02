@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## [0.7.0-beta.2] - 2026-07-02
+
+### Added
+
+- `build status` 版本检查：扫描 scope 下所有配置文件（Cargo.toml/pyproject.toml/package.json/pubspec.yaml）
+- `release publish` 发布前预检所有配置文件版本一致
+
+### Fixed
+
+- `version_status()` 不再只检查 scope.language 对应的单一文件
+
 ## [0.7.0-beta.1] - 2026-07-02
 
 ### Added
