@@ -1,13 +1,34 @@
 # CHANGELOG
 
-## [0.7.0-rc.2] - 2026-07-02
+## [0.7.0] - 2026-07-02
+
+### Added
+
+- `contract.rs` 全面委托 `quanttide-devops` toolkit v0.1.1
+  - 类型定义与 YAML 解析由 toolkit 统一管理
+  - 删除 ~160 行重复代码
+- `release/status.rs` 从 0% → 71% 行覆盖率
+  - 提取 `collect_latest_tags` 纯函数 + 7 个单元测试
+  - PATH mock 覆盖 `gh` 命令 + 3 个集成测试
+- 全局测试覆盖率 80.20%（+7pp）
+- 自举发布验证通过
+
+### Changed
+
+- `Registry` → `PublishTarget` 改名（消除与 toolkit 的命名冲突）
+- `release status` 不再过滤 prerelease tag
+  - 正确显示最新 tag（含 prerelease），而非最新稳定版
+- `release/util.rs` validate_version/normalize_version 委托到 toolkit
 
 ### Fixed
 
 - `release publish`: git add 使用 scope 相对路径而非裸文件名
-- `test status`: parse_test_summary 改为累加，正确显示 175 测试
+  - 修复 `src/cli/Cargo.toml` 等 scoped 文件无法被 git add 的问题
+- `test status`: parse_test_summary 改为累加而非覆盖
+  - 修复多条 `test result:` 行时最后一条 doc-test `0 passed` 覆盖前面计数的问题
+- `extract_json_version` 修复单行 JSON 解析 bug
 
-## [0.7.0-rc.1] - 2026-07-02
+## [0.7.0-rc.2] - 2026-07-02
 
 ### Changed
 
