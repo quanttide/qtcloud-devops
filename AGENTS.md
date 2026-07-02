@@ -32,6 +32,18 @@ AI 的 git 操作止步于 `commit && push`。tag、stage、publish 由人执行
    → 由人打 tag 或确认后 AI 执行 stage/publish
 ```
 
+**工作纪律 1.5：版本号同步**
+
+发版时 `Cargo.toml` 和 `pyproject.toml` 的 `version` 字段必须同步更新。`validate-version.sh` 脚本会同时校验两者，不一致时 CI 会失败。
+
+```bash
+# Cargo.toml
+version = "0.7.0-beta.1"
+
+# pyproject.toml（必须一致）
+version = "0.7.0-beta.1"
+```
+
 **工作纪律 2：发布前预验证**
 
 push 之前，运行预验证脚本：
