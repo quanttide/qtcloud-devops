@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::contract;
+
 pub fn status(repo_path: &Path) {
-    let scopes_map = read_contract_scopes(repo_path);
+    let scopes_map = load_scopes_map(repo_path);
     let latest_tags = get_latest_tags_by_scope(repo_path);
     let dirty = is_dirty(repo_path);
 
@@ -112,36 +114,14 @@ fn check_github_release(repo_path: &Path, tag: &str, scope_dir: &Path, _version:
     }
 }
 
-fn read_contract_scopes(repo_path: &Path) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    let content = std::fs::read_to_string(repo_path.join(".quanttide/devops/contract.yaml"))
-        .unwrap_or_default();
-    let mut in_scopes = false;
-    for line in content.lines() {
-        let t = line.trim();
-        if t == "scopes:" {
-            in_scopes = true;
-            continue;
-        }
-        if in_scopes {
-            if t.starts_with('#') || t.is_empty() {
-                continue;
-            }
-            if !t.starts_with('-') && t.contains(':') {
-                if let Some(idx) = t.find(':') {
-                    let key = t[..idx].trim().to_string();
-                    let val = t[idx + 1..].trim().to_string();
-                    if !key.is_empty() {
-                        map.insert(key, val);
-                    }
-                }
-            } else if !t.starts_with(' ') && !t.starts_with('-') {
-                break;
-            }
-        }
-    }
+/// 从契约加载 scope 列表，转为 (name → dir) 映射。
+fn load_scopes_map(repo_path: &Path) -> HashMap<String, String> {
+    let mut map: HashMap<String, String> = contract::load_scopes(repo_path)
+        .into_iter()
+        .map(|s| (s.name, s.dir))
+        .collect();
     if !map.contains_key("(root)") {
-        map.insert("(root)".to_string(), ".".to_string());
+        map.insert("(root)".to_string(), "".to_string());
     }
     map
 }

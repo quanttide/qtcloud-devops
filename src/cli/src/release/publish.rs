@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::util::{self, Registry};
+use crate::contract;
 
 /// 发布版本。
 ///
@@ -24,8 +25,8 @@ pub fn publish(
 
     let ver = util::normalize_version(version);
 
-    // 从 version 提取 scope 前缀，从 contract.yaml 获取子目录
-    let scope_dir = resolve_scope_dir(repo_path, version);
+    // 从 version 提取 scope 前缀，从契约获取子目录
+    let scope_dir = resolve_scope_dir(version, repo_path);
 
     // 自动更新配置文件版本（scope 子目录下）
     update_config_version(&scope_dir, &ver);
@@ -84,36 +85,27 @@ pub fn publish(
     Ok(())
 }
 
-/// 从 version 字符串提取 scope，查 contract.yaml 得到子目录。
-fn resolve_scope_dir(repo_path: &Path, version: &str) -> std::path::PathBuf {
+/// 从 version 字符串提取 scope，查契约得到子目录。
+fn resolve_scope_dir(version: &str, repo_path: &Path) -> std::path::PathBuf {
     // "cli/v0.6.0" → scope="cli", "v0.1.0" → scope="(root)"
-    let scope = if version.contains('/') {
+    let scope_name = if version.contains('/') {
         version.split('/').next().unwrap_or("")
     } else {
         "(root)"
     };
-    if scope == "(root)" || scope.is_empty() {
+    if scope_name == "(root)" || scope_name.is_empty() {
         return repo_path.to_path_buf();
     }
-    // 读 contract.yaml
-    if let Ok(content) = std::fs::read_to_string(repo_path.join(".quanttide/devops/contract.yaml"))
-    {
-        let search = format!("  {}:", scope);
-        for line in content.lines() {
-            let t = line.trim();
-            if let Some(rest) = t.strip_prefix(&format!("{}:", scope)) {
-                let rel = rest.trim();
-                if !rel.is_empty() && !rel.starts_with('#') {
-                    let d = repo_path.join(rel);
-                    if d.exists() {
-                        return d;
-                    }
-                }
-            }
+    // 从契约查找 scope
+    let scopes = contract::load_scopes(repo_path);
+    if let Some(s) = scopes.iter().find(|s| s.name == scope_name) {
+        let d = repo_path.join(&s.dir);
+        if d.exists() {
+            return d;
         }
     }
     // 回退：scope 名作为子目录
-    let d = repo_path.join(scope);
+    let d = repo_path.join(scope_name);
     if d.is_dir() {
         d
     } else {
