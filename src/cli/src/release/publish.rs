@@ -51,11 +51,13 @@ pub fn publish(
     for f in &["Cargo.toml", "pyproject.toml"] {
         let path = scope_dir.join(f);
         if path.exists() {
-            std::process::Command::new("git")
-                .args(["add", f])
-                .current_dir(repo_path)
-                .output()
-                .ok();
+            if let Ok(rel) = path.strip_prefix(repo_path) {
+                std::process::Command::new("git")
+                    .args(["add", rel.to_str().unwrap_or(f)])
+                    .current_dir(repo_path)
+                    .output()
+                    .ok();
+            }
         }
     }
 

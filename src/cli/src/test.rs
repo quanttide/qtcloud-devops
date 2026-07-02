@@ -178,9 +178,9 @@ fn parse_test_summary(content: &str) -> TestSummary {
                 let kind = words[words.len() - 1];
                 if let Ok(n) = words[words.len() - 2].parse::<u32>() {
                     match kind {
-                        "passed" => passed = n,
-                        "failed" => failed = n,
-                        "ignored" => skipped = n,
+                        "passed" => passed += n,
+                        "failed" => failed += n,
+                        "ignored" => skipped += n,
                         _ => {}
                     }
                 }
