@@ -13,58 +13,79 @@
 2. 写入 mock 脚本（sh script，echo 固定输出）
 3. chmod +x
 4. 前置到 PATH
-5. 执行被测试函数（调的是真实 Command::new，但找到的是 mock）
+5. 调用真实的库函数（Command::new("gh") 找到的是 mock）
 6. 恢复 PATH
 ```
 
-## 优缺点取舍
+## 优缺点
 
 - ✅ 零代码侵入（不引入 trait、泛型、DI、feature gate）
-- ✅ 测试执行真实的生产代码路径（`Command::new("gh")`）
-- ❌ 串行执行（mock 覆盖全局 PATH，不能并行）
-- ❌ 每场景一个脚本文件（boilerplate 但不复杂）
+- ✅ 测试执行真实的生产代码路径
+- ❌ 串行执行（mock 覆盖全局 PATH）
+- ❌ 每场景一个脚本文件
 
-串行 + boilerplate 可接受：编排层测试本来就少（每条命令几个场景），CLI 本身不要求并行测试。
+串行可接受：编排层测试数量少，CLI 不要求并行测试。
+
+## 实现
+
+文件：`tests/mock.rs`（单文件，Cargo 自动发现为集成测试）
+
+```rust
+/// 创建返回固定输出的 shell 脚本。
+fn mock_script(stdout: &str, stderr: &str, exit_code: i32) -> String
+
+/// 模拟"命令未安装"（exit 127）。
+fn mock_not_found() -> String
+
+/// 自定义 mock 脚本。
+fn mock_custom(body: &str) -> String
+
+/// 设置 mock PATH 并运行闭包。
+fn with_mock_env<F: FnOnce() -> R, R>(scripts: &[(&str, &str)], f: F) -> R
+
+/// 创建 mock git repo（git init + commit）。
+fn setup_repo() -> (TempDir, PathBuf)
+
+/// 创建 mock git repo + contract.yaml。
+fn setup_repo_with_contract() -> (TempDir, PathBuf)
+```
+
+## 已覆盖场景（15 个测试）
+
+### build status（9 个）
+
+| mock 命令 | 场景 | 验证 |
+|-----------|------|------|
+| gh | 未安装 | 不 panic |
+| gh | 空数组 | 不 panic |
+| gh | success | 不 panic |
+| gh | failure | 不 panic |
+| gh | cancelled | 不 panic |
+| gh | 未知结论 | 不 panic |
+| cargo | check 通过 | 不 panic |
+| cargo | check 失败 | 不 panic |
+| — | 无 manifest | 不 panic（不调 cargo） |
+
+### test status（3 个）
+
+| mock 命令 | 场景 | 验证 |
+|-----------|------|------|
+| — | 空目录 | 不 panic |
+| cargo | test 通过 | 不 panic |
+| cargo | test 失败 | 不 panic |
+
+### release status（3 个）
+
+| 场景 | 验证 |
+|------|------|
+| 有标签（真实 git） | 不 panic |
+| 无标签 | 不 panic |
+| 非 git 目录 | 不 panic |
 
 ## 需要 mock 的外部命令
 
-| 命令 | 所在模块 | 需要模拟的场景 |
-|------|---------|---------------|
-| `gh` | `build.rs` `release/status.rs` `release/util.rs` | 成功 / 失败 / 不存在 / 异常 JSON |
-| `cargo` | `build.rs` | check 通过 / check 失败 / 未安装 |
-| `git` | `build.rs` `release/status.rs` `release/util.rs` `release/changelog.rs` | status / tag / log / remote / init 各子命令 |
-| `gh release` | `release/util.rs` | create 成功 / 已存在 / 失败 |
-| `gh run` | `build.rs` | list 成功 / 空 / 不存在 |
-
-## 测试文件组织
-
-```
-tests/
-├── cli.rs           ← 端到端（已有）
-├── code.rs          ← code 模块集成（已有）
-├── release.rs       ← release 模块集成（已有）
-└── mock/            ← mock 测试（新增）
-    ├── mod.rs       ← with_mock_path 等共享工具
-    ├── build.rs     ← build status 各场景
-    ├── test.rs      ← test status 各场景
-    └── release.rs   ← release publish/status 各场景
-```
-
-## mock 工具函数
-
-在 `tests/mock/mod.rs` 中提供：
-
-```rust
-/// 创建一个返回固定 stdout 的 mock 脚本。
-fn mock_script(stdout: &str, stderr: &str, exit_code: i32) -> String
-
-/// 创建一个"command not found"的 mock（模拟命令未安装）。
-fn mock_not_found() -> String
-
-/// 在 mock 环境中运行闭包。
-/// 将 mock 脚本写入 temp dir 的 bin/，前置到 PATH，执行 f，恢复 PATH。
-fn with_mock_env(scripts: &[(&str, &str)], f: impl FnOnce(&Path))
-
-/// 为测试创建 mock git repo（简化 git_init + git_commit 的重复代码）。
-fn setup_git_repo() -> TempDir
-```
+| 命令 | 所在模块 | 已模拟场景 |
+|------|---------|-----------|
+| `gh` | `build.rs` | ✅ 6 场景 |
+| `cargo` | `build.rs` / `test.rs` | ✅ 4 场景 |
+| `git` | `release/status.rs` | 使用真实 git（子命令复杂） |
