@@ -43,9 +43,9 @@ pub fn status(repo_path: &Path, c: &contract::Contract) {
                 println!("  [{}]     ⚠ 目录不存在", scope.name);
                 continue;
             }
-            let lang = contract::resolve_language(scope, &scope_dir);
+            let lang = c.resolve_language(scope, &scope_dir);
             let summary = collect_test_summary(&scope_dir, &lang);
-            let threshold = contract::scope_test_threshold(c, scope);
+            let threshold = c.scope_test_threshold(scope);
             let coverage = collect_coverage(&scope_dir, &lang, threshold);
             print_scope(&scope.name, &summary, &coverage);
         }

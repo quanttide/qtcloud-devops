@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use qtcloud_devops_cli::code::{self, StatusReport};
-use qtcloud_devops_cli::release::Registry;
+use qtcloud_devops_cli::release::PublishTarget;
 use std::path::PathBuf;
 use std::process;
 
@@ -63,7 +63,7 @@ enum ReleaseAction {
         yes: bool,
         /// CI 发布目标（仅打印提示，不执行发布）
         #[arg(long, value_enum)]
-        registry: Option<Registry>,
+        registry: Option<PublishTarget>,
     },
     /// 查看发布状态：版本号、标签、CHANGELOG、工作区状态
     Status,

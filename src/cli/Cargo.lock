@@ -736,12 +736,13 @@ dependencies = [
 
 [[package]]
 name = "qtcloud-devops-cli"
-version = "0.7.0-beta.2"
+version = "0.7.0-beta.4"
 dependencies = [
  "clap",
  "git2",
  "pyo3",
  "quanttide-agent",
+ "quanttide-devops",
  "regex",
  "serde",
  "serde_json",
@@ -759,6 +760,14 @@ dependencies = [
  "serde",
  "serde_json",
  "ureq",
+]
+
+[[package]]
+name = "quanttide-devops"
+version = "0.1.1"
+dependencies = [
+ "serde",
+ "serde_yaml",
 ]
 
 [[package]]

@@ -2,22 +2,18 @@ use std::path::Path;
 use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum Registry {
+pub enum PublishTarget {
     PyPI,
     PubDev,
     Crates,
 }
 
 pub fn validate_version(version: &str) -> bool {
-    let re = regex::Regex::new(
-        r"^(v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?|[a-zA-Z0-9_.-]+/v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$",
-    ).unwrap();
-    re.is_match(version)
+    crate::contract::validate_version(version)
 }
 
 pub fn normalize_version(version: &str) -> String {
-    let s = version.strip_prefix('v').unwrap_or(version);
-    s.split("/v").last().unwrap_or(s).to_string()
+    crate::contract::normalize_version(version)
 }
 
 pub fn precheck_version_changelog(version: &str, changelog_path: &Path) -> Vec<String> {
@@ -219,26 +215,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_version_v_prefix() {
-        assert!(validate_version("v1.2.3"));
-    }
-    #[test]
-    fn test_validate_version_with_suffix() {
-        assert!(validate_version("v1.2.3-alpha.1"));
-        assert!(validate_version("v1.2.3-rc1"));
-    }
-    #[test]
-    fn test_validate_version_pkg() {
-        assert!(validate_version("pkg/v1.2.3"));
-        assert!(validate_version("cli/v0.1.0"));
-    }
-    #[test]
-    fn test_validate_version_invalid() {
-        assert!(!validate_version("1.2.3"));
-        assert!(!validate_version("v1.2"));
-        assert!(!validate_version("abc"));
-    }
-    #[test]
     fn test_parse_github_repo_https() {
         assert_eq!(
             parse_github_repo("https://github.com/owner/repo.git"),
@@ -318,48 +294,13 @@ mod tests {
             .any(|e| e.contains("格式错误")));
     }
     #[test]
-    fn test_registry_debug() {
-        assert_eq!(format!("{:?}", Registry::PyPI), "PyPI");
+    fn test_publish_target_debug() {
+        assert_eq!(format!("{:?}", PublishTarget::PyPI), "PyPI");
     }
+
     #[test]
-    fn test_registry_clone_eq() {
-        assert_eq!(Registry::PyPI, Registry::PyPI);
-    }
-    #[test]
-    fn test_normalize_version_v_prefix() {
-        assert_eq!(normalize_version("v1.2.3"), "1.2.3");
-    }
-    #[test]
-    fn test_normalize_version_pkg() {
-        assert_eq!(normalize_version("pkg/v1.2.3"), "1.2.3");
-    }
-    #[test]
-    fn test_normalize_version_no_prefix() {
-        assert_eq!(normalize_version("1.2.3"), "1.2.3");
-    }
-    #[test]
-    fn test_normalize_version_scoped() {
-        assert_eq!(normalize_version("cli/v0.3.2"), "0.3.2");
-    }
-    #[test]
-    fn test_validate_version_formal() {
-        assert!(validate_version("v1.0.0"));
-    }
-    #[test]
-    fn test_validate_version_prerelease() {
-        assert!(validate_version("v1.0.0-rc.1"));
-    }
-    #[test]
-    fn test_validate_version_no_v() {
-        assert!(!validate_version("1.0.0"));
-    }
-    #[test]
-    fn test_validate_version_empty() {
-        assert!(!validate_version(""));
-    }
-    #[test]
-    fn test_validate_version_scope_only() {
-        assert!(!validate_version("cli/"));
+    fn test_publish_target_clone_eq() {
+        assert_eq!(PublishTarget::PyPI, PublishTarget::PyPI);
     }
     #[test]
     fn test_get_remote_repo_no_git_repo() {

@@ -23,7 +23,7 @@ pub fn status(repo_path: &Path) {
             ci_workflow: None,
         };
         let vs = contract::version_status(repo_path, &root_scope);
-        let release = contract::scope_release(&c, &root_scope);
+        let release = c.scope_release(&root_scope);
         print_scope("(root)", repo_path, &lang, &vs, release, &c, None);
     } else {
         for scope in &c.scopes {
@@ -32,9 +32,9 @@ pub fn status(repo_path: &Path) {
                 println!("  [{}]     ⚠ 目录不存在: {}", scope.name, scope.dir);
                 continue;
             }
-            let lang = contract::resolve_language(scope, &scope_dir);
+            let lang = c.resolve_language(scope, &scope_dir);
             let vs = contract::version_status(repo_path, scope);
-            let release = contract::scope_release(&c, scope);
+            let release = c.scope_release(scope);
             print_scope(
                 &scope.name,
                 &scope_dir,
@@ -68,7 +68,7 @@ fn print_scope(
     c: &contract::Contract,
     ci_workflow: Option<&str>,
 ) {
-    println!("  [{:<12}] {}", name, lang.name());
+    println!("  [{:<12}] {}", name, lang.as_str());
     println!("    CI:         {}", check_ci(name, ci_workflow));
     println!("    build:      {}", check_syntax(lang, dir));
     match (&vs.tag_version, &vs.config_version) {
@@ -93,7 +93,7 @@ fn print_scope(
             (None, _) => println!("      {:<15} （未找到版本字段）", format!("{}:", fname)),
         }
     }
-    println!("    registry:   {}", c.platforms.artifact_registry.name());
+    println!("    registry:   {:?}", c.platform.artifact_registry);
     println!("    changelog:  {}", release.changelog);
 }
 

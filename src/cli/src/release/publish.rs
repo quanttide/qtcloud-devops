@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::util::{self, Registry};
+use super::util::{self, PublishTarget};
 use crate::contract;
 
 /// 发布版本。
@@ -17,7 +17,7 @@ pub fn publish(
     version: &str,
     repo_path: &Path,
     yes: bool,
-    registry: Option<Registry>,
+    registry: Option<PublishTarget>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !util::validate_version(version) {
         return Err(format!("版本号格式错误: {}", version).into());
