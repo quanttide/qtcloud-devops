@@ -1,4 +1,4 @@
-# Contract 模块开发蓝图
+# Contract 模块设计文档
 
 > 枚举命名约定：按**文件/工具/行为**命名，不按语言或运行时。
 > 例外：`BuildTool::Uv` 保留原名，因 `uv` 是其官方项目名，且用户群体已认知。
@@ -62,38 +62,18 @@ pub enum SourceType {
 
 所有枚举遵循**兜底原则**：`Unknown` / `None` 变体保证任何未知输入不会导致崩溃。
 
-## 设计记录
-
-将四维契约模型从实验室（`examples/default/src/contract.rs`）迁移到 CLI 产线（`apps/qtcloud-devops/src/cli/src/contract.rs`），替代当前散落在 `publish.rs` 和 `status.rs` 中的手写 YAML 解析。（`examples/default/src/contract.rs`）迁移到 CLI 产线（`apps/qtcloud-devops/src/cli/src/contract.rs`），替代当前散落在 `publish.rs` 和 `status.rs` 中的手写 YAML 解析。
-
 ## 现状
 
-当前 CLI 中 contract.yaml 的解析分散在多个文件，各有一套手写实现：
+`src/contract.rs` 已实现，20 个测试全部通过。四维契约模型已落地，替换了原来散落在 `publish.rs` 和 `status.rs` 中的手写 YAML 解析。
 
-| 文件 | 实现方式 | 问题 |
-|------|---------|------|
-| `release/publish.rs` | `resolve_scope_dir()` — 按行扫描 YAML | 只读 scope→dir 映射，不支持四维架构 |
-| `release/status.rs` | `read_contract_scopes()` — 手写状态机解析 | 同上，且解析逻辑冗余 |
-| `release/util.rs` | `get_latest_tag()` / `normalize_version()` | 分散在 util 中，应归入 contract 模块 |
+| 文件 | 旧实现（已删除） | 替换方式 |
+|------|-----------------|---------|
+| `release/publish.rs` | `resolve_scope_dir()` — 35 行按行扫描 YAML | `contract::load_scopes()` 查找 version 前缀对应 scope |
+| `release/status.rs` | `read_contract_scopes()` — 33 行手写状态机 | `contract::load_scopes()` → HashMap 转换 |
 
-**问题**：
-- 两个文件各有 30+ 行手写 YAML 解析，对新格式（四维架构）完全不兼容
-- scope 解析、语言检测、版本状态聚合三个职责散落各处
-- 新增 `build status` / `test status` 命令时无法复用
+**收益**：消灭 68 行重复 YAML 解析，消除 `unused variable` 警告，四维架构可供后续命令直接复用。
 
-## 目标状态
-
-新增 `src/contract.rs`，提供与实验室 `contract.rs` 一致的公共 API，所有命令通过它读取契约配置。
-
-### 依赖
-
-```toml
-[dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
-```
-
-### 核心结构
+## 核心结构
 
 ```rust
 pub struct Contract {
@@ -131,7 +111,7 @@ pub struct Scope {
 }
 ```
 
-### 公共 API
+## 公共 API
 
 ```rust
 // 加载
@@ -156,7 +136,7 @@ pub fn load_scopes(repo_path) -> Vec<Scope>
 pub fn detect_language(dir) -> Language
 ```
 
-### YAML 格式
+## YAML 格式
 
 新格式（完整四维架构）：
 
@@ -202,7 +182,7 @@ scopes:
   studio: src/studio
 ```
 
-### 两阶段解析
+## 两阶段解析
 
 ```
 YAML 文件
@@ -232,7 +212,7 @@ YAML 文件
 | 旧格式匹配成功 | `⚠ contract.yaml: 检测到旧格式，建议迁移到新格式` |
 | 全部失败 | `⚠ contract.yaml: 无法按任何格式解析，使用默认值` |
 
-### 版本一致性检查
+## 版本一致性检查
 
 ```rust
 pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionStatus
@@ -242,7 +222,7 @@ pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionStatus
 - **配置版本**：按语言读取配置文件中的 `version` 字段
 - **一致性**：两者都存在时比较；都为空视为一致；一个为空视为不一致
 
-### 覆盖语义（浅覆盖）
+## 覆盖语义（浅覆盖）
 
 Scope 级有值就用 scope 的，没有就用全局的。不是深度合并。
 
@@ -250,56 +230,28 @@ Scope 级有值就用 scope 的，没有就用全局的。不是深度合并。
 - `scope.test_threshold = None` → 使用 `stages.test.threshold`（默认 70.0）
 - `scope.release.changelog = "src/cli/CHANGELOG.md"` → 只覆盖 changelog，`pre_publish` 走全局
 
-## 迁移步骤
+## 依赖
 
-### 第一步：新建 `src/contract.rs`
-
-从实验室 `examples/default/src/contract.rs` 复制核心逻辑，调整路径引用。
-
-关键适配：
-- 实验室用的是 `crate::contract::` 自引用，CLI 中也是 `crate::contract::`
-- 实验室的 `Cargo.toml` 依赖已有 `serde` + `serde_yaml`，CLI 需要补上
-- 删除实验室特有的 `#[cfg(test)]` 中的 `tempfile` 依赖（CLI 已有）
-
-### 第二步：替换 `publish.rs` 中的 `resolve_scope_dir()`
-
-```rust
-// 旧
-let scope_dir = resolve_scope_dir(repo_path, version);
-
-// 新
-let c = contract::load(repo_path);
-let scopes = contract::load_scopes(repo_path); // 或直接从 c.scopes 取
-// 从 version 提取 scope 名，查对应的 dir
+```toml
+[dependencies]
+serde = { version = "1", features = ["derive"] }   # 已有
+serde_yaml = "0.9"                                   # 新建 contract 时新增
 ```
-
-### 第三步：替换 `status.rs` 中的 `read_contract_scopes()`
-
-```rust
-// 旧
-let scopes = read_contract_scopes(repo_path);
-
-// 新
-let scopes = contract::load_scopes(repo_path);
-```
-
-### 第四步：收尾
-
-- 删除 `publish.rs` 中的 `resolve_scope_dir()` 函数
-- 删除 `status.rs` 中的 `read_contract_scopes()` 函数
-- 确认 `get_latest_tag` 和 `normalize_version` 可迁移到 `contract.rs`（当前在 `util.rs`）
 
 ## 测试策略
 
-沿用实验室已验证的策略：
+共 20 个测试，覆盖：
 
-1. **单元测试**：通过构造 YAML 字符串验证 `parse()` 输出，不依赖真实文件系统
-2. **边缘测试**：Unknown 语言、缺失字段、RC 版本号、带 scope 前缀的 tag
-3. **集成测试**：覆盖 contract.yaml 缺失、新格式、旧格式三种场景
-4. **向下兼容**：确保旧格式 `scopes: { cli: src/cli }` 解析后 language 自动检测正确
+1. **新格式解析**：完整四维架构 YAML、最小 YAML
+2. **旧格式兼容**：`scopes: { cli: src/cli }`
+3. **文件缺失**：无 contract.yaml 时返回默认值
+4. **便捷函数**：`scope_test_threshold` 自定义/全局、`resolve_language` 声明优先
+5. **语言检测**：Rust（有 Cargo.toml）、Unknown（空目录）
+6. **版本号**：`v` 前缀、scope 前缀、RC 版本、scope+RC 混合
+7. **边缘测试**：Unknown 语言 YAML、路径匹配 4 场景（精确/子目录/回退/无匹配）
 
 ## 参考
 
-- 实验室实现：`examples/default/src/contract.rs`（41 测试，全部通过）
+- 实验室原型：`examples/default/src/contract.rs`（41 测试）
 - 设计文档：`examples/default/docs/contract.md`
 - 理论来源：`docs/essay/contract/index.md`
