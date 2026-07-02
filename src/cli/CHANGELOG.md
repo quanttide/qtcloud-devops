@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## [0.7.1] - 2026-07-02
+
+### Changed
+
+- 生产代码 `Command::new("git")` 全部替换为 git2 API
+  - `git tag` / `git rev-list` / `git log` / `git status` / `git remote` 共 11 处
+  - 新代码可被 llvm-cov 插桩追踪，不再被子进程屏蔽
+- test.yaml 契约格式适配 toolkit v0.1.3（`sources` 复数、枚举小写、scope 映射格式）
+
+### Added
+
+- 纯函数提取：`parse_gh_run_list` / `check_command` / `test_command` 等 6 个
+  - I/O 编排与逻辑分离，核心逻辑可单元测试
+- `extract_kv` / `extract_json_version` / `extract_kv_yaml` 单元测试（15 个）
+  - 发现并修复 `extract_json_version` 单行 JSON 返回 `None` 的 bug
+- PATH mock 编排层测试（21 个）
+  - `build status`: gh 6 场景（未安装/空/success/failure/cancelled/未知）+ cargo 2 场景
+  - `test status`: cargo 2 场景
+  - `release status`: 真实 git 3 场景 + gh release view 5 场景
+  - `release publish`: gh release create 3 场景
+- `contract.rs` version_status 错误回退测试（git 异常路径）
+- 测试覆盖率：
+  - llvm-cov 87.81% 行 / 90.75% 函数
+  - contract.rs 100% 覆盖
+
+### Fixed
+
+- `extract_json_version` 行首匹配改为搜索匹配，支持单行 JSON
+
 ## [0.7.0] - 2026-07-02
 
 ### Added
