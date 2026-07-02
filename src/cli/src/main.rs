@@ -22,11 +22,33 @@ enum Commands {
         #[command(subcommand)]
         action: CodeAction,
     },
+    /// 构建状态管理
+    Build {
+        #[command(subcommand)]
+        action: BuildAction,
+    },
+    /// 测试状态管理
+    Test {
+        #[command(subcommand)]
+        action: TestAction,
+    },
     /// 发布管理命令集
     Release {
         #[command(subcommand)]
         action: ReleaseAction,
     },
+}
+
+#[derive(Subcommand)]
+enum BuildAction {
+    /// 查看构建状态
+    Status,
+}
+
+#[derive(Subcommand)]
+enum TestAction {
+    /// 查看测试状态
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -101,6 +123,19 @@ fn main() {
 
     let result = match cli.command {
         Commands::Code { action } => run_code(action),
+        Commands::Build { action } => match action {
+            BuildAction::Status => {
+                qtcloud_devops_cli::build::status(&repo_path());
+                Ok(())
+            }
+        },
+        Commands::Test { action } => match action {
+            TestAction::Status => {
+                let c = qtcloud_devops_cli::contract::load(&repo_path());
+                qtcloud_devops_cli::test::status(&repo_path(), &c);
+                Ok(())
+            }
+        },
         Commands::Release { action } => match action {
             ReleaseAction::Publish {
                 version,
