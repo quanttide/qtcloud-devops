@@ -125,61 +125,6 @@ rc 版本用于 CI 验证，验证通过后发布 stable 版本。
 
 **10. 输出解析避免依赖特定定界符** — JSON 的 `number:36}]` 用 `split(',').next()` 取了 `36}]`，用 `take_while(is_ascii_digit)` 只取数字。解析外部输出时，用内容特征（数字/字母）而非定界符（逗号/括号）分割。
 
-## 提交消息
-
-- `feat:` — 新功能
-- `chore:` — 版本号变更、配置更新
-- `docs:` — 文档更新
-- `fix:` — 修 bug
-- `test:` — 测试
-
-## CLI 设计规则
-
-### 模块结构
-
-```
-src/
-├── code/       # 业务层：纯抽象，不暴露 git 概念
-├── git/        # 事实源底层：所有 git 操作
-├── release/    # 发布子领域：publish + status
-├── build.rs    # 构建状态查询
-├── test.rs     # 测试状态查询
-└── contract.rs # 契约适配层（委托 toolkit）
-```
-
-### `build` 命令
-
-```bash
-build status                        # 查看构建状态（CI 运行记录、版本一致性）
-```
-
-### `test` 命令
-
-```bash
-test status                         # 查看测试状态（通过数、覆盖率）
-```
-
-### `code` 命令
-
-```bash
-code sync [name]                    # 同步组件（封装 fetch + push + pointer update）
-code status [path] [--offline]      # 查看组件同步状态
-```
-
-- `sync`：`name` 省略时同步全部
-- `status`：路径默认为当前目录 `.`
-
-### `release` 命令
-
-```bash
-release publish -v <version> [-y] [--registry <target>]  # 发布版本
-release status                      # 查看发布状态（tag、CHANGELOG、GitHub Release）
-```
-
-- 版本号格式：`vX.Y.Z` 或 `scope/vX.Y.Z`
-- rc 版本（含 `-rc.N`、`-alpha.N` 等后缀）先发 rc，验证通过后发 stable
-- 回滚：`create_tag` 失败无副作用；`push_tag` 失败删本地 tag；GitHub Release 失败删本地+远程 tag
-
 ## CI 工作流
 
 | 工作流 | 触发 | 行为 |
