@@ -100,26 +100,65 @@ fn print_scope(name: &str, summary: &TestSummary, coverage: &Coverage) {
 
 /// 收集测试结果。
 ///
-/// 运行 cargo test 并解析输出。仅处理 Rust 项目。
+/// 按语言运行对应的测试命令，解析输出。
 fn collect_test_summary(dir: &Path, lang: &contract::Language) -> TestSummary {
-    match lang {
+    let result = match lang {
         contract::Language::Rust => {
             if !dir.join("Cargo.toml").exists() {
                 return TestSummary::default();
             }
-            let result = std::process::Command::new("cargo")
+            std::process::Command::new("cargo")
                 .args(["test"])
                 .current_dir(dir)
-                .output();
-            match result {
-                Ok(o) => {
-                    let output = String::from_utf8_lossy(&o.stdout);
-                    parse_test_summary(&output)
-                }
-                Err(_) => TestSummary::default(),
-            }
+                .output()
         }
-        _ => TestSummary::default(),
+        contract::Language::Python => {
+            if !dir.join("pyproject.toml").exists() {
+                return TestSummary::default();
+            }
+            std::process::Command::new("python")
+                .args(["-m", "pytest"])
+                .current_dir(dir)
+                .output()
+        }
+        contract::Language::Go => {
+            if !dir.join("go.mod").exists() {
+                return TestSummary::default();
+            }
+            std::process::Command::new("go")
+                .args(["test", "./..."])
+                .current_dir(dir)
+                .output()
+        }
+        contract::Language::Dart => {
+            if !dir.join("pubspec.yaml").exists() {
+                return TestSummary::default();
+            }
+            std::process::Command::new("flutter")
+                .args(["test"])
+                .current_dir(dir)
+                .output()
+        }
+        contract::Language::TypeScript => {
+            if !dir.join("package.json").exists() {
+                return TestSummary::default();
+            }
+            std::process::Command::new("npm")
+                .args(["test"])
+                .current_dir(dir)
+                .output()
+        }
+        contract::Language::Unknown(_) => return TestSummary::default(),
+    };
+    match result {
+        Ok(o) => {
+            let output = String::from_utf8_lossy(&o.stdout);
+            let errors = String::from_utf8_lossy(&o.stderr);
+            // Rust 的输出在 stdout，pytest 的输出在 stderr
+            let combined = format!("{}{}", output, errors);
+            parse_test_summary(&combined)
+        }
+        Err(_) => TestSummary::default(),
     }
 }
 
@@ -158,33 +197,42 @@ fn parse_test_summary(content: &str) -> TestSummary {
 }
 
 /// 收集覆盖率数据。
+///
+/// 按语言读取对应的覆盖率报告。
 fn collect_coverage(dir: &Path, lang: &contract::Language, threshold: f64) -> Coverage {
-    match lang {
-        contract::Language::Rust => {
-            let paths = [
-                dir.join("target/coverage/lcov.info"),
-                dir.join("coverage/lcov.info"),
-            ];
-            for path in &paths {
-                if path.exists() {
-                    let content = std::fs::read_to_string(path).unwrap_or_default();
-                    if let Some(pct) = parse_lcov_coverage(&content) {
-                        return Coverage {
-                            percentage: pct,
-                            threshold,
-                        };
-                    }
-                }
-            }
-            Coverage {
+    let paths: &[std::path::PathBuf] = match lang {
+        contract::Language::Rust => &[
+            dir.join("target/coverage/lcov.info"),
+            dir.join("coverage/lcov.info"),
+        ],
+        contract::Language::Python => &[dir.join("coverage.xml"), dir.join("htmlcov/coverage.xml")],
+        _ => {
+            return Coverage {
                 percentage: 0.0,
                 threshold,
             }
         }
-        _ => Coverage {
-            percentage: 0.0,
-            threshold,
-        },
+    };
+    for path in paths {
+        if path.exists() {
+            let content = std::fs::read_to_string(path).unwrap_or_default();
+            if let Some(pct) = parse_lcov_coverage(&content) {
+                return Coverage {
+                    percentage: pct,
+                    threshold,
+                };
+            }
+            if let Some(pct) = parse_cobertura_coverage(&content) {
+                return Coverage {
+                    percentage: pct,
+                    threshold,
+                };
+            }
+        }
+    }
+    Coverage {
+        percentage: 0.0,
+        threshold,
     }
 }
 
@@ -220,6 +268,22 @@ fn parse_lcov_coverage(content: &str) -> Option<f64> {
     } else {
         Some((hit_lines as f64 / total_lines as f64) * 100.0)
     }
+}
+
+/// 从 Cobertura XML 解析覆盖率百分比。
+///
+/// 格式：<coverage line-rate="0.85" ...>
+fn parse_cobertura_coverage(content: &str) -> Option<f64> {
+    for line in content.lines() {
+        if let Some(rest) = line.trim().strip_prefix("<coverage") {
+            if let Some(attr) = rest.split("line-rate=\"").nth(1) {
+                let val_str = attr.split('"').next()?;
+                let rate: f64 = val_str.parse().ok()?;
+                return Some(rate * 100.0);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -265,6 +329,13 @@ mod tests {
             threshold: 70.0,
         };
         assert!(c.met());
+    }
+
+    #[test]
+    fn test_parse_cobertura_simple() {
+        let content = r#"<coverage line-rate="0.85"></coverage>"#;
+        let pct = parse_cobertura_coverage(content).unwrap();
+        assert!((pct - 85.0).abs() < 0.01);
     }
 
     #[test]

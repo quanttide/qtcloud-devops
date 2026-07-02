@@ -70,7 +70,7 @@ fn print_scope(
 ) {
     println!("  [{:<12}] {}", name, lang.name());
     println!("    CI:         {}", check_ci(name, ci_workflow));
-    println!("    syntax:     {}", check_syntax(lang, dir));
+    println!("    build:      {}", check_syntax(lang, dir));
     match (&vs.tag_version, &vs.config_version) {
         (Some(t), Some(cv)) if t == cv => println!("    version:    ✅ {}（一致）", t),
         (Some(t), Some(cv)) => println!("    version:    ⚠ tag {} ≠ 配置 {}", t, cv),
@@ -179,7 +179,7 @@ fn check_syntax(lang: &contract::Language, dir: &Path) -> String {
                 "tsc --noEmit",
             )
         }
-        contract::Language::Unknown(_) => return "⚠ 语言未知，跳过语法校验".into(),
+        contract::Language::Unknown(_) => return "⚠ 语言未知，跳过".into(),
     };
     match std::process::Command::new(&cmd)
         .args(&args)
