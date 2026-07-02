@@ -284,3 +284,202 @@ fn test_release_status_non_git_dir() {
     let d = tempfile::tempdir().unwrap();
     qtcloud_devops_cli::release::status(d.path());
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// release util: create_release
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_create_release_success() {
+    let gh_ok = mock_custom("exit 0");
+    with_mock_env(&[("gh", &gh_ok)], || {
+        qtcloud_devops_cli::release::create_release(
+                    "v1.0.0",
+                    "notes",
+                    "owner/repo"
+                ));
+    });
+}
+
+#[test]
+fn test_create_release_gh_not_found() {
+    with_mock_env(&[("gh", &mock_not_found())], || {
+        qtcloud_devops_cli::release::create_release(
+                    "v1.0.0", "", "no/repo"
+                ));
+    });
+}
+
+#[test]
+fn test_create_release_already_exists() {
+    let exists = mock_custom("echo 'already exists' >&2; exit 1");
+    with_mock_env(&[("gh", &exists)], || {
+        assert!(qtcloud_devops_cli::release::util::create_release(
+            "v1.0.0", "", "o/r"
+        ));
+    });
+}
+
+#[test]
+fn test_create_release_other_error() {
+    let fail = mock_custom("echo 'unexpected' >&2; exit 1");
+    with_mock_env(&[("gh", &fail)], || {
+        assert!(!qtcloud_devops_cli::release::util::create_release(
+            "v1.0.0", "", "o/r"
+        ));
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// release status: check_github_release
+// ═══════════════════════════════════════════════════════════════════════
+
+/// gh release view 返回 body 且与 CHANGELOG 一致。
+#[test]
+fn test_release_status_gh_view_matches() {
+    let (_d, path) = setup_repo_with_contract();
+    Command::new("git")
+        .args(["tag", "v1.0.0"])
+        .current_dir(&path)
+        .output()
+        .unwrap();
+    std::fs::write(
+        path.join("CHANGELOG.md"),
+        "# CHANGELOG\n\n## [1.0.0]\n\ncontent\n",
+    )
+    .unwrap();
+    Command::new("git")
+        .args([
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/owner/repo.git",
+        ])
+        .current_dir(&path)
+        .output()
+        .unwrap();
+    // gh release view <tag> --repo <repo> --json body --jq .body 输出 body 内容
+    let gh = mock_custom(r#"case "$1/$2" in release/view) echo "content";; *) exit 1;; esac"#);
+    with_mock_env(&[("gh", &gh)], || {
+        qtcloud_devops_cli::release::status(&path);
+    });
+}
+
+/// gh release view 返回空 body。
+#[test]
+fn test_release_status_gh_view_empty_body() {
+    let (_d, path) = setup_repo_with_contract();
+    Command::new("git")
+        .args(["tag", "v1.0.0"])
+        .current_dir(&path)
+        .output()
+        .unwrap();
+    std::fs::write(
+        path.join("CHANGELOG.md"),
+        "# CHANGELOG\n\n## [1.0.0]\n\ncontent\n",
+    )
+    .unwrap();
+    Command::new("git")
+        .args([
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/owner/repo.git",
+        ])
+        .current_dir(&path)
+        .output()
+        .unwrap();
+    let gh = mock_custom(r#"case "$1/$2" in release/view) echo "";; *) exit 1;; esac"#);
+    with_mock_env(&[("gh", &gh)], || {
+        qtcloud_devops_cli::release::status(&path);
+    });
+}
+
+/// gh CLI 不存在。
+#[test]
+fn test_release_status_gh_not_found() {
+    let (_d, path) = setup_repo_with_contract();
+    Command::new("git")
+        .args(["tag", "v1.0.0"])
+        .current_dir(&path)
+        .output()
+        .unwrap();
+    std::fs::write(
+        path.join("CHANGELOG.md"),
+        "# CHANGELOG\n\n## [1.0.0]\n\ncontent\n",
+    )
+    .unwrap();
+    Command::new("git")
+        .args([
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/owner/repo.git",
+        ])
+        .current_dir(&path)
+        .output()
+        .unwrap();
+    with_mock_env(&[("gh", &mock_not_found())], || {
+        qtcloud_devops_cli::release::status(&path);
+    });
+}
+
+/// gh release view 返回不同步的 body。
+#[test]
+fn test_release_status_gh_view_different() {
+    let (_d, path) = setup_repo_with_contract();
+    Command::new("git")
+        .args(["tag", "v1.0.0"])
+        .current_dir(&path)
+        .output()
+        .unwrap();
+    std::fs::write(
+        path.join("CHANGELOG.md"),
+        "# CHANGELOG\n\n## [1.0.0]\n\n原始内容\n",
+    )
+    .unwrap();
+    Command::new("git")
+        .args([
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/owner/repo.git",
+        ])
+        .current_dir(&path)
+        .output()
+        .unwrap();
+    let gh = mock_custom(r#"case "$1/$2" in release/view) echo "不同步的body";; *) exit 1;; esac"#);
+    with_mock_env(&[("gh", &gh)], || {
+        qtcloud_devops_cli::release::status(&path);
+    });
+}
+
+/// CHANGELOG 无此版本条目。
+#[test]
+fn test_release_status_gh_view_no_changelog_entry() {
+    let (_d, path) = setup_repo_with_contract();
+    Command::new("git")
+        .args(["tag", "v2.0.0"])
+        .current_dir(&path)
+        .output()
+        .unwrap();
+    std::fs::write(
+        path.join("CHANGELOG.md"),
+        "# CHANGELOG\n\n## [1.0.0]\n\ncontent\n",
+    )
+    .unwrap();
+    Command::new("git")
+        .args([
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/owner/repo.git",
+        ])
+        .current_dir(&path)
+        .output()
+        .unwrap();
+    let gh = mock_custom(r#"case "$1/$2" in release/view) echo "release body";; *) exit 1;; esac"#);
+    with_mock_env(&[("gh", &gh)], || {
+        qtcloud_devops_cli::release::status(&path);
+    });
+}
