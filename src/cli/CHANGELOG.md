@@ -1,12 +1,13 @@
 # CHANGELOG
 
-## [0.7.0-rc.1] - 2026-07-02
+## [0.7.0-rc.2] - 2026-07-02
 
 ### Fixed
 
-- `release status` 不再过滤 prerelease tag，正确显示最新 tag
+- `release publish`: git add 使用 scope 相对路径而非裸文件名
+- `test status`: parse_test_summary 改为累加，正确显示 175 测试
 
-## [0.7.0-beta.6] - 2026-07-02
+## [0.7.0-rc.1] - 2026-07-02
 
 ### Changed
 
