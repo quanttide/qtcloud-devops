@@ -54,7 +54,7 @@ pub enum SourceType {
     Cargo,             // 从 Cargo.toml 的 version 字段读取
     Pyproject,         // 从 pyproject.toml 的 version 字段读取（PEP 621）
     TagOnly,           // 不从配置文件读版本，只从 git tag 读取（如 Go 项目）
-    Dart,              // 从 pubspec.yaml 的 version 字段读取
+    Pubspec,           // 从 pubspec.yaml 的 version 字段读取（Dart/Flutter）
     PackageJson,       // 从 package.json 的 version 字段读取
     Auto,              // 自动检测（默认值）
 }
