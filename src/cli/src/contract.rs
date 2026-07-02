@@ -75,23 +75,21 @@ pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionStatus {
 }
 
 fn latest_tag_for_scope(repo_path: &Path, scope_name: &str) -> Option<String> {
-    let output = std::process::Command::new("git")
-        .args(["tag", "--sort=-version:refname"])
-        .current_dir(repo_path)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
+    let repo = git2::Repository::open(repo_path).ok()?;
+    let tag_names = repo.tag_names(None).ok()?;
+    let mut tags: Vec<&str> = tag_names.iter().flatten().collect();
+    // ponytail: string reverse-sort 近似 git tag --sort=-version:refname。
+    // v10.0.0 vs v9.0.0 会排错，遇到时升级为 semver 比较。
+    tags.sort_by(|a, b| b.cmp(a));
+
     let prefix = format!("{}/", scope_name);
-    let tags: Vec<&str> = std::str::from_utf8(&output.stdout)
-        .ok()?
-        .lines()
+    let filtered: Vec<&&str> = tags
+        .iter()
         .filter(|t| t.starts_with(&prefix) || !t.contains('/'))
         .collect();
-    let scoped = tags.iter().find(|t| t.starts_with(&prefix));
+    let scoped = filtered.iter().find(|t| t.starts_with(&prefix));
     match scoped {
         Some(t) => Some(normalize_version(t)),
-        None => tags.first().map(|t| normalize_version(t)),
+        None => filtered.first().map(|t| normalize_version(t)),
     }
 }

@@ -4,41 +4,53 @@ use quanttide_agent::{llm::CompleteOptions, Message, Settings, LLM};
 
 /// 收集上个 tag 到当前 HEAD 之间的 git 提交记录。
 pub fn collect_git_log(repo_path: &Path) -> Result<String, String> {
-    let last_tag = get_latest_tag(repo_path);
-    let range = match &last_tag {
-        Some(tag) => format!("{}..HEAD", tag),
-        None => "--all".to_string(),
-    };
-    let output = std::process::Command::new("git")
-        .args(["log", "--oneline", "--no-decorate", &range])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| format!("git log 执行失败: {}", e))?;
-    if !output.status.success() {
-        return Err("git log 返回非零退出码".into());
+    let repo = git2::Repository::open(repo_path).map_err(|e| format!("打开仓库失败: {}", e))?;
+    let head_oid = repo
+        .head()
+        .and_then(|h| {
+            h.target()
+                .ok_or_else(|| git2::Error::from_str("HEAD 无目标"))
+        })
+        .map_err(|_| "无法获取 HEAD".to_string())?;
+
+    let mut revwalk = repo
+        .revwalk()
+        .map_err(|e| format!("创建 revwalk 失败: {}", e))?;
+    revwalk.push(head_oid).ok();
+
+    // 有 tag 时隐藏 tag 之前的提交，无 tag 时步行所有（等价 --all）
+    if let Some(tag) = get_latest_tag(repo_path) {
+        if let Ok(r) = repo.find_reference(&format!("refs/tags/{}", tag)) {
+            if let Some(oid) = r.target() {
+                revwalk.hide(oid).ok();
+            }
+        }
     }
-    let log = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if log.is_empty() {
+
+    let mut log_lines: Vec<String> = Vec::new();
+    for oid in revwalk {
+        let oid = oid.map_err(|_| "revwalk 迭代失败".to_string())?;
+        let commit = repo
+            .find_commit(oid)
+            .map_err(|_| "找不到 commit".to_string())?;
+        let short = &oid.to_string()[..7];
+        let summary = commit.summary().unwrap_or("").to_string();
+        log_lines.push(format!("{} {}", short, summary));
+    }
+
+    if log_lines.is_empty() {
         return Err("没有新的提交记录".into());
     }
-    Ok(log)
+    Ok(log_lines.join("\n"))
 }
 
-/// 获取仓库中最新版本 tag（按版本排序取最后一个）。
+/// 获取仓库中最新版本 tag（按版本排序取第一个）。
 fn get_latest_tag(repo_path: &Path) -> Option<String> {
-    let output = std::process::Command::new("git")
-        .args(["tag", "--sort=-version:refname"])
-        .current_dir(repo_path)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    std::str::from_utf8(&output.stdout)
-        .ok()?
-        .lines()
-        .next()
-        .map(|s| s.to_string())
+    let repo = git2::Repository::open(repo_path).ok()?;
+    let tag_names = repo.tag_names(None).ok()?;
+    let mut tags: Vec<&str> = tag_names.iter().flatten().collect();
+    tags.sort_by(|a, b| b.cmp(a));
+    tags.first().map(|s| s.to_string())
 }
 
 /// 调用 LLM 生成 CHANGELOG 条目。

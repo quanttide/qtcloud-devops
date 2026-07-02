@@ -49,7 +49,6 @@ pub fn extract_notes(version: &str, changelog_path: &Path) -> Option<String> {
         }
         if capture {
             if line.starts_with("## [") {
-                // 同版本重复头部（LLM 混入）跳过，不同版本停止
                 if line.contains(&ver) || line.contains(&format!("v{}", ver)) {
                     continue;
                 }
@@ -86,25 +85,27 @@ pub fn confirm_release(version: &str, yes: bool) -> bool {
     input.trim().to_lowercase() == "y" || input.trim().to_lowercase() == "yes"
 }
 
-fn git_args(args: &[&str], repo_path: &Path) -> Command {
-    let mut cmd = Command::new("git");
-    cmd.arg("-C");
-    cmd.arg(repo_path);
-    cmd.args(args);
-    cmd
-}
-
+/// 用 git2 创建轻量 tag（等价于 `git tag <version>`）。
 pub fn create_tag(version: &str, repo_path: &Path) -> bool {
-    match git_args(&["tag", version], repo_path).output() {
-        Ok(out) if out.status.success() => true,
-        Ok(out) => {
-            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            if msg.contains("already exists") || msg.contains("已存在") {
-                return true;
-            }
-            eprintln!("创建标签失败: {}", msg);
-            false
+    let repo = match git2::Repository::open(repo_path) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("打开仓库失败: {}", e);
+            return false;
         }
+    };
+    let refname = format!("refs/tags/{}", version);
+    // 已存在则视为成功（幂等）
+    if repo.find_reference(&refname).is_ok() {
+        return true;
+    }
+    let target = match repo.head().ok().and_then(|h| h.target()) {
+        Some(t) => t,
+        None => return false,
+    };
+    let result = repo.reference(&refname, target, false, "");
+    match result {
+        Ok(_) => true,
         Err(e) => {
             eprintln!("创建标签失败: {}", e);
             false
@@ -112,8 +113,18 @@ pub fn create_tag(version: &str, repo_path: &Path) -> bool {
     }
 }
 
+/// 推送 tag 到远程（保持 CLI，需要网络）。
 pub fn push_tag(version: &str, repo_path: &Path) -> bool {
-    match git_args(&["push", "origin", version], repo_path).output() {
+    let out = Command::new("git")
+        .args([
+            "-C",
+            &repo_path.to_string_lossy(),
+            "push",
+            "origin",
+            version,
+        ])
+        .output();
+    match out {
         Ok(out) if out.status.success() => true,
         Ok(out) => {
             let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -130,14 +141,12 @@ pub fn push_tag(version: &str, repo_path: &Path) -> bool {
     }
 }
 
+/// 查询 remote origin 的 GitHub 仓库标识。
 pub fn get_remote_repo(repo_path: &Path) -> Option<String> {
-    let result = git_args(&["remote", "get-url", "origin"], repo_path)
-        .output()
-        .ok()?;
-    if !result.status.success() {
-        return None;
-    }
-    parse_github_repo(&String::from_utf8_lossy(&result.stdout).trim())
+    let repo = git2::Repository::open(repo_path).ok()?;
+    let remote = repo.find_remote("origin").ok()?;
+    let url = remote.url()?;
+    parse_github_repo(url)
 }
 
 pub fn parse_github_repo(url: &str) -> Option<String> {
@@ -169,9 +178,25 @@ pub fn create_release(version: &str, notes: &str, repo: &str) -> bool {
     }
 }
 
+/// 回滚 tag：本地删除用 git2，远程删除用 CLI。
 pub fn rollback_tag(version: &str, repo_path: &Path) {
-    git_args(&["tag", "-d", version], repo_path).output().ok();
-    git_args(&["push", "origin", "--delete", version], repo_path)
+    // 本地删除
+    if let Ok(repo) = git2::Repository::open(repo_path) {
+        let refname = format!("refs/tags/{}", version);
+        if let Ok(mut reference) = repo.find_reference(&refname) {
+            let _ = reference.delete();
+        }
+    }
+    // 远程删除
+    Command::new("git")
+        .args([
+            "-C",
+            &repo_path.to_string_lossy(),
+            "push",
+            "origin",
+            "--delete",
+            version,
+        ])
         .output()
         .ok();
     println!("↻ 标签 {} 已回滚", version);
@@ -247,7 +272,6 @@ mod tests {
     #[test]
     fn test_extract_notes_filters_header_lines() {
         let d = tempfile::tempdir().unwrap();
-        // 模拟 LLM 产物中混入版本头部行
         std::fs::write(
             d.path().join("C.md"),
             "## [1.0.0] - 2026-06-26\n\n\

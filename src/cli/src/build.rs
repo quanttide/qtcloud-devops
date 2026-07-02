@@ -252,14 +252,11 @@ fn check_syntax(lang: &contract::Language, dir: &Path) -> String {
 }
 
 fn is_working_tree_dirty(repo_path: &Path) -> bool {
-    match std::process::Command::new("git")
-        .args(["status", "--porcelain"])
-        .current_dir(repo_path)
-        .output()
-    {
-        Ok(o) => !o.stdout.is_empty(),
-        Err(_) => false,
-    }
+    let repo = match git2::Repository::open(repo_path) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    repo.statuses(None).map_or(false, |s| !s.is_empty())
 }
 
 #[cfg(test)]

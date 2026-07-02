@@ -127,24 +127,17 @@ fn load_scopes_map(repo_path: &Path) -> HashMap<String, String> {
 }
 
 fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
-    let out = std::process::Command::new("git")
-        .args([
-            "-C",
-            &repo_path.to_string_lossy(),
-            "tag",
-            "--sort=-version:refname",
-        ])
-        .output()
-        .ok();
-    let out = match out {
-        Some(o) if o.status.success() => o,
-        _ => return vec![],
+    let repo = match git2::Repository::open(repo_path) {
+        Ok(r) => r,
+        Err(_) => return vec![],
     };
-    let all: Vec<&str> = std::str::from_utf8(&out.stdout)
-        .unwrap_or("")
-        .lines()
-        .collect();
-    collect_latest_tags(&all)
+    let tag_names = match repo.tag_names(None) {
+        Ok(t) => t,
+        Err(_) => return vec![],
+    };
+    let mut tags: Vec<&str> = tag_names.iter().flatten().collect();
+    tags.sort_by(|a, b| b.cmp(a));
+    collect_latest_tags(&tags)
 }
 
 pub fn collect_latest_tags(tags: &[&str]) -> Vec<(String, String)> {
@@ -163,68 +156,57 @@ pub fn collect_latest_tags(tags: &[&str]) -> Vec<(String, String)> {
 }
 
 fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usize {
-    let range = format!("{}..HEAD", tag);
+    let repo = match git2::Repository::open(repo_path) {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    let tag_ref = format!("refs/tags/{}", tag);
+    let tag_oid = match repo.find_reference(&tag_ref).ok().and_then(|r| r.target()) {
+        Some(t) => t,
+        None => return 0,
+    };
+    let head_oid = match repo.head().ok().and_then(|h| h.target()) {
+        Some(t) => t,
+        None => return 0,
+    };
+    let mut revwalk = match repo.revwalk() {
+        Ok(w) => w,
+        Err(_) => return 0,
+    };
+    if revwalk.push(head_oid).is_err() || revwalk.hide(tag_oid).is_err() {
+        return 0;
+    }
     if scope_dir == repo_path {
-        let out = std::process::Command::new("git")
-            .args([
-                "-C",
-                &repo_path.to_string_lossy(),
-                "rev-list",
-                "--count",
-                &range,
-            ])
-            .output()
-            .ok();
-        return match out {
-            Some(o) if o.status.success() => std::str::from_utf8(&o.stdout)
-                .unwrap_or("0")
-                .trim()
-                .parse()
-                .unwrap_or(0),
-            _ => 0,
-        };
+        return revwalk.count();
     }
     let rel = scope_dir.strip_prefix(repo_path).unwrap_or(scope_dir);
     let rel_str = rel.to_string_lossy().trim_start_matches('/').to_string();
-    let out = std::process::Command::new("git")
-        .args([
-            "-C",
-            &repo_path.to_string_lossy(),
-            "rev-list",
-            "--count",
-            &range,
-            "--",
-            &rel_str,
-        ])
-        .output()
-        .ok();
-    match out {
-        Some(o) if o.status.success() => std::str::from_utf8(&o.stdout)
-            .unwrap_or("0")
-            .trim()
-            .parse()
-            .unwrap_or(0),
-        _ => 0,
-    }
+    revwalk
+        .filter_map(|oid| oid.ok())
+        .filter(|oid| {
+            if let Ok(commit) = repo.find_commit(*oid) {
+                if let Ok(tree) = commit.tree() {
+                    tree.iter().any(|entry| {
+                        entry.name().map_or(false, |n| {
+                            n == &rel_str || n.starts_with(&format!("{}/", rel_str))
+                        })
+                    })
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        })
+        .count()
 }
 
 fn get_github_repo(repo_path: &Path) -> Option<String> {
-    let out = std::process::Command::new("git")
-        .args([
-            "-C",
-            &repo_path.to_string_lossy(),
-            "remote",
-            "get-url",
-            "origin",
-        ])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let url = std::str::from_utf8(&out.stdout).ok()?.trim().to_string();
+    let repo = git2::Repository::open(repo_path).ok()?;
+    let remote = repo.find_remote("origin").ok()?;
+    let url = remote.url()?;
     let re = regex::Regex::new(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?$").ok()?;
-    let caps = re.captures(&url)?;
+    let caps = re.captures(url)?;
     Some(caps.get(1)?.as_str().to_string())
 }
 
@@ -396,14 +378,11 @@ fn check_changelog(repo_path: &Path, version: &str) -> bool {
 }
 
 fn is_dirty(repo_path: &Path) -> bool {
-    let out = std::process::Command::new("git")
-        .args(["-C", &repo_path.to_string_lossy(), "status", "--porcelain"])
-        .output()
-        .ok();
-    match out {
-        Some(o) => !o.stdout.is_empty(),
-        None => false,
-    }
+    let repo = match git2::Repository::open(repo_path) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    repo.statuses(None).map_or(false, |s| !s.is_empty())
 }
 
 #[cfg(test)]
