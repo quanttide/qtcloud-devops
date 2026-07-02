@@ -59,6 +59,13 @@ apps/qtcloud-devops/src/cli/     ← Python CLI
 - 导入名: `app.*`
 - 仓库 tag 前缀: `cli/`
 
+## CI 工作流
+
+| 工作流 | 触发 | 行为 |
+|--------|------|------|
+| `build-cli` | `release: [published]` + tag `cli/*` | 版本校验 → 三平台构建 → wheel 构建 |
+| `publish-cli` | `workflow_run` (build-cli 成功) | publish-crate + publish-pypi（独立 job） |
+
 ## 测试
 
 ```sh
