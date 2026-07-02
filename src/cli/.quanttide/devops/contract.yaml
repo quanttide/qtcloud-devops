@@ -1,4 +1,29 @@
 # 项目结构与工具契约
-# 定义作用域（tag 前缀）到子目录的映射，供 release status / publish 使用
+# 四维架构：Stages / Platforms / Sources / Scopes
+
+stages:
+  build:
+    command: cargo build --release
+  test:
+    command: cargo test
+    threshold: 80
+  release:
+    changelog: CHANGELOG.md
+    pre_publish:
+
+platforms:
+  source_control: github
+  ci: github_actions
+  artifact_registry: crates
+
+sources:
+  version:
+    type: cargo
+    path: Cargo.toml
+
 scopes:
-  cli: .
+  cli:
+    dir: .
+    language: rust
+    build_tool: cargo
+    registry: crates
