@@ -286,48 +286,37 @@ fn test_release_status_non_git_dir() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// release util: create_release
+// release util: create_release（合并为一个测试避免 PATH 并行冲突）
 // ═══════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_create_release_success() {
-    let gh_ok = mock_custom("exit 0");
-    with_mock_env(&[("gh", &gh_ok)], || {
-        qtcloud_devops_cli::release::create_release(
-                    "v1.0.0",
-                    "notes",
-                    "owner/repo"
-                ));
-    });
-}
-
-#[test]
-fn test_create_release_gh_not_found() {
-    with_mock_env(&[("gh", &mock_not_found())], || {
-        qtcloud_devops_cli::release::create_release(
-                    "v1.0.0", "", "no/repo"
-                ));
-    });
-}
-
-#[test]
-fn test_create_release_already_exists() {
-    let exists = mock_custom("echo 'already exists' >&2; exit 1");
-    with_mock_env(&[("gh", &exists)], || {
-        assert!(qtcloud_devops_cli::release::util::create_release(
-            "v1.0.0", "", "o/r"
+fn test_create_release_scenarios() {
+    // 1. gh 返回成功
+    with_mock_env(&[("gh", &mock_custom("exit 0"))], || {
+        assert!(qtcloud_devops_cli::release::create_release(
+            "v1.0.0",
+            "notes",
+            "owner/repo"
         ));
     });
-}
-
-#[test]
-fn test_create_release_other_error() {
-    let fail = mock_custom("echo 'unexpected' >&2; exit 1");
-    with_mock_env(&[("gh", &fail)], || {
-        assert!(!qtcloud_devops_cli::release::util::create_release(
-            "v1.0.0", "", "o/r"
-        ));
-    });
+    // 2. gh 已存在
+    with_mock_env(
+        &[("gh", &mock_custom("echo 'already exists' >&2; exit 1"))],
+        || {
+            assert!(qtcloud_devops_cli::release::create_release(
+                "v1.0.0", "", "o/r"
+            ));
+        },
+    );
+    // 3. gh 其他错误
+    with_mock_env(
+        &[("gh", &mock_custom("echo 'unexpected' >&2; exit 1"))],
+        || {
+            assert!(!qtcloud_devops_cli::release::create_release(
+                "v1.0.0", "", "o/r"
+            ));
+        },
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════
