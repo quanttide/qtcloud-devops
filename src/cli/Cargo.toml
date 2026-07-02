@@ -3,7 +3,7 @@ name = "qtcloud-devops-cli"
 version = "0.7.0-beta.1"
 edition = "2021"
 description = "量潮DevOps云命令行工具"
-authors = ["Guo-Zhang <zhangguo@quanttide.com>"]
+authors = ["QuantTide <opensource@quanttide.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/quanttide/qtcloud-devops"
 
