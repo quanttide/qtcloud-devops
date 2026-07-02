@@ -98,58 +98,47 @@ fn print_scope(name: &str, summary: &TestSummary, coverage: &Coverage) {
     }
 }
 
+/// 返回语言对应的测试命令和标签，None 表示不支持。
+fn test_command(lang: &contract::Language) -> Option<(&'static str, &'static [&'static str])> {
+    match lang {
+        contract::Language::Rust => Some(("cargo", &["test"])),
+        contract::Language::Python => Some(("python", &["-m", "pytest"])),
+        contract::Language::Go => Some(("go", &["test", "./..."])),
+        contract::Language::Dart => Some(("flutter", &["test"])),
+        contract::Language::TypeScript => Some(("npm", &["test"])),
+        contract::Language::Unknown(_) => None,
+    }
+}
+
+/// 返回语言对应的清单文件名（存在验证用），None 表示不需要验证。
+fn test_manifest_file(lang: &contract::Language) -> Option<&'static str> {
+    match lang {
+        contract::Language::Rust => Some("Cargo.toml"),
+        contract::Language::Python => Some("pyproject.toml"),
+        contract::Language::Go => Some("go.mod"),
+        contract::Language::Dart => Some("pubspec.yaml"),
+        contract::Language::TypeScript => Some("package.json"),
+        contract::Language::Unknown(_) => None,
+    }
+}
+
 /// 收集测试结果。
 ///
 /// 按语言运行对应的测试命令，解析输出。
 fn collect_test_summary(dir: &Path, lang: &contract::Language) -> TestSummary {
-    let result = match lang {
-        contract::Language::Rust => {
-            if !dir.join("Cargo.toml").exists() {
-                return TestSummary::default();
-            }
-            std::process::Command::new("cargo")
-                .args(["test"])
-                .current_dir(dir)
-                .output()
-        }
-        contract::Language::Python => {
-            if !dir.join("pyproject.toml").exists() {
-                return TestSummary::default();
-            }
-            std::process::Command::new("python")
-                .args(["-m", "pytest"])
-                .current_dir(dir)
-                .output()
-        }
-        contract::Language::Go => {
-            if !dir.join("go.mod").exists() {
-                return TestSummary::default();
-            }
-            std::process::Command::new("go")
-                .args(["test", "./..."])
-                .current_dir(dir)
-                .output()
-        }
-        contract::Language::Dart => {
-            if !dir.join("pubspec.yaml").exists() {
-                return TestSummary::default();
-            }
-            std::process::Command::new("flutter")
-                .args(["test"])
-                .current_dir(dir)
-                .output()
-        }
-        contract::Language::TypeScript => {
-            if !dir.join("package.json").exists() {
-                return TestSummary::default();
-            }
-            std::process::Command::new("npm")
-                .args(["test"])
-                .current_dir(dir)
-                .output()
-        }
-        contract::Language::Unknown(_) => return TestSummary::default(),
+    let (cmd, args) = match test_command(lang) {
+        Some(x) => x,
+        None => return TestSummary::default(),
     };
+    if let Some(mf) = test_manifest_file(lang) {
+        if !dir.join(mf).exists() {
+            return TestSummary::default();
+        }
+    }
+    let result = std::process::Command::new(cmd)
+        .args(args)
+        .current_dir(dir)
+        .output();
     match result {
         Ok(o) => {
             let output = String::from_utf8_lossy(&o.stdout);
@@ -345,5 +334,59 @@ mod tests {
             threshold: 70.0,
         };
         assert!(!c.met());
+    }
+
+    // ── test_command ──────────────────────────────────────────
+
+    #[test]
+    fn test_command_all_languages() {
+        assert_eq!(
+            test_command(&contract::Language::Rust),
+            Some(("cargo", &["test"][..]))
+        );
+        assert_eq!(
+            test_command(&contract::Language::Python),
+            Some(("python", &["-m", "pytest"][..]))
+        );
+        assert_eq!(
+            test_command(&contract::Language::Go),
+            Some(("go", &["test", "./..."][..]))
+        );
+        assert_eq!(
+            test_command(&contract::Language::Dart),
+            Some(("flutter", &["test"][..]))
+        );
+        assert_eq!(
+            test_command(&contract::Language::TypeScript),
+            Some(("npm", &["test"][..]))
+        );
+        assert_eq!(test_command(&contract::Language::Unknown("?".into())), None);
+    }
+
+    // ── test_manifest_file ────────────────────────────────────
+
+    #[test]
+    fn test_manifest_file_all_languages() {
+        assert_eq!(
+            test_manifest_file(&contract::Language::Rust),
+            Some("Cargo.toml")
+        );
+        assert_eq!(
+            test_manifest_file(&contract::Language::Python),
+            Some("pyproject.toml")
+        );
+        assert_eq!(test_manifest_file(&contract::Language::Go), Some("go.mod"));
+        assert_eq!(
+            test_manifest_file(&contract::Language::Dart),
+            Some("pubspec.yaml")
+        );
+        assert_eq!(
+            test_manifest_file(&contract::Language::TypeScript),
+            Some("package.json")
+        );
+        assert_eq!(
+            test_manifest_file(&contract::Language::Unknown("?".into())),
+            None
+        );
     }
 }

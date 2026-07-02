@@ -355,12 +355,15 @@ fn extract_kv(content: &str, key: &str) -> Option<String> {
 fn extract_json_version(content: &str) -> Option<String> {
     for line in content.lines() {
         let t = line.trim();
-        if let Some(r) = t.strip_prefix("\"version\":") {
-            let v = r
-                .trim()
-                .trim_matches('"')
-                .trim_matches('\'')
-                .trim_matches(',');
+        // 用 find 而非 strip_prefix，支持单行 JSON（"version": 不在行首）
+        if let Some(pos) = t.find("\"version\":") {
+            let after_colon = t[pos + "\"version\":".len()..].trim();
+            // 定位第一个引号 -> value 起点
+            let value_start = after_colon.find('"')?;
+            let after_open = &after_colon[value_start + 1..];
+            // 定位闭合引号 -> value 终点
+            let value_end = after_open.find('"')?;
+            let v = &after_open[..value_end];
             if !v.is_empty() {
                 return Some(v.to_string());
             }
@@ -406,6 +409,107 @@ fn is_dirty(repo_path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── extract_kv ────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_kv_double_quotes() {
+        assert_eq!(
+            extract_kv("version = \"1.0.0\"\n", "version"),
+            Some("1.0.0".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_kv_single_quotes() {
+        assert_eq!(
+            extract_kv("version = '2.0.0'\n", "version"),
+            Some("2.0.0".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_kv_missing_key() {
+        assert_eq!(extract_kv("name = \"foo\"\n", "version"), None);
+    }
+
+    #[test]
+    fn test_extract_kv_empty_value() {
+        assert_eq!(extract_kv("version = \"\"\n", "version"), None);
+    }
+
+    #[test]
+    fn test_extract_kv_indented() {
+        assert_eq!(
+            extract_kv("  version = \"0.5.0\"\n", "version"),
+            Some("0.5.0".into())
+        );
+    }
+
+    // ── extract_json_version ───────────────────────────────────
+
+    #[test]
+    fn test_extract_json_version_normal() {
+        let content = "{\n  \"version\": \"1.0.0\",\n}\n";
+        assert_eq!(extract_json_version(content), Some("1.0.0".into()));
+    }
+
+    #[test]
+    fn test_extract_json_version_single_line() {
+        let content = r#"{"name":"foo","version":"2.0.0"}"#;
+        assert_eq!(extract_json_version(content), Some("2.0.0".into()));
+    }
+
+    #[test]
+    fn test_extract_json_version_trailing_comma() {
+        let content = r#"{"version":"1.0.0",}"#;
+        assert_eq!(extract_json_version(content), Some("1.0.0".into()));
+    }
+
+    #[test]
+    fn test_extract_json_version_missing() {
+        let content = r#"{"name":"foo"}"#;
+        assert_eq!(extract_json_version(content), None);
+    }
+
+    #[test]
+    fn test_extract_json_version_empty() {
+        let content = r#"{"version":""}"#;
+        assert_eq!(extract_json_version(content), None);
+    }
+
+    // ── extract_kv_yaml ───────────────────────────────────────
+
+    #[test]
+    fn test_extract_kv_yaml_normal() {
+        assert_eq!(
+            extract_kv_yaml("version: 1.0.0\n", "version"),
+            Some("1.0.0".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_kv_yaml_indented() {
+        assert_eq!(
+            extract_kv_yaml("  version: 3.0.0\n", "version"),
+            Some("3.0.0".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_kv_yaml_ignores_comment() {
+        assert_eq!(extract_kv_yaml("version: # 注释\n", "version"), None);
+    }
+
+    #[test]
+    fn test_extract_kv_yaml_missing() {
+        assert_eq!(extract_kv_yaml("name: foo\n", "version"), None);
+    }
+
+    #[test]
+    fn test_extract_kv_yaml_empty_value() {
+        assert_eq!(extract_kv_yaml("version:\n", "version"), None);
+    }
 
     #[test]
     fn test_collect_tags_empty() {

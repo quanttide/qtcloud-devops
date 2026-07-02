@@ -2,6 +2,15 @@ use std::path::Path;
 
 use crate::contract;
 
+/// CI 运行记录。
+#[derive(Debug, PartialEq)]
+struct CiRun {
+    conclusion: String,
+    title: String,
+    branch: String,
+    number: String,
+}
+
 /// 输出当前仓库的构建状态（按 scope）。
 pub fn status(repo_path: &Path) {
     let c = contract::load(repo_path);
@@ -105,6 +114,43 @@ pub fn resolve_workflow(scope: &str, ci_workflow: Option<&str>) -> String {
     }
 }
 
+/// 从 `gh run list --json conclusion,displayTitle,headBranch,number` 的输出解析运行记录。
+///
+/// 输入格式：`[{"conclusion":"success","displayTitle":"CI","headBranch":"main","number":42}]`
+/// 返回 None 表示无有效记录（空数组或格式异常）。
+fn parse_gh_run_list(output: &str) -> Option<CiRun> {
+    let conclusion = output
+        .split("\"conclusion\":")
+        .nth(1)
+        .and_then(|s| s.split('"').nth(1))?;
+    if conclusion.is_empty() {
+        return None;
+    }
+    let title = output
+        .split("\"displayTitle\":")
+        .nth(1)
+        .and_then(|s| s.split('"').nth(1))
+        .unwrap_or("");
+    let branch = output
+        .split("\"headBranch\":")
+        .nth(1)
+        .and_then(|s| s.split('"').nth(1))
+        .unwrap_or("?");
+    let number: String = output
+        .split("\"number\":")
+        .nth(1)
+        .map(|s| s.chars().take_while(|c| c.is_ascii_digit()).collect())
+        .filter(|s: &String| !s.is_empty())
+        .unwrap_or_else(|| "?".into());
+
+    Some(CiRun {
+        conclusion: conclusion.to_string(),
+        title: title.to_string(),
+        branch: branch.to_string(),
+        number,
+    })
+}
+
 fn check_ci(scope: &str, ci_workflow: Option<&str>) -> String {
     let workflow = resolve_workflow(scope, ci_workflow);
     let output = match std::process::Command::new("gh")
@@ -126,85 +172,75 @@ fn check_ci(scope: &str, ci_workflow: Option<&str>) -> String {
     };
 
     let out = String::from_utf8_lossy(&output);
-    // JSON: [{"conclusion":"success","displayTitle":"CI","headBranch":"main","number":42}]
-    let conclusion = out
-        .split("\"conclusion\":")
-        .nth(1)
-        .and_then(|s| s.split('"').nth(1))
-        .unwrap_or("");
-    let title = out
-        .split("\"displayTitle\":")
-        .nth(1)
-        .and_then(|s| s.split('"').nth(1))
-        .unwrap_or("");
-    let branch = out
-        .split("\"headBranch\":")
-        .nth(1)
-        .and_then(|s| s.split('"').nth(1))
-        .unwrap_or("?");
-    let number: String = out
-        .split("\"number\":")
-        .nth(1)
-        .map(|s| s.chars().take_while(|c| c.is_ascii_digit()).collect())
-        .filter(|s: &String| !s.is_empty())
-        .unwrap_or_else(|| "?".into());
-
-    if conclusion.is_empty() {
-        return "⚠ 无 CI 运行记录".into();
+    match parse_gh_run_list(&out) {
+        Some(run) => match run.conclusion.as_str() {
+            "success" => format!("✅ {} ({} #{})", run.title, run.branch, run.number),
+            "failure" => format!("❌ {} ({} #{})", run.title, run.branch, run.number),
+            "cancelled" => format!("🔶 {} 已取消", run.title),
+            s => format!("⏳ {} ({}) - {}", run.title, run.branch, s),
+        },
+        None => "⚠ 无 CI 运行记录".into(),
     }
-    match conclusion {
-        "success" => format!("✅ {} ({} #{})", title, branch, number),
-        "failure" => format!("❌ {} ({} #{})", title, branch, number),
-        "cancelled" => format!("🔶 {} 已取消", title),
-        s => format!("⏳ {} ({}) - {}", title, branch, s),
+}
+
+/// 返回语言对应的构建检查命令和标签，None 表示不支持。
+fn check_command(lang: &contract::Language) -> Option<(&'static str, &'static str)> {
+    match lang {
+        contract::Language::Rust => Some(("cargo", "cargo check")),
+        contract::Language::Python => Some(("uv", "uv check")),
+        contract::Language::Go => Some(("go", "go vet")),
+        contract::Language::Dart => Some(("dart", "dart analyze")),
+        contract::Language::TypeScript => Some(("npx", "tsc --noEmit")),
+        contract::Language::Unknown(_) => None,
+    }
+}
+
+/// 返回语言对应的清单文件名（存在验证用），None 表示不需要验证。
+fn check_manifest_file(lang: &contract::Language) -> Option<&'static str> {
+    match lang {
+        contract::Language::Rust => Some("Cargo.toml"),
+        contract::Language::Python => Some("pyproject.toml"),
+        contract::Language::Go => Some("go.mod"),
+        contract::Language::Dart => Some("pubspec.yaml"),
+        contract::Language::TypeScript => Some("package.json"),
+        contract::Language::Unknown(_) => None,
+    }
+}
+
+/// 构建检查参数（依赖目录，因为 Rust 需要 --manifest-path）。
+fn check_args(lang: &contract::Language, dir: &Path) -> Option<Vec<String>> {
+    match lang {
+        contract::Language::Rust => {
+            let mp = dir.join("Cargo.toml");
+            Some(vec![
+                "check".into(),
+                "--manifest-path".into(),
+                mp.to_string_lossy().to_string(),
+            ])
+        }
+        contract::Language::Python => Some(vec!["check".into()]),
+        contract::Language::Go => Some(vec!["vet".into(), "./...".into()]),
+        contract::Language::Dart => Some(vec!["analyze".into()]),
+        contract::Language::TypeScript => Some(vec!["tsc".into(), "--noEmit".into()]),
+        contract::Language::Unknown(_) => None,
     }
 }
 
 fn check_syntax(lang: &contract::Language, dir: &Path) -> String {
-    let (cmd, args, label) = match lang {
-        contract::Language::Rust => {
-            let mp = dir.join("Cargo.toml");
-            if !mp.exists() {
-                return "—".into();
-            }
-            let mp_s = mp.to_string_lossy().to_string();
-            (
-                "cargo",
-                vec!["check".into(), "--manifest-path".into(), mp_s],
-                "cargo check",
-            )
-        }
-        contract::Language::Python => {
-            if !dir.join("pyproject.toml").exists() {
-                return "—".into();
-            }
-            ("uv".into(), vec!["check".into()], "uv check")
-        }
-        contract::Language::Go => {
-            if !dir.join("go.mod").exists() {
-                return "—".into();
-            }
-            ("go".into(), vec!["vet".into(), "./...".into()], "go vet")
-        }
-        contract::Language::Dart => {
-            if !dir.join("pubspec.yaml").exists() {
-                return "—".into();
-            }
-            ("dart".into(), vec!["analyze".into()], "dart analyze")
-        }
-        contract::Language::TypeScript => {
-            if !dir.join("package.json").exists() {
-                return "—".into();
-            }
-            (
-                "npx".into(),
-                vec!["tsc".into(), "--noEmit".into()],
-                "tsc --noEmit",
-            )
-        }
-        contract::Language::Unknown(_) => return "⚠ 语言未知，跳过".into(),
+    let (cmd, label) = match check_command(lang) {
+        Some(x) => x,
+        None => return "⚠ 语言未知，跳过".into(),
     };
-    match std::process::Command::new(&cmd)
+    if let Some(mf) = check_manifest_file(lang) {
+        if !dir.join(mf).exists() {
+            return "—".into();
+        }
+    }
+    let args = match check_args(lang, dir) {
+        Some(a) => a,
+        None => return "⚠ 语言未知，跳过".into(),
+    };
+    match std::process::Command::new(cmd)
         .args(&args)
         .current_dir(dir)
         .output()
@@ -275,5 +311,138 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let c = contract::load(d.path());
         assert!(c.scopes.is_empty());
+    }
+
+    // ── parse_gh_run_list ─────────────────────────────────────
+
+    #[test]
+    fn test_parse_gh_run_list_success() {
+        let out =
+            r#"[{"conclusion":"success","displayTitle":"CI","headBranch":"main","number":42}]"#;
+        let run = parse_gh_run_list(out).unwrap();
+        assert_eq!(run.conclusion, "success");
+        assert_eq!(run.title, "CI");
+        assert_eq!(run.branch, "main");
+        assert_eq!(run.number, "42");
+    }
+
+    #[test]
+    fn test_parse_gh_run_list_failure() {
+        let out =
+            r#"[{"conclusion":"failure","displayTitle":"Build","headBranch":"feat/x","number":7}]"#;
+        let run = parse_gh_run_list(out).unwrap();
+        assert_eq!(run.conclusion, "failure");
+        assert_eq!(run.title, "Build");
+        assert_eq!(run.branch, "feat/x");
+        assert_eq!(run.number, "7");
+    }
+
+    #[test]
+    fn test_parse_gh_run_list_cancelled() {
+        let out =
+            r#"[{"conclusion":"cancelled","displayTitle":"CI","headBranch":"main","number":99}]"#;
+        let run = parse_gh_run_list(out).unwrap();
+        assert_eq!(run.conclusion, "cancelled");
+        assert_eq!(run.number, "99");
+    }
+
+    #[test]
+    fn test_parse_gh_run_list_empty_array() {
+        assert!(parse_gh_run_list("[]").is_none());
+    }
+
+    #[test]
+    fn test_parse_gh_run_list_empty_stdout() {
+        assert!(parse_gh_run_list("").is_none());
+    }
+
+    #[test]
+    fn test_parse_gh_run_list_no_number() {
+        // 一些旧版本 gh 可能不返回 number
+        let out = r#"[{"conclusion":"success","displayTitle":"CI","headBranch":"main"}]"#;
+        let run = parse_gh_run_list(out).unwrap();
+        assert_eq!(run.number, "?");
+    }
+
+    #[test]
+    fn test_parse_gh_run_list_unknown_conclusion() {
+        let out =
+            r#"[{"conclusion":"neutral","displayTitle":"Check","headBranch":"main","number":1}]"#;
+        let run = parse_gh_run_list(out).unwrap();
+        assert_eq!(run.conclusion, "neutral");
+        assert_eq!(run.title, "Check");
+    }
+
+    // ── check_command ─────────────────────────────────────────
+
+    #[test]
+    fn test_check_command_all_languages() {
+        assert_eq!(
+            check_command(&contract::Language::Rust),
+            Some(("cargo", "cargo check"))
+        );
+        assert_eq!(
+            check_command(&contract::Language::Python),
+            Some(("uv", "uv check"))
+        );
+        assert_eq!(
+            check_command(&contract::Language::Go),
+            Some(("go", "go vet"))
+        );
+        assert_eq!(
+            check_command(&contract::Language::Dart),
+            Some(("dart", "dart analyze"))
+        );
+        assert_eq!(
+            check_command(&contract::Language::TypeScript),
+            Some(("npx", "tsc --noEmit"))
+        );
+        assert_eq!(
+            check_command(&contract::Language::Unknown("?".into())),
+            None
+        );
+    }
+
+    // ── check_manifest_file ────────────────────────────────────
+
+    #[test]
+    fn test_check_manifest_file_all_languages() {
+        assert_eq!(
+            check_manifest_file(&contract::Language::Rust),
+            Some("Cargo.toml")
+        );
+        assert_eq!(
+            check_manifest_file(&contract::Language::Python),
+            Some("pyproject.toml")
+        );
+        assert_eq!(check_manifest_file(&contract::Language::Go), Some("go.mod"));
+        assert_eq!(
+            check_manifest_file(&contract::Language::Dart),
+            Some("pubspec.yaml")
+        );
+        assert_eq!(
+            check_manifest_file(&contract::Language::TypeScript),
+            Some("package.json")
+        );
+        assert_eq!(
+            check_manifest_file(&contract::Language::Unknown("?".into())),
+            None
+        );
+    }
+
+    // ── check_args ─────────────────────────────────────────────
+
+    #[test]
+    fn test_check_args_rust_includes_manifest_path() {
+        let d = tempfile::tempdir().unwrap();
+        let args = check_args(&contract::Language::Rust, d.path()).unwrap();
+        assert!(args.contains(&"check".to_string()));
+        assert!(args.iter().any(|a| a.contains("Cargo.toml")));
+    }
+
+    #[test]
+    fn test_check_args_unknown_returns_none() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(check_args(&contract::Language::Unknown("?".into()), d.path()).is_none());
     }
 }
