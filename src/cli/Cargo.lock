@@ -765,6 +765,8 @@ dependencies = [
 [[package]]
 name = "quanttide-devops"
 version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4c474188a0445088192f994249d1839a3459aade724e8cf64a7a36d72e39370"
 dependencies = [
  "serde",
  "serde_yaml",
