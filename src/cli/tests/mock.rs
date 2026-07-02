@@ -97,7 +97,7 @@ fn setup_repo_with_contract() -> (tempfile::TempDir, PathBuf) {
     std::fs::create_dir_all(&contract_dir).unwrap();
     std::fs::write(
         contract_dir.join("contract.yaml"),
-        "stages:\n  build:\n    command: cargo build\n  test:\n    command: cargo test\n    threshold: 80\n  release:\n    changelog: CHANGELOG.md\nplatform:\n  source_control: Github\n  pipeline: GithubActions\n  artifact_registry: Crates\nsource:\n  version:\n    source_type: Cargo\n    path: Cargo.toml\nscopes:\n  - name: cli\n    dir: .\n    language: Rust\n    framework: \"\"\n    build_tool: Cargo\n    registry: Crates\n",
+        "stages:\n  build:\n    command: cargo build\n  test:\n    command: cargo test\n    threshold: 80\n  release:\n    changelog: CHANGELOG.md\nplatform:\n  source_control: github\n  pipeline: github_actions\n  artifact_registry: crates\nsources:\n  version:\n    type: cargo\nscopes:\n  cli:\n    dir: .\n    language: rust\n    build_tool: cargo\n    registry: crates\n",
     )
     .unwrap();
     Command::new("git")
