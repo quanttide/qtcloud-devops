@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [0.8.0] - 2026-07-02
+
+### Added
+
+- `plan status / clean / doctor` 三个子命令
+  - status: 解析 ROADMAP.md 展示 scope 规划进度（95.64% 覆盖）
+  - clean: 删除已完成条目，级联清理空分类/空版本
+  - doctor: 只读格式验证（v 前缀、分类大小写、checkbox 格式）
+- `contract status` 命令：查看四维契约完整配置
+- `contract.rs` and `plan.rs` 输出函数重构为 `_to(writer)` 模式，支持测试
+
+### Changed
+
+- 整体测试覆盖率 87.44% 行 / 89.55% 函数
+  - contract.rs: 90.98%
+  - plan.rs: 95.64%
+
 ## [0.7.1] - 2026-07-02
 
 ### Changed
