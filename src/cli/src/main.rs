@@ -37,6 +37,11 @@ enum Commands {
         #[command(subcommand)]
         action: PlanAction,
     },
+    /// 查看契约状态
+    Contract {
+        #[command(subcommand)]
+        action: ContractAction,
+    },
     /// 发布管理命令集
     Release {
         #[command(subcommand)]
@@ -73,6 +78,12 @@ enum PlanAction {
         /// scope 名称
         scope: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum ContractAction {
+    /// 查看契约配置与状态
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -178,6 +189,12 @@ fn main() {
             }
             PlanAction::Clean { scope } => run_plan_clean(scope),
             PlanAction::Doctor { scope } => run_plan_doctor(scope),
+        },
+        Commands::Contract { action } => match action {
+            ContractAction::Status => {
+                qtcloud_devops_cli::contract::status(&repo_path());
+                Ok(())
+            }
         },
     };
 
