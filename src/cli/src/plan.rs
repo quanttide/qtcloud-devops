@@ -414,6 +414,39 @@ mod tests {
         assert!(result.is_err());
     }
 
+    // ── resolve_roadmap_path ────────────────────────────────────
+
+    #[test]
+    fn test_resolve_path_with_contract_scope() {
+        let d = tempfile::tempdir().unwrap();
+        // 创建 scope 契约
+        let contract_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&contract_dir).unwrap();
+        std::fs::write(
+            contract_dir.join("contract.yaml"),
+            "scopes:\n  cli:\n    dir: src/cli\n    language: rust\n",
+        )
+        .unwrap();
+        let path = resolve_roadmap_path(d.path(), Some("cli"));
+        assert!(path.to_string_lossy().ends_with("src/cli/ROADMAP.md"));
+    }
+
+    #[test]
+    fn test_resolve_path_fallback_to_name() {
+        let d = tempfile::tempdir().unwrap();
+        let path = resolve_roadmap_path(d.path(), Some("custom"));
+        // scope 不在契约中 → 回退为子目录名
+        assert!(path.to_string_lossy().ends_with("custom/ROADMAP.md"));
+    }
+
+    #[test]
+    fn test_resolve_path_no_scope_no_contract() {
+        let d = tempfile::tempdir().unwrap();
+        let path = resolve_roadmap_path(d.path(), None);
+        // 无 scope + 无契约 → repo 根目录
+        assert_eq!(path, d.path().join("ROADMAP.md"));
+    }
+
     // ── clean_roadmap ───────────────────────────────────────────
 
     #[test]
@@ -435,10 +468,35 @@ mod tests {
     }
 
     #[test]
+    fn test_clean_empty_file() {
+        let d = write_roadmap("");
+        let removed = clean_roadmap(&d.path().join("ROADMAP.md")).unwrap();
+        assert_eq!(removed, 0);
+    }
+
+    #[test]
+    fn test_clean_all_done_empties_file() {
+        // 所有条目都是 done → 清理后只剩空文件
+        let d = write_roadmap("## [0.1.0]\n### Added\n- [x] done\n");
+        clean_roadmap(&d.path().join("ROADMAP.md")).unwrap();
+        let content = read_roadmap(d.path());
+        assert!(content.is_empty());
+    }
+
+    #[test]
     fn test_clean_no_done_items_no_change() {
         let d = write_roadmap("## [0.1.0]\n- [ ] todo\n");
         let removed = clean_roadmap(&d.path().join("ROADMAP.md")).unwrap();
         assert_eq!(removed, 0);
+    }
+
+    #[test]
+    fn test_clean_trailing_newlines_removed() {
+        // 末尾多余空行应被清理
+        let d = write_roadmap("## [0.1.0]\n- [ ] todo\n\n\n");
+        clean_roadmap(&d.path().join("ROADMAP.md")).unwrap();
+        let content = read_roadmap(d.path());
+        assert_eq!(content.trim_end().lines().count(), 2); // 版本标题 + 条目
     }
 
     // ── validate_roadmap ────────────────────────────────────────
