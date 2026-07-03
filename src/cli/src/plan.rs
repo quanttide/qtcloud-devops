@@ -304,7 +304,7 @@ pub fn validate_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, String> 
         let trimmed = raw_line.trim();
 
         // 1. 版本标题禁止 v 前缀
-        if let Some(ver) = is_version_line(trimmed) {
+        if is_version_line(trimmed).is_some() {
             // 检查原始行是否有 v 前缀（is_version_line 已去除）
             let raw_ver = trimmed
                 .trim_start_matches("## [")
