@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [0.8.1] - 2026-07-02
+
+### Fixed
+
+- `is_version_line` 支持 `## [X.Y.Z] — 已发布` 等后缀格式
+  - `plan status`：正确识别带后缀的版本标题
+  - `plan clean`：正确清理带后缀的空版本标题
+  - `plan doctor`：正确检测带后缀的 v 前缀问题
+
 ## [0.8.0] - 2026-07-02
 
 ### Added
