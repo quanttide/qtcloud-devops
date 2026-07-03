@@ -20,6 +20,22 @@ pub struct VersionProgress {
     pub total: usize,
 }
 
+/// 检测一行是否为版本标题，成功时返回版本号（去除 v 前缀）。
+/// 支持 `## [X.Y.Z]`、`## [X.Y.Z] — 已发布`、`## [vX.Y.Z]` 等格式。
+pub fn is_version_line(line: &str) -> Option<String> {
+    let t = line.trim();
+    if t.starts_with("## [") {
+        if let Some(end) = t.find(']') {
+            let ver = t["## [".len()..end].trim().trim_start_matches('v');
+            if !ver.is_empty() {
+                return Some(ver.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// 格式问题。
 /// 验证发现的格式问题。
 #[derive(Debug)]
 pub struct Issue {
@@ -74,23 +90,17 @@ pub fn parse_roadmap(path: &Path) -> Result<Vec<VersionProgress>, String> {
     for line in content.lines() {
         let trimmed = line.trim();
 
-        // `## [X.Y.Z]` — 版本标题（无日期后缀）
-        if trimmed.starts_with("## [") && trimmed.ends_with(']') {
-            if let Some(ver) = current_version.take() {
+        // `## [X.Y.Z]` — 版本标题（支持 `— 已发布` 等后缀）
+        if let Some(ver) = is_version_line(trimmed) {
+            if let Some(v) = current_version.take() {
                 versions.push(VersionProgress {
-                    version: ver,
+                    version: v,
                     done,
                     total,
                 });
             }
             done = 0;
             total = 0;
-            let ver = trimmed
-                .trim_start_matches("## [")
-                .trim_end_matches(']')
-                .trim()
-                .trim_start_matches('v')
-                .to_string();
             current_version = Some(ver);
             continue;
         }
@@ -201,8 +211,7 @@ fn is_category_header(line: &str) -> bool {
 }
 
 fn is_version_header(line: &str) -> bool {
-    let t = line.trim();
-    t.starts_with("## [") && t.ends_with(']')
+    is_version_line(line).is_some()
 }
 
 /// 删除 ROADMAP.md 中所有已完成条目。
@@ -295,16 +304,19 @@ pub fn validate_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, String> 
         let trimmed = raw_line.trim();
 
         // 1. 版本标题禁止 v 前缀
-        if trimmed.starts_with("## [") && trimmed.ends_with(']') {
-            let ver = trimmed
+        if let Some(ver) = is_version_line(trimmed) {
+            // 检查原始行是否有 v 前缀（is_version_line 已去除）
+            let raw_ver = trimmed
                 .trim_start_matches("## [")
-                .trim_end_matches(']')
+                .split(']')
+                .next()
+                .unwrap_or("")
                 .trim();
-            if ver.starts_with('v') {
+            if raw_ver.starts_with('v') {
                 issues.push(Issue {
                     line: line_num,
                     scope: scope.to_string(),
-                    message: format!("版本号不应有 v 前缀: {}", ver),
+                    message: format!("版本号不应有 v 前缀: {}", raw_ver),
                 });
             }
         }
@@ -419,6 +431,26 @@ mod tests {
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].done, 0);
         assert_eq!(v[0].total, 0);
+    }
+
+    #[test]
+    fn test_parse_version_with_suffix() {
+        // `## [0.1.0] — 已发布` 应被正确识别
+        let d = write_roadmap("## [0.1.0] — 已发布\n- [x] done\n- [ ] todo\n");
+        let v = parse_roadmap(&d.path().join("ROADMAP.md")).unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].version, "0.1.0");
+        assert_eq!(v[0].done, 1);
+        assert_eq!(v[0].total, 2);
+    }
+
+    #[test]
+    fn test_clean_version_with_suffix() {
+        // 后缀版本头应被识别并可级联清理
+        let d = write_roadmap("## [0.1.0] — 已发布\n- [x] done\n");
+        clean_roadmap(&d.path().join("ROADMAP.md")).unwrap();
+        let content = read_roadmap(d.path());
+        assert!(!content.contains("0.1.0"), "空版本应被清理");
     }
 
     #[test]
