@@ -115,21 +115,31 @@ pub fn parse_roadmap(path: &Path) -> Result<Vec<VersionProgress>, String> {
 
 /// 格式化输出 scope 规划进度。
 pub fn print_status(repo_path: &Path, scope: Option<&str>) -> Result<(), String> {
+    let mut stdout = std::io::stdout();
+    print_status_to(&mut stdout, repo_path, scope)
+}
+
+/// 写入指定 writer 的版本（可测试）。
+pub fn print_status_to(
+    writer: &mut impl std::io::Write,
+    repo_path: &Path,
+    scope: Option<&str>,
+) -> Result<(), String> {
     let roadmap_path = resolve_roadmap_path(repo_path, scope);
     if !roadmap_path.exists() {
-        println!("  未创建规划文件: {}", roadmap_path.display());
+        writeln!(writer, "  未创建规划文件: {}", roadmap_path.display()).ok();
         return Ok(());
     }
 
     let versions = parse_roadmap(&roadmap_path)?;
     if versions.is_empty() {
-        println!("  未找到规划条目");
+        writeln!(writer, "  未找到规划条目").ok();
         return Ok(());
     }
 
     let scope_label = scope.unwrap_or("(auto)");
-    println!("  [{}] 规划进度", scope_label);
-    println!("  {}", "-".repeat(40));
+    writeln!(writer, "  [{}] 规划进度", scope_label).ok();
+    writeln!(writer, "  {}", "-".repeat(40)).ok();
 
     let mut total_done = 0usize;
     let mut total_all = 0usize;
@@ -140,10 +150,12 @@ pub fn print_status(repo_path: &Path, scope: Option<&str>) -> Result<(), String>
         } else {
             0.0
         };
-        println!(
+        writeln!(
+            writer,
             "  [{:<8}] {:>2}/{:>2} 完成 ({:.0}%)",
             v.version, v.done, v.total, rate
-        );
+        )
+        .ok();
         total_done += v.done;
         total_all += v.total;
     }
@@ -153,11 +165,13 @@ pub fn print_status(repo_path: &Path, scope: Option<&str>) -> Result<(), String>
     } else {
         0.0
     };
-    println!("  {}", "-".repeat(40));
-    println!(
+    writeln!(writer, "  {}", "-".repeat(40)).ok();
+    writeln!(
+        writer,
         "  总计:  {}/{} 完成 ({:.0}%)",
         total_done, total_all, overall
-    );
+    )
+    .ok();
     Ok(())
 }
 
@@ -528,5 +542,39 @@ mod tests {
         let d = write_roadmap(original);
         let _issues = validate_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert_eq!(read_roadmap(d.path()), original);
+    }
+
+    // ── print_status_to ─────────────────────────────────────────
+
+    #[test]
+    fn test_print_status_file_not_found() {
+        let d = tempfile::tempdir().unwrap();
+        let mut buf = Vec::new();
+        print_status_to(&mut buf, d.path(), None).unwrap();
+        let output = String::from_utf8_lossy(&buf);
+        assert!(output.contains("未创建规划文件"));
+    }
+
+    #[test]
+    fn test_print_status_empty_roadmap() {
+        let d = write_roadmap("");
+        let mut buf = Vec::new();
+        print_status_to(&mut buf, d.path(), None).unwrap();
+        let output = String::from_utf8_lossy(&buf);
+        assert!(output.contains("未找到规划条目"));
+    }
+
+    #[test]
+    fn test_print_status_with_data() {
+        let d =
+            write_roadmap("## [0.2.0]\n- [x] done\n- [ ] todo\n\n## [0.1.0]\n- [x] a\n- [x] b\n");
+        let mut buf = Vec::new();
+        print_status_to(&mut buf, d.path(), None).unwrap();
+        let output = String::from_utf8_lossy(&buf);
+        assert!(output.contains("(auto)"));
+        assert!(output.contains("0.2.0"));
+        assert!(output.contains("0.1.0"));
+        assert!(output.contains("3/4"));
+        assert!(output.contains("总计"));
     }
 }
