@@ -32,6 +32,11 @@ enum Commands {
         #[command(subcommand)]
         action: TestAction,
     },
+    /// 规划管理：ROADMAP.md 进度查看与维护
+    Plan {
+        #[command(subcommand)]
+        action: PlanAction,
+    },
     /// 发布管理命令集
     Release {
         #[command(subcommand)]
@@ -49,6 +54,25 @@ enum BuildAction {
 enum TestAction {
     /// 查看测试状态
     Status,
+}
+
+#[derive(Subcommand)]
+enum PlanAction {
+    /// 查看 scope 规划进度
+    Status {
+        /// scope 名称（省略时自动检测当前目录所属 scope）
+        scope: Option<String>,
+    },
+    /// 删除 scope 已完成条目
+    Clean {
+        /// scope 名称
+        scope: Option<String>,
+    },
+    /// 验证 scope 格式问题（只读，修复由 LLM 完成）
+    Doctor {
+        /// scope 名称
+        scope: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -148,6 +172,13 @@ fn main() {
                 Ok(())
             }
         },
+        Commands::Plan { action } => match action {
+            PlanAction::Status { scope } => {
+                qtcloud_devops_cli::plan::print_status(&repo_path(), scope.as_deref())
+            }
+            PlanAction::Clean { scope } => run_plan_clean(scope),
+            PlanAction::Doctor { scope } => run_plan_doctor(scope),
+        },
     };
 
     if let Err(e) = result {
@@ -195,6 +226,46 @@ fn run_code_sync_all(dry_run: bool, repo: PathBuf) -> Result<(), String> {
         return Ok(());
     }
     code::sync_all(root)
+}
+
+fn run_plan_clean(scope: Option<String>) -> Result<(), String> {
+    let repo_path = repo_path();
+    let roadmap_path = qtcloud_devops_cli::plan::resolve_roadmap_path(&repo_path, scope.as_deref());
+    if !roadmap_path.exists() {
+        println!("  未找到规划文件: {}", roadmap_path.display());
+        return Ok(());
+    }
+    let removed = qtcloud_devops_cli::plan::clean_roadmap(&roadmap_path)?;
+    if removed > 0 {
+        println!(
+            "  ✓ 已清理 {} 字节，文件: {}",
+            removed,
+            roadmap_path.display()
+        );
+    } else {
+        println!("  无已完成条目可清理");
+    }
+    Ok(())
+}
+
+fn run_plan_doctor(scope: Option<String>) -> Result<(), String> {
+    let repo_path = repo_path();
+    let roadmap_path = qtcloud_devops_cli::plan::resolve_roadmap_path(&repo_path, scope.as_deref());
+    if !roadmap_path.exists() {
+        println!("  未找到规划文件: {}", roadmap_path.display());
+        return Ok(());
+    }
+    let scope_label = scope.unwrap_or_else(|| "(auto)".to_string());
+    let issues = qtcloud_devops_cli::plan::validate_roadmap(&roadmap_path, &scope_label)?;
+    if issues.is_empty() {
+        println!("  ✅ 格式无误");
+    } else {
+        for f in &issues {
+            println!("  ⚠ L{}: {}", f.line, f.message);
+        }
+        println!("  规则仅做验证，修复由 LLM 完成（当前未接入）");
+    }
+    Ok(())
 }
 
 #[cfg(test)]
