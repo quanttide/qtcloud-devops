@@ -5,7 +5,7 @@
 /// 三个子命令：
 /// - `status` — 查看 scope 规划进度
 /// - `clean`  — 删除已完成条目
-/// - `doctor` — 验证格式（只读，修复由 LLM 完成）
+/// - `doctor` — 修复格式问题（规则修复 + LLM 修复）
 use std::path::{Path, PathBuf};
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -290,22 +290,43 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, String> {
 // plan doctor
 // ═══════════════════════════════════════════════════════════════════════
 
-/// 验证 ROADMAP.md 的格式问题。
+/// 诊断并修复 ROADMAP.md 的格式问题。
 ///
-/// 规则只做验证，不做修复。修复由 LLM 完成（当前未接入）。
-pub fn validate_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, String> {
+/// 1. 规则修复：v 前缀、分类大小写、checkbox 格式
+/// 2. LLM 修复：复杂格式问题（LLM 已配置时）
+pub fn doctor_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("读取 {} 失败: {}", path.display(), e))?;
 
+    let mut issues = apply_rule_fixes(path, &content, scope)?;
+
+    // LLM 修复：规则修不了或仍有问题时才调 LLM
+    if issues.is_empty() {
+        return Ok(issues);
+    }
+    let settings = quanttide_agent::Settings::from_env();
+    if !settings.llm_api_key.is_empty() {
+        let content_after_rules =
+            std::fs::read_to_string(path).map_err(|e| format!("读取失败: {}", e))?;
+        if let Some(llm_issues) = doctor_llm(&content_after_rules, scope, &settings, path)? {
+            issues.extend(llm_issues);
+        }
+    }
+
+    Ok(issues)
+}
+
+/// 规则修复：v 前缀、分类大小写、checkbox 格式。
+fn apply_rule_fixes(path: &Path, content: &str, scope: &str) -> Result<Vec<Issue>, String> {
     let mut issues: Vec<Issue> = Vec::new();
+    let mut new_lines: Vec<String> = Vec::new();
 
     for (idx, raw_line) in content.lines().enumerate() {
         let line_num = idx + 1;
         let trimmed = raw_line.trim();
 
-        // 1. 版本标题禁止 v 前缀
-        if is_version_line(trimmed).is_some() {
-            // 检查原始行是否有 v 前缀（is_version_line 已去除）
+        // 1. 版本标题：去掉 v 前缀
+        if let Some(ver) = is_version_line(trimmed) {
             let raw_ver = trimmed
                 .trim_start_matches("## [")
                 .split(']')
@@ -316,12 +337,17 @@ pub fn validate_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, String> 
                 issues.push(Issue {
                     line: line_num,
                     scope: scope.to_string(),
-                    message: format!("版本号不应有 v 前缀: {}", raw_ver),
+                    message: format!("修复 v 前缀: {} → {}", raw_ver, ver),
                 });
+                let suffix = trimmed.split(']').nth(1).unwrap_or("");
+                new_lines.push(format!("## [{}]{}", ver, suffix));
+                continue;
             }
+            new_lines.push(raw_line.to_string());
+            continue;
         }
 
-        // 2. 分类标题必须使用标准大小写
+        // 2. 分类标题：标准化大小写
         if trimmed.starts_with("### ") {
             let lowered = trimmed.to_lowercase();
             if let Some(standard) = CATEGORIES.iter().find(|c| c.to_lowercase() == lowered) {
@@ -329,28 +355,103 @@ pub fn validate_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, String> 
                     issues.push(Issue {
                         line: line_num,
                         scope: scope.to_string(),
-                        message: format!("分类标题大小写: 应为 '{}'，当前 '{}'", standard, trimmed),
+                        message: format!("修复大小写: {} → {}", trimmed, standard),
                     });
+                    let indent = &raw_line[..raw_line.len() - raw_line.trim_start().len()];
+                    new_lines.push(format!("{}{}", indent, standard));
+                    continue;
                 }
             }
+            new_lines.push(raw_line.to_string());
+            continue;
         }
 
-        // 3. checkbox 必须使用标准格式
+        // 3. checkbox：修复异常格式
         let has_any_box =
             trimmed.contains("[x]") || trimmed.contains("[X]") || trimmed.contains("[ ]");
         let is_standard = trimmed.starts_with("- [x] ")
             || trimmed.starts_with("- [X] ")
             || trimmed.starts_with("- [ ] ");
         if has_any_box && !is_standard {
+            let content_start = trimmed.find(']').map(|p| p + 1).unwrap_or(trimmed.len());
+            let item_content = trimmed[content_start..].trim();
+            let is_done = trimmed.contains("[x]") || trimmed.contains("[X]");
+            let prefix = if is_done { "- [x]" } else { "- [ ]" };
             issues.push(Issue {
                 line: line_num,
                 scope: scope.to_string(),
-                message: format!("checkbox 格式异常: {}", trimmed),
+                message: format!(
+                    "修复 checkbox 格式: {} → {} {}",
+                    trimmed, prefix, item_content
+                ),
             });
+            new_lines.push(format!("{} {}", prefix, item_content));
+            continue;
         }
+
+        new_lines.push(raw_line.to_string());
+    }
+
+    if !issues.is_empty() {
+        let mut output = String::new();
+        for line in &new_lines {
+            output.push_str(line);
+            output.push('\n');
+        }
+        std::fs::write(path, &output).map_err(|e| format!("写入失败: {}", e))?;
     }
 
     Ok(issues)
+}
+
+/// LLM 修复：处理规则无法覆盖的复杂格式问题。
+fn doctor_llm(
+    content: &str,
+    _scope: &str,
+    settings: &quanttide_agent::Settings,
+    path: &Path,
+) -> Result<Option<Vec<Issue>>, String> {
+    use quanttide_agent::{llm::CompleteOptions, Message, LLM};
+
+    let format_spec = "ROADMAP.md 格式规范：
+a) 版本标题：## [X.Y.Z]，可选后缀如 — 已发布
+b) 分类标题：### Added / Changed / Fixed / Removed / Deprecated / Security
+c) 条目格式：- [x] 内容 或 - [ ] 内容
+";
+    let prompt = format!(
+        "{}\n\n以下 ROADMAP.md 可能存在格式问题，请按规范修复格式（只修格式，不增删条目）：\n\n{}",
+        format_spec, content
+    );
+
+    let llm = LLM::new(
+        &settings.llm_model,
+        &settings.llm_base_url,
+        &settings.llm_api_key,
+    );
+    let messages = vec![
+        Message::new(
+            "system",
+            "你是 ROADMAP.md 格式修复助手。只修格式，不增删条目内容。",
+        ),
+        Message::new("user", &prompt),
+    ];
+    let response = llm
+        .complete(&messages, CompleteOptions::default())
+        .map_err(|e| format!("LLM 调用失败: {}", e))?;
+
+    let fixed = response.content.trim().to_string();
+    if fixed.is_empty() || fixed == content {
+        return Ok(None);
+    }
+
+    std::fs::write(path, &fixed).map_err(|e| format!("写入失败: {}", e))?;
+    println!("  📋 LLM 格式修复已应用");
+
+    Ok(Some(vec![Issue {
+        line: 0,
+        scope: String::new(),
+        message: "LLM 格式修复完成".to_string(),
+    }]))
 }
 
 #[cfg(test)]
@@ -545,35 +646,43 @@ mod tests {
         assert_eq!(content.trim_end().lines().count(), 2); // 版本标题 + 条目
     }
 
-    // ── validate_roadmap ────────────────────────────────────────
+    // ── doctor_roadmap ────────────────────────────────────────
 
     #[test]
-    fn test_validate_v_prefix() {
+    fn test_doctor_fixes_v_prefix() {
         let d = write_roadmap("## [v0.1.0]\n- [ ] item\n");
-        let issues = validate_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert!(issues.iter().any(|f| f.message.contains("v 前缀")));
+        let content = read_roadmap(d.path());
+        assert!(!content.contains("## [v"));
     }
 
     #[test]
-    fn test_validate_category_case() {
+    fn test_doctor_fixes_category_case() {
         let d = write_roadmap("## [0.1.0]\n### added\n- [ ] item\n");
-        let issues = validate_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert!(issues.iter().any(|f| f.message.contains("大小写")));
+        let content = read_roadmap(d.path());
+        assert!(content.contains("### Added"));
     }
 
     #[test]
-    fn test_validate_clean_file_no_issues() {
+    fn test_doctor_clean_file_no_issues() {
         let d = write_roadmap("## [0.1.0]\n### Added\n- [ ] item\n");
-        let issues = validate_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert!(issues.is_empty());
     }
 
     #[test]
-    fn test_validate_does_not_modify_file() {
-        let original = "## [v0.1.0]\n### added\n-  [x] bad format\n";
-        let d = write_roadmap(original);
-        let _issues = validate_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
-        assert_eq!(read_roadmap(d.path()), original);
+    fn test_doctor_modifies_file() {
+        // doctor 会实际修改文件，不再是只读
+        let d = write_roadmap("## [v0.1.0]\n### ADDED\n-  [x] bad\n");
+        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        assert!(!issues.is_empty());
+        let content = read_roadmap(d.path());
+        assert!(content.contains("## [0.1.0]"));
+        assert!(content.contains("### Added"));
+        assert!(content.contains("- [x] bad"));
     }
 
     // ── print_status_to ─────────────────────────────────────────

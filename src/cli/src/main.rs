@@ -73,7 +73,7 @@ enum PlanAction {
         /// scope 名称
         scope: Option<String>,
     },
-    /// 验证 scope 格式问题（只读，修复由 LLM 完成）
+    /// 修复 scope 格式问题（规则修复 + LLM 修复）
     Doctor {
         /// scope 名称
         scope: Option<String>,
@@ -273,7 +273,7 @@ fn run_plan_doctor(scope: Option<String>) -> Result<(), String> {
         return Ok(());
     }
     let scope_label = scope.unwrap_or_else(|| "(auto)".to_string());
-    let issues = qtcloud_devops_cli::plan::validate_roadmap(&roadmap_path, &scope_label)?;
+    let issues = qtcloud_devops_cli::plan::doctor_roadmap(&roadmap_path, &scope_label)?;
     if issues.is_empty() {
         println!("  ✅ 格式无误");
     } else {

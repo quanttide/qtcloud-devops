@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [0.8.2] - 2026-07-03
+
+### Added
+
+- `plan doctor` 接入 LLM 修复（基于 `quanttide-agent`）
+  - 规则修复：v 前缀、分类大小写、checkbox 格式
+  - LLM 修复：复杂格式问题（`LLM_API_KEY` 已配置时自动触发）
+
+### Fixed
+
+- `plan doctor` 从只读验证改为实际修复
+
 ## [0.8.1] - 2026-07-02
 
 ### Fixed
