@@ -153,8 +153,14 @@ pub fn ensure_changelog(repo_path: &Path, scope_dir: &Path, version: &str) -> Re
 
     // 提交 CHANGELOG 修改，确保后续标签包含它
     let ver = super::util::normalize_version(version);
+    // changelog_path 相对于 repo_path 的路径
+    let rel = changelog_path
+        .strip_prefix(repo_path)
+        .unwrap_or(&changelog_path)
+        .to_str()
+        .unwrap_or("CHANGELOG.md");
     let add = std::process::Command::new("git")
-        .args(["add", "CHANGELOG.md"])
+        .args(["add", rel])
         .current_dir(repo_path)
         .output()
         .map_err(|e| format!("git add 失败: {}", e))?;

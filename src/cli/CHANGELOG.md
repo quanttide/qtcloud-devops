@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [0.8.3] - 2026-07-04
+
+### Added
+（无）
+
+### Changed
+- 添加并更新 v0.8.3 待修复清单（ROADMAP）
+
+### Fixed
+- 修复 plan 命令的多个问题：采用 LLM-first 架构并提取 `print_progress`；改进 `status` 诊断输出，对非标准格式提示运行 `plan doctor`；修复 `clean cascade` 和 `doctor` 非标准头部检测
+- 修复 `repo_path` 自动查找 git 根目录的问题
+
+### Removed
+（无）
+
 ## [0.8.2] - 2026-07-03
 
 ### Added
