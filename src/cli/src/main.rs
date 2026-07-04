@@ -222,7 +222,7 @@ fn main() {
             let rp = repo_path();
             qtcloud_devops_cli::contract::status(&rp);
             println!();
-            qtcloud_devops_cli::doctor::status();
+            qtcloud_devops_cli::doctor::status(&rp);
             println!();
             qtcloud_devops_cli::plan::print_status(&rp, None).ok();
             println!();
@@ -240,7 +240,8 @@ fn main() {
         }
         Commands::Doctor { action } => match action {
             DoctorAction::Status => {
-                qtcloud_devops_cli::doctor::status();
+                let rp = repo_path();
+                qtcloud_devops_cli::doctor::status(&rp);
                 Ok(())
             }
         },

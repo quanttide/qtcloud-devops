@@ -221,6 +221,16 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
             )?;
         }
     }
+
+    // 语言汇总
+    let mut langs: Vec<&str> = c.scopes.iter().map(|s| s.language.as_str()).collect();
+    langs.sort();
+    langs.dedup();
+    if !langs.is_empty() {
+        writeln!(writer)?;
+        writeln!(writer, "  语言:      {}", langs.join(", "))?;
+    }
+
     Ok(())
 }
 
