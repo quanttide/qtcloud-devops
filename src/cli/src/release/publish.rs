@@ -17,6 +17,7 @@ pub fn publish(
     version: &str,
     repo_path: &Path,
     yes: bool,
+    force: bool,
     registry: Option<PublishTarget>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !util::validate_version(version) {
@@ -30,6 +31,16 @@ pub fn publish(
 
     // 自动更新配置文件版本（scope 子目录下）—— 先于一致性检查
     update_config_version(&scope_dir, &ver);
+
+    // 强制模式：清理已存在的 tag 和 Release，允许重新发布
+    if force {
+        if let Some(repo) = super::util::get_remote_repo(repo_path) {
+            eprintln!("🔁 强制重新发布，清理旧资源...");
+            super::util::delete_release(version, &repo);
+        }
+        super::util::delete_remote_tag(version, repo_path);
+        super::util::delete_local_tag(version, repo_path);
+    }
 
     // 预检：所有配置文件版本号一致
     let config_files = contract::read_all_config_versions(&scope_dir);
@@ -219,14 +230,21 @@ mod tests {
 
     #[test]
     fn test_publish_rejects_invalid_version() {
-        assert!(publish("bad", tempfile::tempdir().unwrap().path(), true, None).is_err());
+        assert!(publish(
+            "bad",
+            tempfile::tempdir().unwrap().path(),
+            true,
+            false,
+            None
+        )
+        .is_err());
     }
     #[test]
     fn test_publish_auto_generates_changelog() {
         let d = tempfile::tempdir().unwrap();
         git_init(d.path());
         git_commit(d.path(), "init");
-        let result = publish("v1.0.0", d.path(), true, None);
+        let result = publish("v1.0.0", d.path(), true, false, None);
         assert!(result.is_ok());
         let changelog = std::fs::read_to_string(d.path().join("CHANGELOG.md")).unwrap_or_default();
         assert!(changelog.contains("## [1.0.0]"));
@@ -234,7 +252,7 @@ mod tests {
     #[test]
     fn test_publish_formal_with_yes() {
         let d = tempfile::tempdir().unwrap();
-        let r = publish("v1.0.0", d.path(), true, None);
+        let r = publish("v1.0.0", d.path(), true, false, None);
         assert!(r.is_ok() || r.is_err());
     }
     #[test]
@@ -247,7 +265,7 @@ mod tests {
             "## [1.0.0-rc.1]\n\ncontent\n",
         )
         .unwrap();
-        let r = publish("v1.0.0-rc.1", d.path(), true, None);
+        let r = publish("v1.0.0-rc.1", d.path(), true, false, None);
         assert!(r.is_ok() || r.is_err());
     }
     #[test]
@@ -343,7 +361,7 @@ mod tests {
             .output()
             .unwrap();
 
-        let result = publish("cli/v0.2.0", d.path(), true, None);
+        let result = publish("cli/v0.2.0", d.path(), true, false, None);
         assert!(result.is_ok(), "publish 失败: {:?}", result.err());
 
         let cargo = std::fs::read_to_string(scope_dir.join("Cargo.toml")).unwrap();

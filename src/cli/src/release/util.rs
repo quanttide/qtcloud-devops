@@ -183,26 +183,84 @@ pub fn create_release(version: &str, notes: &str, repo: &str) -> bool {
 
 /// 回滚 tag：本地删除用 git2，远程删除用 CLI。
 pub fn rollback_tag(version: &str, repo_path: &Path) {
-    // 本地删除
-    if let Ok(repo) = git2::Repository::open(repo_path) {
-        let refname = format!("refs/tags/{}", version);
-        if let Ok(mut reference) = repo.find_reference(&refname) {
-            let _ = reference.delete();
-        }
+    let local_ok = delete_local_tag(version, repo_path);
+    let remote_ok = delete_remote_tag(version, repo_path);
+    if local_ok && remote_ok {
+        eprintln!("已回滚标签 {}", version);
     }
-    // 远程删除
-    Command::new("git")
+}
+
+/// 删除本地 tag（等价于 `git tag -d <version>`）。
+pub fn delete_local_tag(version: &str, repo_path: &Path) -> bool {
+    let repo = match git2::Repository::open(repo_path) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("打开仓库失败: {}", e);
+            return false;
+        }
+    };
+    let refname = format!("refs/tags/{}", version);
+    if let Ok(mut reference) = repo.find_reference(&refname) {
+        reference.delete().ok();
+    }
+    true // 不存在也算成功
+}
+
+/// 删除远端 tag（等价于 `git push --delete origin <version>`）。
+pub fn delete_remote_tag(version: &str, repo_path: &Path) -> bool {
+    if get_remote_repo(repo_path).is_none() {
+        return true; // 没有 remote 则跳过
+    }
+    let out = Command::new("git")
         .args([
             "-C",
             &repo_path.to_string_lossy(),
             "push",
-            "origin",
             "--delete",
+            "origin",
             version,
         ])
-        .output()
-        .ok();
-    println!("↻ 标签 {} 已回滚", version);
+        .output();
+    match out {
+        Ok(out) if out.status.success() => true,
+        Ok(out) => {
+            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if msg.contains("does not appear") || msg.contains("repository '' does not exist") {
+                return true;
+            }
+            if msg.contains("ould not delete") && msg.contains("remote ref does not exist") {
+                return true; // 远端 tag 不存在也算成功
+            }
+            eprintln!("删除远端标签失败: {}", msg);
+            false
+        }
+        Err(e) => {
+            eprintln!("删除远端标签失败: {}", e);
+            false
+        }
+    }
+}
+
+/// 删除 GitHub Release（等价于 `gh release delete <version> --yes`）。
+pub fn delete_release(version: &str, repo: &str) -> bool {
+    let out = Command::new("gh")
+        .args(["release", "delete", version, "--yes", "--repo", repo])
+        .output();
+    match out {
+        Ok(out) if out.status.success() => true,
+        Ok(out) => {
+            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if msg.contains("not found") || msg.contains("404") {
+                return true; // 不存在也算成功
+            }
+            eprintln!("删除 Release 失败: {}", msg);
+            false
+        }
+        Err(e) => {
+            eprintln!("删除 Release 失败: {}", e);
+            false
+        }
+    }
 }
 
 #[cfg(test)]

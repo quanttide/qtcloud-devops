@@ -105,6 +105,9 @@ enum ReleaseAction {
         /// 跳过用户确认
         #[arg(long, short = 'y')]
         yes: bool,
+        /// 强制重新发布：删除已存在的 tag 和 Release 后重新创建
+        #[arg(long, short = 'f')]
+        force: bool,
         /// CI 发布目标（仅打印提示，不执行发布）
         #[arg(long, value_enum)]
         registry: Option<PublishTarget>,
@@ -197,8 +200,9 @@ fn main() {
             ReleaseAction::Publish {
                 version,
                 yes,
+                force,
                 registry,
-            } => qtcloud_devops_cli::release::publish(&version, &repo_path(), yes, registry)
+            } => qtcloud_devops_cli::release::publish(&version, &repo_path(), yes, force, registry)
                 .map_err(|e| format!("{}", e)),
             ReleaseAction::Status => {
                 qtcloud_devops_cli::release::status(&repo_path());

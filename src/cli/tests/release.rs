@@ -168,6 +168,7 @@ fn test_release_publish_rejects_invalid_version() {
         "bad",
         tempfile::tempdir().unwrap().path(),
         true,
+        false,
         None
     )
     .is_err());
@@ -177,7 +178,7 @@ fn test_release_publish_rejects_invalid_version() {
 fn test_release_publish_auto_generates_changelog() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
-    let result = qtcloud_devops_cli::release::publish("v1.0.0", dir.path(), true, None);
+    let result = qtcloud_devops_cli::release::publish("v1.0.0", dir.path(), true, false, None);
     assert!(
         result.is_ok(),
         "publish with auto-generated CHANGELOG 应成功, 得到: {:?}",
@@ -200,8 +201,12 @@ fn test_release_publish_idempotent() {
         "## [1.0.0-rc.1]\n\ncontent\n",
     )
     .unwrap();
-    assert!(qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, None).is_ok());
-    assert!(qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, None).is_ok());
+    assert!(
+        qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, false, None).is_ok()
+    );
+    assert!(
+        qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, false, None).is_ok()
+    );
 }
 
 #[test]
@@ -209,7 +214,7 @@ fn test_release_publish_without_changelog_entry() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
     std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0]\n\ncontent\n").unwrap();
-    let result = qtcloud_devops_cli::release::publish("v2.0.0", dir.path(), true, None);
+    let result = qtcloud_devops_cli::release::publish("v2.0.0", dir.path(), true, false, None);
     assert!(
         result.is_ok(),
         "LLM 应自动生成缺失的 CHANGELOG 条目, 得到: {:?}",
@@ -233,7 +238,7 @@ fn test_release_publish_with_v_prefix_changelog() {
         "# CHANGELOG\n\n## [v0.1.0]\n\n### Added\n- init\n",
     )
     .unwrap();
-    let result = qtcloud_devops_cli::release::publish("v0.1.0", dir.path(), true, None);
+    let result = qtcloud_devops_cli::release::publish("v0.1.0", dir.path(), true, false, None);
     assert!(result.is_ok());
     let changelog = std::fs::read_to_string(dir.path().join("CHANGELOG.md")).unwrap_or_default();
     // 应只有一个 [v0.1.0] 条目，没有 [0.1.0] 重复
@@ -295,23 +300,45 @@ fn test_release_publish_scoped_monorepo() {
     git_commit(dir.path());
 
     // 发布 scoped 版本 —— repo_path=git根, scope_dir=contract映射的子目录
-    let result = qtcloud_devops_cli::release::publish("cli/v0.2.0", dir.path(), true, None);
-    assert!(result.is_ok(), "monorepo scoped publish 应成功: {:?}", result);
+    let result = qtcloud_devops_cli::release::publish("cli/v0.2.0", dir.path(), true, false, None);
+    assert!(
+        result.is_ok(),
+        "monorepo scoped publish 应成功: {:?}",
+        result
+    );
 
     // 验证 scope 目录文件已更新
     let cargo = std::fs::read_to_string(scope_dir.join("Cargo.toml")).unwrap_or_default();
-    assert!(cargo.contains("version = \"0.2.0\""), "scope 的 Cargo.toml 应更新: {}", cargo);
+    assert!(
+        cargo.contains("version = \"0.2.0\""),
+        "scope 的 Cargo.toml 应更新: {}",
+        cargo
+    );
 
     // 验证 CHANGELOG 在 scope 目录下（不在根目录）
-    let scope_changelog = std::fs::read_to_string(scope_dir.join("CHANGELOG.md")).unwrap_or_default();
-    assert!(scope_changelog.contains("## [0.2.0]"), "scope 的 CHANGELOG 应含新版本: {}", scope_changelog);
+    let scope_changelog =
+        std::fs::read_to_string(scope_dir.join("CHANGELOG.md")).unwrap_or_default();
+    assert!(
+        scope_changelog.contains("## [0.2.0]"),
+        "scope 的 CHANGELOG 应含新版本: {}",
+        scope_changelog
+    );
     let root_changelog = dir.path().join("CHANGELOG.md");
     assert!(!root_changelog.exists(), "根目录不应生成 CHANGELOG");
 
     // 验证 tag 存在
     let output = std::process::Command::new("git")
-        .args(["-C", dir.path().to_str().unwrap(), "tag", "-l", "cli/v0.2.0"])
+        .args([
+            "-C",
+            dir.path().to_str().unwrap(),
+            "tag",
+            "-l",
+            "cli/v0.2.0",
+        ])
         .output()
         .unwrap();
-    assert!(String::from_utf8_lossy(&output.stdout).contains("cli/v0.2.0"), "tag 应存在");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("cli/v0.2.0"),
+        "tag 应存在"
+    );
 }
