@@ -314,53 +314,63 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_all_languages_empty() {
+        let d = tempfile::tempdir().unwrap();
+        let langs = detect_all_languages(d.path());
+        assert!(langs.is_empty(), "空目录应返回空");
+    }
+
+    #[test]
+    fn test_detect_all_languages_multi() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("Cargo.toml"), "").unwrap();
+        std::fs::write(d.path().join("pyproject.toml"), "").unwrap();
+        std::fs::write(d.path().join("package.json"), "{}").unwrap();
+        let mut langs = detect_all_languages(d.path());
+        langs.sort();
+        assert_eq!(langs, vec!["python", "rust", "typescript"]);
+    }
+
+    #[test]
+    fn test_detect_all_languages_edge() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("go.mod"), "").unwrap();
+        std::fs::write(d.path().join("pubspec.yaml"), "").unwrap();
+        std::fs::write(d.path().join("requirements.txt"), "").unwrap();
+        let mut langs = detect_all_languages(d.path());
+        langs.sort();
+        assert!(langs.contains(&"go".to_string()));
+        assert!(langs.contains(&"dart".to_string()));
+        assert!(langs.contains(&"python".to_string()));
+    }
+
+    #[test]
     fn test_auto_detect_with_packages() {
         let d = tempfile::tempdir().unwrap();
-        // 创建 packages/foo/Cargo.toml
         std::fs::create_dir_all(d.path().join("packages/foo")).unwrap();
-        std::fs::write(
-            d.path().join("packages/foo/Cargo.toml"),
-            "[package]\nname = \"foo\"\n",
-        )
-        .unwrap();
-        // 创建 src/cli/Cargo.toml
+        std::fs::write(d.path().join("packages/foo/Cargo.toml"), "[package]\n").unwrap();
         std::fs::create_dir_all(d.path().join("src/cli")).unwrap();
-        std::fs::write(
-            d.path().join("src/cli/Cargo.toml"),
-            "[package]\nname = \"cli\"\n",
-        )
-        .unwrap();
-
+        std::fs::write(d.path().join("src/cli/Cargo.toml"), "[package]\n").unwrap();
         let c = auto_detect_contract(d.path());
-        // 应检测到 2 个 scope（根没有 Cargo.toml，所以无 root scope）
-        assert_eq!(
-            c.scopes.len(),
-            2,
-            "应有 2 个 scope，得到 {}",
-            c.scopes.len()
-        );
+        assert_eq!(c.scopes.len(), 2, "应有 2 个 scope");
         let names: Vec<&str> = c.scopes.iter().map(|s| s.name.as_str()).collect();
-        assert!(names.contains(&"foo"), "应包含 foo: {:?}", names);
-        assert!(names.contains(&"cli"), "应包含 cli: {:?}", names);
+        assert!(names.contains(&"foo"));
+        assert!(names.contains(&"cli"));
     }
 
     #[test]
     fn test_auto_detect_empty_repo() {
         let d = tempfile::tempdir().unwrap();
-        // 空目录，没有任何项目文件
         let c = auto_detect_contract(d.path());
-        // 无法识别任何语言 → scopes 为空
-        assert!(c.scopes.is_empty(), "空目录 scopes 应为空: {:?}", c.scopes);
+        assert!(c.scopes.is_empty(), "空目录 scopes 应为空");
     }
 
     #[test]
     fn test_auto_detect_root_only() {
         let d = tempfile::tempdir().unwrap();
-        // 根目录有 Cargo.toml，但没有子目录 scope
-        std::fs::write(d.path().join("Cargo.toml"), "[package]\nname = \"root\"\n").unwrap();
+        std::fs::write(d.path().join("Cargo.toml"), "[package]\n").unwrap();
         let c = auto_detect_contract(d.path());
-        // 应有 (root) scope
-        assert!(!c.scopes.is_empty(), "应有 root scope");
-        assert!(c.scopes.iter().any(|s| s.name == "(root)"), "应包含 (root)");
+        assert!(!c.scopes.is_empty());
+        assert!(c.scopes.iter().any(|s| s.name == "(root)"));
     }
 }

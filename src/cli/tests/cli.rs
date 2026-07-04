@@ -222,3 +222,84 @@ fn test_cli_publish_gh_not_found_err_path() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+#[test]
+fn test_cli_contract_status() {
+    let d = tempfile::tempdir().unwrap();
+    let output = cli()
+        .args(["contract", "status"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("契约状态"));
+}
+
+#[test]
+fn test_cli_doctor_status() {
+    let d = tempfile::tempdir().unwrap();
+    let output = cli()
+        .args(["doctor", "status"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("系统诊断"));
+}
+
+#[test]
+fn test_cli_build_status() {
+    let d = tempfile::tempdir().unwrap();
+    let output = cli()
+        .args(["build", "status"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("构建状态"));
+}
+
+#[test]
+fn test_cli_status() {
+    let d = tempfile::tempdir().unwrap();
+    let output = cli().arg("status").current_dir(d.path()).output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("系统诊断") || stdout.contains("契约状态"));
+}
+
+#[test]
+fn test_cli_plan_status() {
+    let d = tempfile::tempdir().unwrap();
+    let output = cli()
+        .args(["plan", "status"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+}
+
+#[test]
+fn test_cli_release_status() {
+    let d = tempfile::tempdir().unwrap();
+    let output = cli()
+        .args(["release", "status"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+}
+
+#[test]
+fn test_cli_test_status() {
+    let d = tempfile::tempdir().unwrap();
+    let output = cli()
+        .args(["test", "status"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+}

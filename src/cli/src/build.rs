@@ -341,6 +341,106 @@ mod tests {
     }
 
     #[test]
+    fn test_print_scope_version_inconsistent() {
+        let vs = contract::VersionStatus {
+            tag_version: Some("0.2.0".into()),
+            config_version: Some("0.1.0".into()),
+            consistent: false,
+            config_files: vec![("Cargo.toml".into(), Some("0.1.0".into()))],
+        };
+        let release = contract::StageRelease::default();
+        let c = contract::Contract::default();
+        let mut buf = Vec::new();
+        print_scope(
+            &mut buf,
+            "test",
+            Path::new("/tmp"),
+            &contract::Language::Rust,
+            &c,
+            &vs,
+            &release,
+        )
+        .unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("配置不一致"), "应显示不一致");
+    }
+
+    #[test]
+    fn test_print_scope_tag_without_config() {
+        let vs = contract::VersionStatus {
+            tag_version: Some("0.1.0".into()),
+            config_version: None,
+            consistent: false,
+            config_files: vec![("Cargo.toml".into(), None)],
+        };
+        let release = contract::StageRelease::default();
+        let c = contract::Contract::default();
+        let mut buf = Vec::new();
+        print_scope(
+            &mut buf,
+            "test",
+            Path::new("/tmp"),
+            &contract::Language::Rust,
+            &c,
+            &vs,
+            &release,
+        )
+        .unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("无配置文件"), "应显示无配置文件");
+    }
+
+    #[test]
+    fn test_print_scope_config_without_tag() {
+        let vs = contract::VersionStatus {
+            tag_version: None,
+            config_version: Some("0.1.0".into()),
+            consistent: false,
+            config_files: vec![("Cargo.toml".into(), Some("0.1.0".into()))],
+        };
+        let release = contract::StageRelease::default();
+        let c = contract::Contract::default();
+        let mut buf = Vec::new();
+        print_scope(
+            &mut buf,
+            "test",
+            Path::new("/tmp"),
+            &contract::Language::Rust,
+            &c,
+            &vs,
+            &release,
+        )
+        .unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("无 tag"), "应显示无 tag");
+    }
+
+    #[test]
+    fn test_print_scope_no_release() {
+        let vs = contract::VersionStatus {
+            tag_version: None,
+            config_version: None,
+            consistent: false,
+            config_files: vec![],
+        };
+        let release = contract::StageRelease::default();
+        let c = contract::Contract::default();
+        let mut buf = Vec::new();
+        print_scope(
+            &mut buf,
+            "test",
+            Path::new("/tmp"),
+            &contract::Language::Rust,
+            &c,
+            &vs,
+            &release,
+        )
+        .unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("暂无发布"), "应显示暂无发布");
+    }
+
+    #[test]
     fn test_is_working_tree_dirty_empty_repo() {
         let d = tempfile::tempdir().unwrap();
         assert!(!is_working_tree_dirty(d.path()));

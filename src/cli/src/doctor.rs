@@ -172,6 +172,65 @@ mod tests {
     }
 
     #[test]
+    fn test_status_to_python() {
+        let d = tempfile::tempdir().unwrap();
+        // 创建 pyproject.toml 模拟 Python 项目
+        std::fs::write(
+            d.path().join("pyproject.toml"),
+            "[project]\nname = \"test\"\n",
+        )
+        .unwrap();
+        let mut buf = Vec::new();
+        status_to(&mut buf, d.path()).unwrap();
+        let output = String::from_utf8(buf).expect("非 UTF-8 输出");
+        assert!(output.contains("git"), "应包含 git");
+        assert!(output.contains("python"), "Python 项目应显示 python");
+    }
+
+    #[test]
+    fn test_status_to_go() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("go.mod"), "module test\n").unwrap();
+        let mut buf = Vec::new();
+        status_to(&mut buf, d.path()).unwrap();
+        let output = String::from_utf8(buf).expect("非 UTF-8 输出");
+        assert!(output.contains("go"), "Go 项目应显示 go 工具链");
+    }
+
+    #[test]
+    fn test_status_to_typescript() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("package.json"), "{\"name\":\"test\"}\n").unwrap();
+        let mut buf = Vec::new();
+        status_to(&mut buf, d.path()).unwrap();
+        let output = String::from_utf8(buf).expect("非 UTF-8 输出");
+        assert!(output.contains("node"), "TS 项目应显示 node 工具链");
+    }
+
+    #[test]
+    fn test_status_to_dart() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("pubspec.yaml"), "name: test\n").unwrap();
+        let mut buf = Vec::new();
+        status_to(&mut buf, d.path()).unwrap();
+        let output = String::from_utf8(buf).expect("非 UTF-8 输出");
+        assert!(output.contains("flutter"), "Dart 项目应显示 flutter 工具链");
+    }
+
+    #[test]
+    fn test_status_to_no_lang() {
+        let d = tempfile::tempdir().unwrap();
+        // 空目录，无项目文件
+        let mut buf = Vec::new();
+        status_to(&mut buf, d.path()).unwrap();
+        let output = String::from_utf8(buf).expect("非 UTF-8 输出");
+        assert!(output.contains("git"), "应始终显示 git");
+        assert!(output.contains("gh"), "应始终显示 gh");
+        // 不应包含 cargo/python/go 等语言特定工具
+        // 空目录无法识别语言，只显示 git/gh
+    }
+
+    #[test]
     fn test_status_to_output() {
         let d = tempfile::tempdir().unwrap();
         // 创建 Cargo.toml 让语言检测到 rust
