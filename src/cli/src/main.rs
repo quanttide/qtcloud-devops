@@ -308,6 +308,23 @@ fn run_plan_clean(scope: Option<String>) -> Result<(), String> {
             removed,
             roadmap_path.display()
         );
+        // 自动提交
+        let rel = roadmap_path
+            .strip_prefix(&repo_path)
+            .unwrap_or(&roadmap_path)
+            .to_str()
+            .unwrap_or("ROADMAP.md");
+        std::process::Command::new("git")
+            .args(["add", rel])
+            .current_dir(&repo_path)
+            .output()
+            .map_err(|e| format!("git add 失败: {}", e))?;
+        std::process::Command::new("git")
+            .args(["commit", "-m", "chore: clean completed roadmap items"])
+            .current_dir(&repo_path)
+            .output()
+            .map_err(|e| format!("git commit 失败: {}", e))?;
+        println!("  ✓ 已提交");
     } else {
         println!("  无已完成条目可清理");
     }
