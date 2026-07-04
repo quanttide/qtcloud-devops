@@ -1,104 +1,83 @@
 # Contract 模块设计文档
 
-> 枚举命名约定：按**文件/工具/行为**命名，不按语言或运行时。
-> 例外：`BuildTool::Uv` 保留原名，因 `uv` 是其官方项目名，且用户群体已认知。
+契约（Contract）是四维 DevOps 治理模型在代码中的映射，定义在 `src/contract.rs`。
 
-## 枚举定义
+## 加载流程
 
-### `Language` — 编程语言
-
-```rust
-pub enum Language {
-    Rust,              // Cargo.toml 存在
-    Python,            // pyproject.toml 或 requirements.txt 存在
-    Go,                // go.mod 存在
-    Dart,              // pubspec.yaml 存在
-    TypeScript,        // package.json 存在
-    Unknown(String),   // 无法识别，携带原始标识符以便调试
-}
+```
+load(repo_path)
+  │
+  ├─ .quanttide/devops/contract.yaml 存在?
+  │   ├─ Y → serde 解析 → Contract
+  │   └─ N → auto_detect_contract(repo_path)
+  │           ├─ 扫描 src/*/ packages/*/ apps/*/ 下项目配置文件
+  │           │   有匹配文件 → 每个子目录生成一个 Scope
+  │           │   无匹配     → scope 为空
+  │           ├─ 根目录语言可识别? → 插入 (root) scope
+  │           └─ 返回 Contract（stages/platform/scopes 均默认值）
+  │
+  └─ 返回 Contract
 ```
 
-检测策略（`detect_by_files`）：按优先级检查根目录下的标志文件，`Cargo.toml` > `pyproject.toml` > `go.mod` > `pubspec.yaml` > `package.json`。无匹配时返回 `Unknown`。
+### 无 contract.yaml 时的自动推断规则
 
-### `BuildTool` — 构建工具
+扫描 `src/*`、`packages/*`、`apps/*` 下的一级子目录：
 
-```rust
-pub enum BuildTool {
-    Cargo,             // Rust 项目
-    Uv,                // Python 项目（uv，兼容 pip CLI）
-    Go,                // Go 项目（go build）
-    Flutter,           // Dart/Flutter 项目（flutter build）
-    Npm,               // Node/TypeScript 项目（npm run build）
-    Unknown(String),   // 无法识别
-}
-```
+| 标志文件 | 推断语言 | 推断构建工具 |
+|----------|---------|------------|
+| `Cargo.toml` | `Rust` | `Cargo` |
+| `pyproject.toml` / `requirements.txt` | `Python` | `Uv` |
+| `go.mod` | `Go` | `Go` |
+| `pubspec.yaml` | `Dart` | `Flutter` |
+| `package.json` | `TypeScript` | `Npm` |
+| 无匹配 | 跳过（不生成 scope） | — |
 
-### `Registry` — 制品库
+根目录也按同样规则检测，检测到语言时生成 `(root)` scope（优先级最低）。
 
-```rust
-pub enum Registry {
-    Crates,            // crates.io
-    PyPI,              // Python Package Index
-    PubDev,            // pub.dev（Dart/Flutter）
-    Npm,               // npm registry
-    GitHubReleases,    // GitHub Releases（不通过包管理器分发时使用）
-    Docker,            // Docker Hub / 容器镜像仓库
-    None,              // 无制品库 / 暂未配置
-}
-```
-
-### `SourceType` — 版本号来源
-
-```rust
-pub enum SourceType {
-    Cargo,             // 从 Cargo.toml 的 version 字段读取
-    Pyproject,         // 从 pyproject.toml 的 version 字段读取（PEP 621）
-    TagOnly,           // 不从配置文件读版本，只从 git tag 读取（如 Go 项目）
-    Pubspec,           // 从 pubspec.yaml 的 version 字段读取（Dart/Flutter）
-    PackageJson,       // 从 package.json 的 version 字段读取
-    Auto,              // 自动检测（默认值）
-}
-```
-
-所有枚举遵循**兜底原则**：`Unknown` / `None` 变体保证任何未知输入不会导致崩溃。
-
-## 现状
-
-`src/contract.rs` 已实现，20 个测试全部通过。四维契约模型已落地，替换了原来散落在 `publish.rs` 和 `status.rs` 中的手写 YAML 解析。
-
-| 文件 | 旧实现（已删除） | 替换方式 |
-|------|-----------------|---------|
-| `release/publish.rs` | `resolve_scope_dir()` — 35 行按行扫描 YAML | `contract::load_scopes()` 查找 version 前缀对应 scope |
-| `release/status.rs` | `read_contract_scopes()` — 33 行手写状态机 | `contract::load_scopes()` → HashMap 转换 |
-
-**收益**：消灭 68 行重复 YAML 解析，消除 `unused variable` 警告，四维架构可供后续命令直接复用。
-
-## 核心结构
+## 四维架构
 
 ```rust
 pub struct Contract {
-    pub stages: Stages,         // 时序维度
-    pub platforms: Platforms,   // 载体维度
-    pub sources: Sources,       // 事实源维度
-    pub scopes: Vec<Scope>,     // 上下文维度
+    pub stages: Stage,           // 时序 — 构建/测试/发布各阶段的命令和阈值
+    pub platform: Platform,      // 载体 — 源码托管/CI/制品库
+    pub sources: Source,         // 事实源 — 版本号来源
+    pub scopes: Vec<Scope>,      // 上下文 — 多组件映射
 }
+```
 
-pub struct Stages {
-    pub build: StageBuild,
-    pub test: StageTest,        // threshold: f64
-    pub release: StageRelease,  // changelog, pre_publish
+### Stage（时序）
+
+```rust
+pub struct Stage {
+    pub build: StageBuild,       // command: Option<String>
+    pub test: StageTest,         // command, threshold (default: 70.0)
+    pub release: StageRelease,   // changelog (default: "CHANGELOG.md"), pre_publish
 }
+```
 
-pub struct Platforms {
-    pub source_control: String,        // 默认 "github"
-    pub ci: String,                    // 默认 "github_actions"
-    pub artifact_registry: Registry,   // Crates/PyPI/...
+### Platform（载体）
+
+```rust
+pub struct Platform {
+    pub source_control: SourceControl,   // Github / Gitlab / Gitee
+    pub pipeline: Pipeline,              // GithubActions / GitlabCi / Jenkins
+    pub artifact_registry: Registry,     // Crates / PyPI / PubDev / Npm / ...
 }
+```
 
-pub struct Sources {
+### Source（事实源）
+
+```rust
+pub struct Source {
     pub version: VersionSource,  // source_type: SourceType, path: Option<String>
 }
+```
 
+`SourceType` 枚举：`Cargo`、`Pyproject`、`TagOnly`、`Pubspec`、`PackageJson`、`Auto`（默认）。
+
+### Scope（上下文）
+
+```rust
 pub struct Scope {
     pub name: String,
     pub dir: String,
@@ -108,58 +87,100 @@ pub struct Scope {
     pub registry: Registry,
     pub release: StageRelease,
     pub test_threshold: Option<f64>,
-    /// CI workflow 名称。未设置时按 build-{scope} 约定推导。
     pub ci_workflow: Option<String>,
+}
+```
+
+## 枚举定义
+
+### Language — 编程语言
+
+```rust
+pub enum Language {
+    Rust,              // Cargo.toml
+    Python,            // pyproject.toml / requirements.txt
+    Go,                // go.mod
+    Dart,              // pubspec.yaml
+    TypeScript,        // package.json
+    Unknown(String),   // 兜底，携带原始字符串
+}
+```
+
+检测优先级：`Cargo.toml` > `pyproject.toml` > `go.mod` > `pubspec.yaml` > `package.json`。
+
+### BuildTool — 构建工具
+
+```rust
+pub enum BuildTool {
+    Cargo,             // Rust
+    Uv,                // Python（含 uv/poetry/pdm）
+    Go,                // Go
+    Flutter,           // Dart/Flutter
+    Npm,               // TypeScript/Node（含 pnpm/yarn/bun）
+    Unknown(String),   // 兜底
+}
+```
+
+### Registry — 制品库
+
+```rust
+pub enum Registry {
+    Crates,            // crates.io
+    PyPI,              // Python Package Index
+    PubDev,            // pub.dev
+    Npm,               // npm registry
+    GitHubReleases,    // GitHub Releases
+    Docker,            // Docker Hub / 容器镜像
+    None,              // 无配置（默认）
+}
+```
+
+### SourceType — 版本号来源
+
+```rust
+pub enum SourceType {
+    Cargo,             // Cargo.toml version
+    Pyproject,         // pyproject.toml version（PEP 621）
+    TagOnly,           // 仅 git tag（Go 项目等）
+    Pubspec,           // pubspec.yaml version
+    PackageJson,       // package.json version
+    Auto,              // 自动检测（默认）
 }
 ```
 
 ## 公共 API
 
 ```rust
-// 加载
 pub fn load(repo_path: &Path) -> Contract
-
-// 便捷访问
-pub fn scope_release(contract, scope) -> &StageRelease
-pub fn scope_test_threshold(contract, scope) -> f64
-pub fn find_scope_by_path(scopes, current_dir) -> Option<&Scope>
-
-// 语言检测
-pub fn resolve_language(scope, scope_dir) -> Language
-pub fn detect_by_files(dir) -> Language
-pub trait Language::is_supported() -> bool
-pub trait BuildTool::is_supported() -> bool
-
-// 版本状态
-pub fn version_status(repo_path, scope) -> VersionStatus
-
-// 向下兼容
-pub fn load_scopes(repo_path) -> Vec<Scope>
-pub fn detect_language(dir) -> Language
+pub fn load_scopes(repo_path: &Path) -> Vec<Scope>
+pub fn status(repo_path: &Path)
+pub fn status_to(writer: &mut impl Write, repo_path: &Path) -> io::Result<()>
+pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionStatus
+pub fn detect_by_files(dir: &Path) -> Language
 ```
 
-## YAML 格式
-
-新格式（完整四维架构）：
+## YAML 格式（contract.yaml）
 
 ```yaml
 stages:
+  build:
+    command: cargo build --release
   test:
+    command: cargo test
     threshold: 80
   release:
     changelog: CHANGELOG.md
     pre_publish:
-      - scripts/preflight.sh
+      - cargo publish
 
-platforms:
+platform:
   source_control: github
-  ci: github_actions
+  pipeline: github_actions
   artifact_registry: crates
 
 sources:
   version:
     type: cargo
-    path: Cargo.toml
 
 scopes:
   cli:
@@ -167,44 +188,20 @@ scopes:
     language: rust
     build_tool: cargo
     registry: crates
-  cli:
-    dir: src/cli
-    language: rust
-    build_tool: cargo
-    registry: crates
-    # ci_workflow 不写则默认 build-cli
-  studio:
-    dir: src/studio
-    language: dart
-    build_tool: flutter
-    registry: pubdev
-    release:
-      changelog: src/studio/CHANGELOG.md
-    ci_workflow: studio-pipeline  # 显式指定，不走约定
+    test_threshold: 90
+    ci_workflow: build-cli
 ```
 
-## 解析
+所有段均可省略，省略的部分走 `Default` 值。
 
-```
-YAML 文件
-   │
-   ├─ 尝试 serde::from_str<ContractYaml>
-   │    成功 → into_contract() → Contract
-   │    失败 → YAML 语法合法 → eprintln 警告
-   │
-   └─ 返回 default_contract()
-```
+## 覆盖语义（浅覆盖）
 
-旧格式兼容代码已删除，所有 contract.yaml 使用新格式（四维架构）。
+Scope 有值用 scope 的，没有则用全局。不做深度合并。
 
-### 错误反馈
-
-| 场景 | 输出 |
-|------|------|
-| contract.yaml 不存在 | `ℹ contract.yaml 不存在，使用默认契约` |
-| YAML 语法合法但无法解析 | `⚠ contract.yaml: 无法按新格式解析，使用默认值` |
-
-旧格式兼容代码已删除，所有 contract.yaml 均使用新格式（四维架构）。
+- `scope.test_threshold = Some(90)` → 覆盖全局 `stages.test.threshold`
+- `scope.test_threshold = None` → 使用 `stages.test.threshold`（默认 70.0）
+- `scope.release.changelog = "src/cli/CHANGELOG.md"` → 只覆盖 changelog，pre_publish 走全局
+- `scope.ci_workflow = None` → 按 `build-{scope}` 约定推导
 
 ## 版本一致性检查
 
@@ -212,41 +209,23 @@ YAML 文件
 pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionStatus
 ```
 
-- **tag 版本**：`git tag --sort=-version:refname`，按 scope 前缀过滤，`normalize_version` 去 `v` 前缀
+- **tag 版本**：`git tag --sort=-version:refname`，按 scope 前缀过滤
 - **配置版本**：按语言读取配置文件中的 `version` 字段
 - **一致性**：两者都存在时比较；都为空视为一致；一个为空视为不一致
 
-## 覆盖语义（浅覆盖）
-
-Scope 级有值就用 scope 的，没有就用全局的。不是深度合并。
-
-- `scope.test_threshold = Some(90)` → 覆盖全局 `stages.test.threshold`
-- `scope.test_threshold = None` → 使用 `stages.test.threshold`（默认 70.0）
-- `scope.release.changelog = "src/cli/CHANGELOG.md"` → 只覆盖 changelog，`pre_publish` 走全局
-- `scope.ci_workflow = Some("build-cli")` → 使用指定 workflow 名；`None` → 按 `build-{scope}` 约定推导
-
-## 依赖
-
-```toml
-[dependencies]
-serde = { version = "1", features = ["derive"] }   # 已有
-serde_yaml = "0.9"                                   # 新建 contract 时新增
-```
-
 ## 测试策略
 
-共 20 个测试，覆盖：
+269 个测试覆盖：
 
-1. **新格式解析**：完整四维架构 YAML、最小 YAML
-2. **旧格式兼容**：`scopes: { cli: src/cli }`
-3. **文件缺失**：无 contract.yaml 时返回默认值
-4. **便捷函数**：`scope_test_threshold` 自定义/全局、`resolve_language` 声明优先
-5. **语言检测**：Rust（有 Cargo.toml）、Unknown（空目录）
-6. **版本号**：`v` 前缀、scope 前缀、RC 版本、scope+RC 混合
-7. **边缘测试**：Unknown 语言 YAML、路径匹配 4 场景（精确/子目录/回退/无匹配）
+1. **契约加载**：有 contract.yaml / 无文件 / 自动推断
+2. **格式修复**：v 前缀、大小写、非标准版本头/分类、混合格式
+3. **清理**：done 条目、空版本、后缀版本 cascade、文件不存在
+4. **发布**：scoped 版本、monorepo 子目录、自动更新版本号
+5. **版本一致性**：git 异常降级、tag vs 配置比较
+6. **CHANGELOG**：自动生成、追加、repo_path ≠ scope_dir
+7. **路径解析**：契约映射、回退子目录名、无 scope
 
 ## 参考
 
-- 实验室原型：`examples/default/src/contract.rs`（41 测试）
-- 设计文档：`examples/default/docs/contract.md`
-- 理论来源：`docs/essay/contract/index.md`
+- 四维架构理论：`docs/essay/contract/index.md`
+- Toolkit 模型：`packages/toolkit/packages/rust/src/contract/`
