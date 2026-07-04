@@ -276,4 +276,55 @@ mod tests {
         assert!(out.contains("⚠ 默认配置"));
         assert!(out.contains("未定义 scope"));
     }
+
+    #[test]
+    fn test_auto_detect_with_packages() {
+        let d = tempfile::tempdir().unwrap();
+        // 创建 packages/foo/Cargo.toml
+        std::fs::create_dir_all(d.path().join("packages/foo")).unwrap();
+        std::fs::write(
+            d.path().join("packages/foo/Cargo.toml"),
+            "[package]\nname = \"foo\"\n",
+        )
+        .unwrap();
+        // 创建 src/cli/Cargo.toml
+        std::fs::create_dir_all(d.path().join("src/cli")).unwrap();
+        std::fs::write(
+            d.path().join("src/cli/Cargo.toml"),
+            "[package]\nname = \"cli\"\n",
+        )
+        .unwrap();
+
+        let c = auto_detect_contract(d.path());
+        // 应检测到 2 个 scope（根没有 Cargo.toml，所以无 root scope）
+        assert_eq!(
+            c.scopes.len(),
+            2,
+            "应有 2 个 scope，得到 {}",
+            c.scopes.len()
+        );
+        let names: Vec<&str> = c.scopes.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"foo"), "应包含 foo: {:?}", names);
+        assert!(names.contains(&"cli"), "应包含 cli: {:?}", names);
+    }
+
+    #[test]
+    fn test_auto_detect_empty_repo() {
+        let d = tempfile::tempdir().unwrap();
+        // 空目录，没有任何项目文件
+        let c = auto_detect_contract(d.path());
+        // 无法识别任何语言 → scopes 为空
+        assert!(c.scopes.is_empty(), "空目录 scopes 应为空: {:?}", c.scopes);
+    }
+
+    #[test]
+    fn test_auto_detect_root_only() {
+        let d = tempfile::tempdir().unwrap();
+        // 根目录有 Cargo.toml，但没有子目录 scope
+        std::fs::write(d.path().join("Cargo.toml"), "[package]\nname = \"root\"\n").unwrap();
+        let c = auto_detect_contract(d.path());
+        // 应有 (root) scope
+        assert!(!c.scopes.is_empty(), "应有 root scope");
+        assert!(c.scopes.iter().any(|s| s.name == "(root)"), "应包含 (root)");
+    }
 }

@@ -877,6 +877,24 @@ mod tests {
     }
 
     #[test]
+    fn test_print_status_to_with_scope() {
+        // scope "test" 不在契约中 → 回退到 test/ROADMAP.md
+        let d = tempfile::tempdir().unwrap();
+        let scope_dir = d.path().join("test");
+        std::fs::create_dir_all(&scope_dir).unwrap();
+        std::fs::write(
+            scope_dir.join("ROADMAP.md"),
+            "## [0.1.0]\n- [x] done\n- [ ] todo\n",
+        )
+        .unwrap();
+        let mut buf = Vec::new();
+        print_status_to(&mut buf, d.path(), Some("test")).unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("test"), "应显示 scope 名称");
+        assert!(out.contains("0.1.0"), "应显示版本号");
+    }
+
+    #[test]
     fn test_print_status_with_data() {
         let d =
             write_roadmap("## [0.2.0]\n- [x] done\n- [ ] todo\n\n## [0.1.0]\n- [x] a\n- [x] b\n");

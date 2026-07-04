@@ -332,6 +332,56 @@ mod tests {
     }
 
     #[test]
+    fn test_print_scope_skipped() {
+        let mut buf = Vec::new();
+        let s = TestSummary {
+            total: 10,
+            passed: 8,
+            failed: 0,
+            skipped: 2,
+        };
+        let c = Coverage {
+            percentage: 0.0,
+            threshold: 70.0,
+        };
+        print_scope(&mut buf, "test", &s, &c).unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("⚠"), "跳过应有 ⚠");
+    }
+
+    #[test]
+    fn test_print_scope_no_tests() {
+        let mut buf = Vec::new();
+        let s = TestSummary::default();
+        let c = Coverage {
+            percentage: 0.0,
+            threshold: 70.0,
+        };
+        print_scope(&mut buf, "test", &s, &c).unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("—"), "无测试应有 —");
+        assert!(out.contains("暂无测试"));
+    }
+
+    #[test]
+    fn test_print_scope_coverage_warn() {
+        let mut buf = Vec::new();
+        let s = TestSummary {
+            total: 10,
+            passed: 10,
+            failed: 0,
+            skipped: 0,
+        };
+        let c = Coverage {
+            percentage: 50.0,
+            threshold: 70.0,
+        };
+        print_scope(&mut buf, "test", &s, &c).unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("⚠"), "低于阈值应有 ⚠");
+    }
+
+    #[test]
     fn test_coverage_met() {
         let c = Coverage {
             percentage: 80.0,
@@ -408,5 +458,39 @@ mod tests {
             test_manifest_file(&contract::Language::Unknown("?".into())),
             None
         );
+    }
+
+    // ── status_to ──────────────────────────────────────────────
+
+    #[test]
+    fn test_status_to_passing() {
+        let d = tempfile::tempdir().unwrap();
+        // 创建一个真实的 Rust 项目，使得 cargo test 能运行并通过
+        std::fs::write(
+            d.path().join("Cargo.toml"),
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        std::fs::write(d.path().join("src/lib.rs"), "#[test]\nfn it_works() {}\n").unwrap();
+
+        let c = contract::Contract::default();
+        let mut buf = Vec::new();
+        status_to(&mut buf, d.path(), &c).unwrap();
+        let out = String::from_utf8_lossy(&buf);
+
+        assert!(out.contains("测试状态"));
+        assert!(out.contains("全部通过") || out.contains("暂无测试"));
+    }
+
+    #[test]
+    fn test_status_to_empty() {
+        let d = tempfile::tempdir().unwrap();
+        let c = contract::Contract::default();
+        let mut buf = Vec::new();
+        status_to(&mut buf, d.path(), &c).unwrap();
+        let out = String::from_utf8_lossy(&buf);
+
+        assert!(out.contains("测试状态"));
     }
 }

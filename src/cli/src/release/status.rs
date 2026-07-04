@@ -693,4 +693,51 @@ mod tests {
         let cli = tags.iter().find(|(s, _)| s == "cli").unwrap();
         assert_eq!(cli.1, "cli/v0.2.0");
     }
+
+    #[test]
+    fn test_status_to_output() {
+        let d = tempfile::tempdir().unwrap();
+        // 初始化 git 仓库
+        std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "t@t"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "t"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::fs::write(d.path().join("f"), "").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        // 打一个 tag
+        std::process::Command::new("git")
+            .args(["tag", "v1.0.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        // 写 CHANGELOG
+        std::fs::write(d.path().join("CHANGELOG.md"), "## [1.0.0]\n\ncontent\n").unwrap();
+
+        let mut buf = Vec::new();
+        let result = status_to(&mut buf, d.path());
+        assert!(result.is_ok(), "status_to 应成功: {:?}", result);
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("发布状态"), "应包含标题");
+        assert!(out.contains("v1.0.0"), "应包含 tag 信息");
+    }
 }
