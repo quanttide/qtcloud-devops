@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## [0.8.3-rc.1] - 2026-07-04
+
+### Added
+- 新增 contract 模块，支持自动推断 scope 和 status 命令
+- 新增 plan 命令（status/clean/doctor）
+- 新增 release status 命令
+- 新增 build status 和 test status 命令
+- 新增 publish 自动预发布检测、--offline 标志、code sync rebase 等特性
+
+### Changed
+- 重构输出和错误处理，使用 writeln 替代 println 提升可测试性
+- 生产代码 Git CLI 替换为 git2 API，提升性能和可靠性
+- 重构模块结构，拆分 code/git/release 三子领域，清理重复代码
+
+### Fixed
+- 修复 ensure_changelog 路径问题、git add 相对路径及版本格式兼容
+- 修复 plan 命令的诊断输出、级联清理和 doctor 检测
+- 修复 contract.yaml 格式、字段对齐及版本检测
+- 修复 publish 路径错误、预检流程中的多个问题
+- 修复 release status 的多语言配置检测、scope 划分等
+
+### Removed
+- 删除 contract.yaml 文件（已由 auto-detect 覆盖）
+- 删除 default.md 等过时文档
+- 删除旧格式解析代码（OldContractYaml）和测试夹具
+- 删除废弃的 cancel 命令及相关代码
+- 删除 STATUS.md 和 TODO.md 等自动生成文件
+
 ## [0.8.3] - 2026-07-04
 
 ### Added
