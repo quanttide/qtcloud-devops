@@ -219,6 +219,8 @@ fn main() {
             let rp = repo_path();
             qtcloud_devops_cli::contract::status(&rp);
             println!();
+            qtcloud_devops_cli::doctor::status();
+            println!();
             qtcloud_devops_cli::plan::print_status(&rp, None).ok();
             println!();
             if let Ok(report) = qtcloud_devops_cli::code::status(rp.clone(), false) {

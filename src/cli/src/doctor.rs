@@ -13,33 +13,27 @@ pub fn status() {
     ];
 
     for (cmd, args) in &checks {
-        let status = check_command(cmd, args);
-        println!("  {:<12} {}", cmd, status);
-    }
-
-    // gh 认证状态
-    match Command::new("gh").args(["auth", "status"]).output() {
-        Ok(out) if out.status.success() => {
-            let msg = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            println!(
-                "  {:<12} ✅ {}",
-                "gh-auth",
-                msg.lines()
-                    .nth(1)
-                    .map(|l| l.trim())
-                    .unwrap_or(msg.lines().next().unwrap_or(""))
-            );
-        }
-        Ok(out) => {
-            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            println!(
-                "  {:<12} ❌ {}",
-                "gh-auth",
-                msg.lines().next().unwrap_or("")
-            );
-        }
-        Err(_) => {
-            println!("  {:<12} ❌ 未安装", "gh-auth");
+        if *cmd == "gh" {
+            // gh：版本 + 认证状态作为子条目
+            let ver = check_command("gh", &["--version"]);
+            println!("  {:<12} {}", "gh", ver);
+            match Command::new("gh").args(["auth", "status"]).output() {
+                Ok(out) if out.status.success() => {
+                    let msg = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    let auth_line = msg.lines().nth(1).map(|l| l.trim()).unwrap_or("");
+                    println!("                  ✅ {}", auth_line);
+                }
+                Ok(out) => {
+                    let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                    println!("                  ❌ {}", msg.lines().next().unwrap_or(""));
+                }
+                Err(_) => {
+                    println!("                  ❌ 未登录");
+                }
+            }
+        } else {
+            let status = check_command(cmd, args);
+            println!("  {:<12} {}", cmd, status);
         }
     }
 }
