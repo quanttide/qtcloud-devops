@@ -16,6 +16,29 @@ pub fn status() {
         let status = check_command(cmd, args);
         println!("  {:<12} {}", cmd, status);
     }
+
+    // gh 认证状态
+    match Command::new("gh").args(["auth", "status"]).output() {
+        Ok(out) if out.status.success() => {
+            let msg = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            println!(
+                "  {:<12} ✅ {}",
+                "gh-auth",
+                msg.lines().next().unwrap_or("")
+            );
+        }
+        Ok(out) => {
+            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            println!(
+                "  {:<12} ❌ {}",
+                "gh-auth",
+                msg.lines().next().unwrap_or("")
+            );
+        }
+        Err(_) => {
+            println!("  {:<12} ❌ 未安装", "gh-auth");
+        }
+    }
 }
 
 fn check_command(cmd: &str, args: &[&str]) -> String {
