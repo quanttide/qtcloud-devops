@@ -18,6 +18,13 @@ pub fn status_to(writer: &mut impl Write) -> std::io::Result<()> {
         ("gh", &["--version"]),
         ("cargo", &["--version"]),
         ("rustc", &["--version"]),
+        ("python", &["--version"]),
+        ("pytest", &["--version"]),
+        ("coverage", &["--version"]),
+        ("go", &["version"]),
+        ("flutter", &["--version"]),
+        ("node", &["--version"]),
+        ("npm", &["--version"]),
     ];
 
     for (cmd, args) in &checks {
@@ -105,7 +112,9 @@ mod tests {
         assert!(output.contains(&"-".repeat(50)), "应包含分隔线");
 
         // 检查所有命令名称都出现在输出中
-        for cmd in &["git", "gh", "cargo", "rustc"] {
+        for cmd in &[
+            "git", "gh", "cargo", "rustc", "python", "go", "flutter", "node", "npm",
+        ] {
             assert!(output.contains(cmd), "应包含命令名 '{}'", cmd);
         }
     }
