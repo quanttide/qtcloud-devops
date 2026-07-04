@@ -28,6 +28,9 @@ pub fn publish(
     // 从 version 提取 scope 前缀，从契约获取子目录
     let scope_dir = resolve_scope_dir(version, repo_path);
 
+    // 自动更新配置文件版本（scope 子目录下）—— 先于一致性检查
+    update_config_version(&scope_dir, &ver);
+
     // 预检：所有配置文件版本号一致
     let config_files = contract::read_all_config_versions(&scope_dir);
     let inconsistent: Vec<&(String, Option<String>)> = config_files
@@ -45,8 +48,6 @@ pub fn publish(
         return Err("存在版本号不一致的配置文件，请先同步".into());
     }
 
-    // 自动更新配置文件版本（scope 子目录下）
-    update_config_version(&scope_dir, &ver);
     // git add 配置文件，让 ensure_changelog 的 commit 一并提交
     for f in &["Cargo.toml", "pyproject.toml"] {
         let path = scope_dir.join(f);
@@ -61,8 +62,8 @@ pub fn publish(
         }
     }
 
-    // 自动生成 CHANGELOG（scope 子目录下）
-    if let Err(e) = super::ensure_changelog(&scope_dir, version) {
+    // 自动生成 CHANGELOG（scope 子目录下，git 操作在 repo 根）
+    if let Err(e) = super::ensure_changelog(repo_path, &scope_dir, version) {
         eprintln!(
             "⚠ CHANGELOG 生成失败: {}\n   发布将继续，但请确保 CHANGELOG.md 包含版本 {} 的记录。",
             e, version

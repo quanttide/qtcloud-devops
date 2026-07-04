@@ -135,8 +135,9 @@ fn today() -> String {
 }
 
 /// 如果 CHANGELOG.md 不包含当前版本，则自动生成并写入。
-pub fn ensure_changelog(repo_path: &Path, version: &str) -> Result<(), String> {
-    let changelog_path = repo_path.join("CHANGELOG.md");
+/// `repo_path` 用于 git 操作，`scope_dir` 用于文件操作。
+pub fn ensure_changelog(repo_path: &Path, scope_dir: &Path, version: &str) -> Result<(), String> {
+    let changelog_path = scope_dir.join("CHANGELOG.md");
     if changelog_path.exists() {
         let content = std::fs::read_to_string(&changelog_path)
             .map_err(|e| format!("读取 CHANGELOG.md 失败: {}", e))?;
@@ -266,13 +267,13 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let path = d.path().join("CHANGELOG.md");
         std::fs::write(&path, "# CHANGELOG\n\n## [0.1.0]\n\ncontent\n").unwrap();
-        assert!(ensure_changelog(d.path(), "v0.1.0").is_ok());
+        assert!(ensure_changelog(d.path(), d.path(), "v0.1.0").is_ok());
     }
 
     #[test]
     fn test_ensure_changelog_no_git_log() {
         let d = tempfile::tempdir().unwrap();
-        let result = ensure_changelog(d.path(), "v0.1.0");
+        let result = ensure_changelog(d.path(), d.path(), "v0.1.0");
         assert!(result.is_err());
     }
 
@@ -286,7 +287,7 @@ mod tests {
             "# CHANGELOG\n\n## [v0.1.0]\n\ncontent\n",
         )
         .unwrap();
-        assert!(ensure_changelog(d.path(), "v0.1.0").is_ok());
+        assert!(ensure_changelog(d.path(), d.path(), "v0.1.0").is_ok());
     }
 
     #[test]
