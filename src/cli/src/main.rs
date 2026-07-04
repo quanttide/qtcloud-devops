@@ -206,9 +206,11 @@ fn main() {
         },
         Commands::Status => {
             let rp = repo_path();
-            let sep = "─".repeat(50);
-            println!("{}", sep);
-            qtcloud_devops_cli::contract::status(&rp);
+            qtcloud_devops_cli::plan::print_status(&rp, None).ok();
+            println!();
+            if let Ok(report) = qtcloud_devops_cli::code::status(rp.clone(), false) {
+                print_report(&report);
+            }
             println!();
             qtcloud_devops_cli::build::status(&rp);
             println!();
@@ -216,8 +218,6 @@ fn main() {
             qtcloud_devops_cli::test::status(&rp, &c);
             println!();
             qtcloud_devops_cli::release::status(&rp);
-            println!();
-            qtcloud_devops_cli::plan::print_status(&rp, None).ok();
             Ok(())
         }
     };
