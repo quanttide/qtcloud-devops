@@ -2,7 +2,7 @@
 pub use quanttide_devops::contract::{
     detect_language_by_files, normalize_version, read_all_config_versions, validate_version,
     BuildTool, Contract, Language, Pipeline, Platform, Registry, Scope, SourceControl, SourceType,
-    StageBuild, StageRelease, StageTest, VersionSource,
+    Stage, StageBuild, StageRelease, StageTest, VersionSource,
 };
 pub use quanttide_devops::source::git::{GitSourceError, VersionStatus};
 
@@ -17,8 +17,97 @@ pub fn load(repo_path: &Path) -> Contract {
         Ok(c) => c,
         Err(e) => {
             eprintln!("  ℹ contract.yaml: {}，使用默认契约", e);
-            Contract::default()
+            auto_detect_contract(repo_path)
         }
+    }
+}
+
+/// 无 contract.yaml 时自动推测仓库结构生成契约。
+fn auto_detect_contract(repo_path: &Path) -> Contract {
+    let root_lang = detect_language_by_files(repo_path);
+    let mut scopes: Vec<Scope> = Vec::new();
+
+    // 扫描常见 scope 子目录
+    for base in &["src", "packages", "apps"] {
+        let base_dir = repo_path.join(base);
+        if !base_dir.is_dir() {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(&base_dir) {
+            for entry in entries.flatten() {
+                let sub = entry.path();
+                if !sub.is_dir() {
+                    continue;
+                }
+                let name = sub
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let sub_lang = detect_language_by_files(&sub);
+                if matches!(sub_lang, Language::Unknown(_)) {
+                    continue;
+                }
+                let dir = format!("{}/{}", base, name);
+                scopes.push(Scope {
+                    name,
+                    dir,
+                    language: sub_lang.clone(),
+                    framework: String::new(),
+                    build_tool: infer_build_tool(&sub_lang),
+                    registry: Registry::Crates,
+                    release: StageRelease::default(),
+                    test_threshold: None,
+                    ci_workflow: None,
+                });
+            }
+        }
+    }
+
+    // 根目录 scope（优先级最低，find_scope_by_path 以 dir 长度排序）
+    if !matches!(root_lang, Language::Unknown(_)) {
+        scopes.insert(
+            0,
+            Scope {
+                name: "(root)".into(),
+                dir: ".".into(),
+                language: root_lang.clone(),
+                framework: String::new(),
+                build_tool: infer_build_tool(&root_lang),
+                registry: Registry::Crates,
+                release: StageRelease::default(),
+                test_threshold: None,
+                ci_workflow: None,
+            },
+        );
+    }
+
+    Contract {
+        stages: Stage {
+            build: StageBuild {
+                command: Some("cargo build".into()),
+            },
+            test: StageTest {
+                command: Some("cargo test".into()),
+                threshold: 70.0,
+            },
+            release: StageRelease {
+                changelog: "CHANGELOG.md".into(),
+                pre_publish: Vec::new(),
+            },
+        },
+        scopes,
+        ..Contract::default()
+    }
+}
+
+fn infer_build_tool(lang: &Language) -> BuildTool {
+    match lang {
+        Language::Rust => BuildTool::Cargo,
+        Language::Python => BuildTool::Uv,
+        Language::Go => BuildTool::Go,
+        Language::Dart => BuildTool::Flutter,
+        Language::TypeScript => BuildTool::Npm,
+        Language::Unknown(_) => BuildTool::Unknown("auto".into()),
     }
 }
 
