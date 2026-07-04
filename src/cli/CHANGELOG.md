@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## [0.9.0] - 2026-07-04
+
+### Added
+- 新增 contract 模块，支持四维契约模型和自动推断 scope
+- 新增 doctor 命令，检查系统依赖和开发工具（Python/Go/Flutter/Node），按项目语言过滤
+- 新增 status 命令，聚合所有二级状态（code/release/contract）
+- 新增 test run 命令，支持多语言测试和覆盖率
+- 新增 release status 命令，支持多语言版本检测和 GitHub Release 检测
+
+### Changed
+- 重构 doctor 命令，按工具链分组显示，新增 uv/dart/npx 检测
+- 重构 code 模块，拆分为 code↔git↔release 三子领域，API 重设计
+- 重构 publish 命令，合并 stage 到 --pre-release，支持自动检测 prerelease
+- 使用 quanttide-devops toolkit v0.1 替代本地实现，提升可测试性
+- 优化 plan 命令，提取 print_progress 并采用 LLM-first 架构
+
+### Fixed
+- 修复 plan clean 自动提交问题
+- 修复 auto_detect 阈值引用默认值而非硬编码
+- 修复多语言项目识别（pyproject.toml + Cargo.toml 共存）
+- 修复覆盖率按语言分发（Rust/Python/Go/Dart/TS）
+- 修复 ensure_changelog git add 使用相对路径，以及多路径问题
+
+### Removed
+- 移除 cancel 命令
+- 移除旧 contract 格式解析代码（OldContractYaml）
+- 移除 test_support 模块和死代码，收紧可见性
+- 删除 contract.yaml（auto-detect 已覆盖）
+- 移除自动生成的 STATUS.md 和 TODO.md
+
 ## [0.8.4] - 2026-07-04
 
 ### Fixed
