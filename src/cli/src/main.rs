@@ -47,6 +47,8 @@ enum Commands {
         #[command(subcommand)]
         action: ReleaseAction,
     },
+    /// 概览状态：聚合 build / test / release / contract / plan 状态
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -202,6 +204,22 @@ fn main() {
                 Ok(())
             }
         },
+        Commands::Status => {
+            let rp = repo_path();
+            let sep = "─".repeat(50);
+            println!("{}", sep);
+            qtcloud_devops_cli::contract::status(&rp);
+            println!();
+            qtcloud_devops_cli::build::status(&rp);
+            println!();
+            let c = qtcloud_devops_cli::contract::load(&rp);
+            qtcloud_devops_cli::test::status(&rp, &c);
+            println!();
+            qtcloud_devops_cli::release::status(&rp);
+            println!();
+            qtcloud_devops_cli::plan::print_status(&rp, None).ok();
+            Ok(())
+        }
     };
 
     if let Err(e) = result {
