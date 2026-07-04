@@ -1,5 +1,11 @@
-# qtcloud-devops 治理契约
-# 四维架构：Stages / Platforms / Sources / Scopes
+# =============================================================
+# qtcloud-devops — Application archetype（应用项目默认契约）
+#
+# 特征：
+#   - 生产构建（--release）
+#   - 多 scope 多模块
+#   - CI 触发发布（pre_publish 由 CI 执行）
+# =============================================================
 
 stages:
   build:
@@ -10,15 +16,14 @@ stages:
   release:
     changelog: CHANGELOG.md
 
-platforms:
+platform:
   source_control: github
-  ci: github_actions
+  pipeline: github_actions
   artifact_registry: crates
 
 sources:
   version:
     type: cargo
-    path: Cargo.toml
 
 scopes:
   cli:
