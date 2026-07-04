@@ -25,6 +25,9 @@ pub fn status_to(writer: &mut impl Write) -> std::io::Result<()> {
         ("flutter", &["--version"]),
         ("node", &["--version"]),
         ("npm", &["--version"]),
+        ("npx", &["--version"]),
+        ("uv", &["--version"]),
+        ("dart", &["--version"]),
     ];
 
     for (cmd, args) in &checks {
@@ -113,7 +116,8 @@ mod tests {
 
         // 检查所有命令名称都出现在输出中
         for cmd in &[
-            "git", "gh", "cargo", "rustc", "python", "go", "flutter", "node", "npm",
+            "git", "gh", "cargo", "rustc", "python", "go", "flutter", "node", "npm", "npx", "uv",
+            "dart",
         ] {
             assert!(output.contains(cmd), "应包含命令名 '{}'", cmd);
         }
