@@ -515,6 +515,33 @@ mod tests {
         assert_eq!(test_command(&contract::Language::Unknown("?".into())), None);
     }
 
+    // ── coverage_command ──────────────────────────────────
+
+    #[test]
+    fn test_coverage_command_all_languages() {
+        assert_eq!(
+            coverage_command(&contract::Language::Rust).map(|(c, _)| c),
+            Some("cargo")
+        );
+        assert_eq!(
+            coverage_command(&contract::Language::Python).map(|(c, _)| c),
+            Some("coverage")
+        );
+        assert_eq!(
+            coverage_command(&contract::Language::Go).map(|(c, _)| c),
+            Some("go")
+        );
+        assert_eq!(
+            coverage_command(&contract::Language::Dart).map(|(c, _)| c),
+            Some("flutter")
+        );
+        assert_eq!(
+            coverage_command(&contract::Language::TypeScript).map(|(c, _)| c),
+            Some("npx")
+        );
+        assert!(coverage_command(&contract::Language::Unknown("auto".into())).is_none());
+    }
+
     // ── test_manifest_file ────────────────────────────────────
 
     #[test]

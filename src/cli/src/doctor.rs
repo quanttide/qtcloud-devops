@@ -1,9 +1,17 @@
 /// doctor 命令：检查系统依赖的外部命令状态。
+use std::io::Write;
 use std::process::Command;
 
+/// 向 stdout 输出系统诊断信息。
 pub fn status() {
-    println!("系统诊断");
-    println!("{}", "-".repeat(50));
+    let mut stdout = std::io::stdout();
+    let _ = status_to(&mut stdout);
+}
+
+/// 将系统诊断信息写入指定的 writer。
+pub fn status_to(writer: &mut impl Write) -> std::io::Result<()> {
+    writeln!(writer, "系统诊断")?;
+    writeln!(writer, "{}", "-".repeat(50))?;
 
     let checks: Vec<(&str, &[&str])> = vec![
         ("git", &["--version"]),
@@ -16,26 +24,32 @@ pub fn status() {
         if *cmd == "gh" {
             // gh：版本 + 认证状态作为子条目
             let ver = check_command("gh", &["--version"]);
-            println!("  {:<12} {}", "gh", ver);
+            writeln!(writer, "  {:<12} {}", "gh", ver)?;
             match Command::new("gh").args(["auth", "status"]).output() {
                 Ok(out) if out.status.success() => {
                     let msg = String::from_utf8_lossy(&out.stdout).trim().to_string();
                     let auth_line = msg.lines().nth(1).map(|l| l.trim()).unwrap_or("");
-                    println!("                  ✅ {}", auth_line);
+                    writeln!(writer, "                  ✅ {}", auth_line)?;
                 }
                 Ok(out) => {
                     let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                    println!("                  ❌ {}", msg.lines().next().unwrap_or(""));
+                    writeln!(
+                        writer,
+                        "                  ❌ {}",
+                        msg.lines().next().unwrap_or("")
+                    )?;
                 }
                 Err(_) => {
-                    println!("                  ❌ 未登录");
+                    writeln!(writer, "                  ❌ 未登录")?;
                 }
             }
         } else {
             let status = check_command(cmd, args);
-            println!("  {:<12} {}", cmd, status);
+            writeln!(writer, "  {:<12} {}", cmd, status)?;
         }
     }
+
+    Ok(())
 }
 
 fn check_command(cmd: &str, args: &[&str]) -> String {
@@ -78,5 +92,21 @@ mod tests {
             "不存在的命令应报未安装: {}",
             result
         );
+    }
+
+    #[test]
+    fn test_status_to_output() {
+        let mut buf = Vec::new();
+        status_to(&mut buf).unwrap();
+        let output = String::from_utf8(buf).expect("非 UTF-8 输出");
+
+        // 检查始终存在的结构元素
+        assert!(output.contains("系统诊断"), "应包含标题");
+        assert!(output.contains(&"-".repeat(50)), "应包含分隔线");
+
+        // 检查所有命令名称都出现在输出中
+        for cmd in &["git", "gh", "cargo", "rustc"] {
+            assert!(output.contains(cmd), "应包含命令名 '{}'", cmd);
+        }
     }
 }
