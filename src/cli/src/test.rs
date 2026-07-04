@@ -29,16 +29,15 @@ pub fn status(repo_path: &Path, c: &contract::Contract) {
     let _ = status_to(&mut std::io::stdout(), repo_path, c);
 }
 
-/// 运行单元测试和覆盖率。
+/// 运行测试和覆盖率。
 pub fn run(repo_path: &Path) -> Result<(), String> {
-    use std::process::Command;
-
     let c = crate::contract::load(repo_path);
     let scopes = &c.scopes;
 
     if scopes.is_empty() {
         let lang = crate::contract::detect_by_files(repo_path);
         run_tests_for_lang(repo_path, &lang)?;
+        run_coverage_for_lang(repo_path, &lang);
     } else {
         for scope in scopes {
             let scope_dir = repo_path.join(&scope.dir);
@@ -49,27 +48,9 @@ pub fn run(repo_path: &Path) -> Result<(), String> {
             let lang = c.resolve_language(scope, &scope_dir);
             println!("  [{}] 运行测试...", scope.name);
             run_tests_for_lang(&scope_dir, &lang)?;
+            run_coverage_for_lang(&scope_dir, &lang);
         }
     }
-
-    // 全局覆盖率（仅 Rust 支持）
-    if has_cargo_toml(repo_path) {
-        println!("\n生成覆盖率报告...");
-        let cov = Command::new("cargo")
-            .args([
-                "llvm-cov",
-                "--lcov",
-                "--output-path",
-                "target/coverage/lcov.info",
-            ])
-            .status()
-            .map_err(|e| format!("启动覆盖率失败: {}", e))?;
-        if !cov.success() {
-            return Err("覆盖率生成失败".into());
-        }
-        println!("✅ 覆盖率已更新");
-    }
-
     Ok(())
 }
 
@@ -78,13 +59,11 @@ fn run_tests_for_lang(dir: &Path, lang: &contract::Language) -> Result<(), Strin
         println!("  ⚠ 不支持的语言: {:?}，跳过", lang);
         return Ok(());
     };
-
     let status = std::process::Command::new(cmd)
         .args(args)
         .current_dir(dir)
         .status()
         .map_err(|e| format!("启动 {} 失败: {}", cmd, e))?;
-
     if status.success() {
         println!("  ✅ {} 测试通过", cmd);
         Ok(())
@@ -93,8 +72,43 @@ fn run_tests_for_lang(dir: &Path, lang: &contract::Language) -> Result<(), Strin
     }
 }
 
-fn has_cargo_toml(dir: &Path) -> bool {
-    dir.join("Cargo.toml").exists()
+fn coverage_command(lang: &contract::Language) -> Option<(&'static str, &'static [&'static str])> {
+    match lang {
+        contract::Language::Rust => Some((
+            "cargo",
+            &[
+                "llvm-cov",
+                "--lcov",
+                "--output-path",
+                "target/coverage/lcov.info",
+            ],
+        )),
+        contract::Language::Python => Some(("coverage", &["xml"])),
+        contract::Language::Go => Some((
+            "go",
+            &["tool", "cover", "-html=coverage.out", "-o", "coverage.html"],
+        )),
+        contract::Language::Dart => Some(("flutter", &["test", "--coverage"])),
+        contract::Language::TypeScript => Some(("npx", &["nyc", "--reporter=lcov", "npm", "test"])),
+        contract::Language::Unknown(_) => None,
+    }
+}
+
+fn run_coverage_for_lang(dir: &Path, lang: &contract::Language) {
+    let Some((cmd, args)) = coverage_command(lang) else {
+        println!("  ⚠ {:?} 覆盖率不可用，跳过", lang);
+        return;
+    };
+    println!("  生成覆盖率 ({})...", cmd);
+    match std::process::Command::new(cmd)
+        .args(args)
+        .current_dir(dir)
+        .status()
+    {
+        Ok(s) if s.success() => println!("  ✅ 覆盖率已更新"),
+        Ok(_) => println!("  ⚠ 覆盖率生成失败（可忽略）"),
+        Err(e) => println!("  ⚠ 覆盖率工具不可用: {}（可忽略）", e),
+    }
 }
 
 /// 按 scope 输出测试状态，写入任意 writer。
