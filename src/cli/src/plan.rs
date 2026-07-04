@@ -155,6 +155,29 @@ pub fn print_status_to(
                         .any(|c| c.to_lowercase() == t.to_lowercase()))
         });
         if has_unknown_headers {
+            // LLM 已配置时（非测试环境）：尝试转换非标准格式
+            let settings = quanttide_agent::Settings::from_env();
+            if !settings.llm_api_key.is_empty() && cfg!(not(test)) {
+                writeln!(writer, "  🔄 检测到非标准格式，调用 LLM 转换...").ok();
+                if let Ok(llm_result) = doctor_llm(
+                    &content,
+                    scope.unwrap_or("(auto)"),
+                    &settings,
+                    &roadmap_path,
+                ) {
+                    if llm_result.is_some() {
+                        if let Ok(new_versions) = parse_roadmap(&roadmap_path) {
+                            if !new_versions.is_empty() {
+                                return print_progress(
+                                    writer,
+                                    scope.unwrap_or("(auto)"),
+                                    &new_versions,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             writeln!(
                 writer,
                 "  ⚠ 文件含有非标准格式的标题，运行 `plan doctor` 查看详情"
@@ -164,14 +187,22 @@ pub fn print_status_to(
         return Ok(());
     }
 
-    let scope_label = scope.unwrap_or("(auto)");
+    print_progress(writer, scope.unwrap_or("(auto)"), &versions)
+}
+
+/// 输出进度表（抽离以供 LLM 转换后重用）。
+fn print_progress(
+    writer: &mut impl std::io::Write,
+    scope_label: &str,
+    versions: &[VersionProgress],
+) -> Result<(), String> {
     writeln!(writer, "  [{}] 规划进度", scope_label).ok();
     writeln!(writer, "  {}", "-".repeat(40)).ok();
 
     let mut total_done = 0usize;
     let mut total_all = 0usize;
 
-    for v in &versions {
+    for v in versions {
         let rate = if v.total > 0 {
             v.done as f64 / v.total as f64 * 100.0
         } else {
@@ -312,26 +343,27 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, String> {
 
 /// 诊断并修复 ROADMAP.md 的格式问题。
 ///
-/// 1. 规则修复：v 前缀、分类大小写、checkbox 格式
-/// 2. LLM 修复：复杂格式问题（LLM 已配置时）
+/// 1. LLM 修复：理解非标准格式并转换为标准格式（LLM 已配置时）
+/// 2. 规则校验：v 前缀、分类大小写、checkbox 格式（双重保障）
 pub fn doctor_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("读取 {} 失败: {}", path.display(), e))?;
 
-    let mut issues = apply_rule_fixes(path, &content, scope)?;
+    let mut issues: Vec<Issue> = Vec::new();
 
-    // LLM 修复：规则修不了或仍有问题时才调 LLM
-    if issues.is_empty() {
-        return Ok(issues);
-    }
+    // Phase 1: LLM 先判断并修复（LLM 已配置且非测试环境时）
     let settings = quanttide_agent::Settings::from_env();
-    if !settings.llm_api_key.is_empty() {
-        let content_after_rules =
-            std::fs::read_to_string(path).map_err(|e| format!("读取失败: {}", e))?;
-        if let Some(llm_issues) = doctor_llm(&content_after_rules, scope, &settings, path)? {
+    if !settings.llm_api_key.is_empty() && cfg!(not(test)) {
+        if let Some(llm_issues) = doctor_llm(&content, scope, &settings, path)? {
             issues.extend(llm_issues);
         }
     }
+
+    // Phase 2: 规则校验（对 LLM 修复后的内容或原内容做细节修复）
+    let content_after_llm =
+        std::fs::read_to_string(path).map_err(|e| format!("读取失败: {}", e))?;
+    let rule_issues = apply_rule_fixes(path, &content_after_llm, scope)?;
+    issues.extend(rule_issues);
 
     Ok(issues)
 }
