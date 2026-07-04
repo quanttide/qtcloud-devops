@@ -85,7 +85,7 @@ fn auto_detect_contract(repo_path: &Path) -> Contract {
             },
             test: StageTest {
                 command: Some("cargo test".into()),
-                threshold: 70.0,
+                ..StageTest::default()
             },
             release: StageRelease {
                 changelog: "CHANGELOG.md".into(),
