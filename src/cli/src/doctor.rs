@@ -16,20 +16,18 @@ pub fn status_to(writer: &mut impl Write, repo_path: &Path) -> std::io::Result<(
 
     // 检测项目用到的语言
     let c = crate::contract::load(repo_path);
-    let mut used_langs: Vec<String> = c
-        .scopes
-        .iter()
-        .map(|s| s.language.as_str().to_string())
-        .collect();
-    used_langs.sort();
-    used_langs.dedup();
-    if used_langs.is_empty() {
-        let lang = crate::contract::detect_by_files(repo_path);
-        let name = lang.as_str().to_string();
-        if name != "auto" && name != "无法识别" {
-            used_langs.push(name);
+    let mut used_langs: Vec<String> = Vec::new();
+    if c.scopes.is_empty() {
+        used_langs = crate::contract::detect_all_languages(repo_path);
+    } else {
+        for s in &c.scopes {
+            let scope_dir = repo_path.join(&s.dir);
+            let mut langs = crate::contract::detect_all_languages(&scope_dir);
+            used_langs.append(&mut langs);
         }
     }
+    used_langs.sort();
+    used_langs.dedup();
 
     // 始终显示的工具
     writeln!(

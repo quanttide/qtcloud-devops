@@ -116,6 +116,27 @@ pub fn detect_by_files(dir: &Path) -> Language {
     detect_language_by_files(dir)
 }
 
+/// 检测目录下的所有语言（不限于优先级最高的一个）。
+pub fn detect_all_languages(dir: &Path) -> Vec<String> {
+    let mut langs = Vec::new();
+    if dir.join("Cargo.toml").exists() {
+        langs.push("rust".into());
+    }
+    if dir.join("pyproject.toml").exists() || dir.join("requirements.txt").exists() {
+        langs.push("python".into());
+    }
+    if dir.join("go.mod").exists() {
+        langs.push("go".into());
+    }
+    if dir.join("pubspec.yaml").exists() {
+        langs.push("dart".into());
+    }
+    if dir.join("package.json").exists() {
+        langs.push("typescript".into());
+    }
+    langs
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // 版本状态（适配 toolkit 的 Result → 旧签名）
 // ═══════════════════════════════════════════════════════════════════════
@@ -223,7 +244,12 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
     }
 
     // 语言汇总
-    let mut langs: Vec<&str> = c.scopes.iter().map(|s| s.language.as_str()).collect();
+    let mut langs: Vec<String> = Vec::new();
+    for s in &c.scopes {
+        let scope_dir = repo_path.join(&s.dir);
+        let mut scope_langs = detect_all_languages(&scope_dir);
+        langs.append(&mut scope_langs);
+    }
     langs.sort();
     langs.dedup();
     if !langs.is_empty() {
