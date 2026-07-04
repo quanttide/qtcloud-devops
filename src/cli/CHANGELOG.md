@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## [0.9.2] - 2026-07-04
+
+- **Added**  
+  - 新增 `doctor` 命令，支持系统依赖检查和开发工具（Python/Go/Flutter/Node/dart/npx）检测，并按工具链分组显示。  
+  - 新增 `plan` 命令，包含 status、clean、doctor 子命令，采用 LLM 优先架构并输出状态诊断。  
+  - 新增 `contract` 模块，实现四维契约模型（语言汇总、自动推断 scope、platform 字段对齐），包括 contract status 命令。  
+  - 新增 `test run` 命令，支持多语言覆盖率测试（Rust/Python/Go/Dart/TS），自动按语言分发报告。  
+  - 新增 `release publish --force` 选项，自动清理已存在的 tag/Release 后重新发布；新增聚合状态命令 `status`。
+
+- **Changed**  
+  - 重构 publish API，简化参数（移除 `pre_release`），支持自动检测 prerelease 版本并合并 `stage` 命令。  
+  - 重构代码模块为三子领域（code ↔ git ↔ release），拆分同步逻辑，提升可测试性和可维护性。  
+  - 重构 doctor 输出，按工具链分组显示，并将 `println` 替换为 `writeln` 以支持测试。  
+  - 重构 contract 模块，清理重复代码并委托 toolkit 库，`contract.yaml` 配置文件移至 `.quanttide/devops/`。  
+  - 将 Python 包结构调整为 `packages/python/`，分离 Rust/Python 构建配置。
+
+- **Fixed**  
+  - 修复多语言项目识别问题，支持 `pyproject.toml` 与 `Cargo.toml` 共存时的自动检测。  
+  - 修复 `plan clean` 命令不能自动提交的问题，以及 `plan status` 诊断输出的非标准格式提示。  
+  - 修复发布相关命令的幂等性问题（`create_tag`/`create_release` 跳过已存在的 tag/release）。  
+  - 修复覆盖率报告按语言分发不准确的问题，以及无覆盖率报告时提示生成命令。  
+  - 修复 `gh-auth` 命令作为 `gh` 子条目并显示完整账户信息，增加登录状态检查。
+
+- **Removed**  
+  - 移除旧格式解析代码（OldContractYaml），全面采用四维架构新格式。  
+  - 移除 `contract.yaml` 配置文件（已被自动检测机制完全覆盖）。  
+  - 移除 `cancel` 命令及相关功能（已被 `publish --pre-release` 替代）。  
+  - 移除 `build-prerelease` CI 工作流（整合到发布流程中）。  
+  - 移除废弃的测试辅助模块和不再需要的文档文件（STATUS.md、TODO.md 等）。
+
 ## [0.9.1] - 2026-07-04
 
 ### Added
