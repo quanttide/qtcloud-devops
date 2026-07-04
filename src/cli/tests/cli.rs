@@ -353,3 +353,65 @@ fn test_cli_code_status_empty() {
         .unwrap();
     assert!(output.status.success());
 }
+
+#[test]
+fn test_cli_plan_clean() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(
+        d.path().join("ROADMAP.md"),
+        "## [0.1.0]\n- [x] done\n- [ ] todo\n",
+    )
+    .unwrap();
+    let output = cli()
+        .args(["plan", "clean"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let content = std::fs::read_to_string(d.path().join("ROADMAP.md")).unwrap_or_default();
+    assert!(!content.contains("done"), "done 条目应被清理");
+    assert!(content.contains("todo"), "todo 条目应保留");
+}
+
+#[test]
+fn test_cli_contract_help() {
+    let output = cli().args(["contract", "--help"]).output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("contract"));
+}
+
+#[test]
+fn test_cli_plan_help() {
+    let output = cli().args(["plan", "--help"]).output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("plan"));
+}
+
+#[test]
+fn test_cli_release_help() {
+    let output = cli().args(["release", "--help"]).output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("publish"));
+}
+
+#[test]
+fn test_cli_test_run_in_temp_project() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(
+        d.path().join("Cargo.toml"),
+        "[package]\nname = \"test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(d.path().join("src")).unwrap();
+    std::fs::write(d.path().join("src/lib.rs"), "#[test] fn it_works() {}\n").unwrap();
+    let output = cli()
+        .args(["test", "run"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("测试通过"), "应有测试通过: {}", stdout);
+}
