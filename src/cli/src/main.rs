@@ -150,7 +150,13 @@ fn print_report(report: &StatusReport) {
 }
 
 fn repo_path() -> PathBuf {
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    // 自动向上查找 git 仓库根目录，支持在 monorepo 子目录运行
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    if let Ok(repo) = git2::Repository::discover(&cwd) {
+        repo.workdir().map(|p| p.to_path_buf()).unwrap_or(cwd)
+    } else {
+        cwd
+    }
 }
 
 fn main() {
