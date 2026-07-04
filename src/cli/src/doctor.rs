@@ -13,26 +13,20 @@ pub fn status_to(writer: &mut impl Write) -> std::io::Result<()> {
     writeln!(writer, "系统诊断")?;
     writeln!(writer, "{}", "-".repeat(50))?;
 
-    let checks: Vec<(&str, &[&str])> = vec![
-        ("git", &["--version"]),
-        ("gh", &["--version"]),
-        ("cargo", &["--version"]),
-        ("rustc", &["--version"]),
-        ("python", &["--version"]),
-        ("pytest", &["--version"]),
-        ("coverage", &["--version"]),
-        ("go", &["version"]),
-        ("flutter", &["--version"]),
-        ("node", &["--version"]),
-        ("npm", &["--version"]),
-        ("npx", &["--version"]),
-        ("uv", &["--version"]),
-        ("dart", &["--version"]),
+    // 顶层工具 + 子条目
+    let groups: Vec<(&str, &[&str], Vec<&str>)> = vec![
+        ("git", &["--version"], vec![]),
+        ("gh", &["--version"], vec![]), // auth 单独处理
+        ("cargo", &["--version"], vec![]),
+        ("rustc", &["--version"], vec![]),
+        ("python", &["--version"], vec!["uv", "pytest", "coverage"]),
+        ("go", &["version"], vec![]),
+        ("flutter", &["--version"], vec!["dart"]),
+        ("node", &["--version"], vec!["npm", "npx"]),
     ];
 
-    for (cmd, args) in &checks {
+    for (cmd, args, subs) in &groups {
         if *cmd == "gh" {
-            // gh：版本 + 认证状态作为子条目
             let ver = check_command("gh", &["--version"]);
             writeln!(writer, "  {:<12} {}", "gh", ver)?;
             match Command::new("gh").args(["auth", "status"]).output() {
@@ -49,13 +43,15 @@ pub fn status_to(writer: &mut impl Write) -> std::io::Result<()> {
                         msg.lines().next().unwrap_or("")
                     )?;
                 }
-                Err(_) => {
-                    writeln!(writer, "                  ❌ 未登录")?;
-                }
+                Err(_) => writeln!(writer, "                  ❌ 未登录")?,
             }
         } else {
-            let status = check_command(cmd, args);
-            writeln!(writer, "  {:<12} {}", cmd, status)?;
+            let ver = check_command(cmd, args);
+            writeln!(writer, "  {:<12} {}", cmd, ver)?;
+            for sub in subs {
+                let sub_ver = check_command(sub, &["--version"]);
+                writeln!(writer, "    {:<10} {}", sub, sub_ver)?;
+            }
         }
     }
 
