@@ -3,45 +3,29 @@
 ## [0.8.3] - 2026-07-04
 
 ### Added
-- 新增 contract 模块，支持自动推断 scope 和 status 命令
-- 新增 plan 命令（status/clean/doctor）
-- 新增 release status 命令
-- 新增 build status 和 test status 命令
-- 新增 publish 自动预发布检测、--offline 标志、code sync rebase 等特性
+- contract 自动推断（三层过滤：目录→文件→根兜底）
+- monorepo 默认布局规范（src/* packages/* apps/*）
+- 无 contract.yaml 时的智能 scope 发现
+- 文档：contract/ 文件夹（auto-detect、config、model、monorepo、scope、version）
+- 教程：monorepo 入门
 
 ### Changed
-- 重构输出和错误处理，使用 writeln 替代 println 提升可测试性
-- 生产代码 Git CLI 替换为 git2 API，提升性能和可靠性
-- 重构模块结构，拆分 code/git/release 三子领域，清理重复代码
+- println → writeln(writer) 重构，三个模块（build/test/release/status）全部改为 status_to 模式
+- release publish 增加内置预检步骤
+- repo_path() 使用 git2::Repository::discover() 自动查找 git 根目录
 
 ### Fixed
-- 修复 ensure_changelog 路径问题、git add 相对路径及版本格式兼容
-- 修复 plan 命令的诊断输出、级联清理和 doctor 检测
-- 修复 contract.yaml 格式、字段对齐及版本检测
-- 修复 publish 路径错误、预检流程中的多个问题
-- 修复 release status 的多语言配置检测、scope 划分等
+- ensure_changelog repo_path ≠ scope_dir 场景（Issue #4-1）
+- release publish 自动更新版本号置于预检前（Issue #4-2）
+- plan doctor 非标准 ##/### 检测、status 诊断输出、clean 级联误删（Issue #5）
+- contract.yaml platform 字段名（platforms→platform, ci→pipeline）
+- test status 重复加载 contract.yaml
+- eprintln 暴露原始 OS 错误
+- 无覆盖率报告时提示生成命令
 
 ### Removed
-- 删除 contract.yaml 文件（已由 auto-detect 覆盖）
-- 删除 default.md 等过时文档
-- 删除旧格式解析代码（OldContractYaml）和测试夹具
-- 删除废弃的 cancel 命令及相关代码
-- 删除 STATUS.md 和 TODO.md 等自动生成文件
-
-## [0.8.3] - 2026-07-04
-
-### Added
-（无）
-
-### Changed
-- 添加并更新 v0.8.3 待修复清单（ROADMAP）
-
-### Fixed
-- 修复 plan 命令的多个问题：采用 LLM-first 架构并提取 `print_progress`；改进 `status` 诊断输出，对非标准格式提示运行 `plan doctor`；修复 `clean cascade` 和 `doctor` 非标准头部检测
-- 修复 `repo_path` 自动查找 git 根目录的问题
-
-### Removed
-（无）
+- 仓库中的 contract.yaml 文件（auto-detect 已覆盖）
+- cli/docs/contract.md 拆分为多文件后删除
 
 ## [0.8.2] - 2026-07-03
 
