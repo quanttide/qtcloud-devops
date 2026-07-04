@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [0.8.3-rc.1] - 2026-07-04
+## [0.8.3] - 2026-07-04
 
 ### Added
 - 新增 contract 模块，支持自动推断 scope 和 status 命令
