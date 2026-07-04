@@ -4,6 +4,11 @@ use std::path::Path;
 use crate::contract;
 
 pub fn status(repo_path: &Path) {
+    let mut stdout = std::io::stdout();
+    status_to(&mut stdout, repo_path).ok();
+}
+
+pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io::Result<()> {
     let scopes_map = load_scopes_map(repo_path);
     let latest_tags = get_latest_tags_by_scope(repo_path);
     let dirty = is_dirty(repo_path);
@@ -14,12 +19,12 @@ pub fn status(repo_path: &Path) {
         .map(|(_, v)| repo_path.join(v))
         .collect();
 
-    println!("发布状态");
-    println!("{}", "─".repeat(40));
+    writeln!(writer, "发布状态")?;
+    writeln!(writer, "{}", "─".repeat(40))?;
 
     if latest_tags.is_empty() {
-        println!("  最新标签:     (无)");
-        return;
+        writeln!(writer, "  最新标签:     (无)")?;
+        return Ok(());
     }
 
     for (scope, tag) in &latest_tags {
@@ -42,7 +47,7 @@ pub fn status(repo_path: &Path) {
             }
         };
 
-        println!("  [{}]", scope);
+        writeln!(writer, "  [{}]", scope)?;
         let rel_path = scopes_map.get(scope).cloned().unwrap_or_else(|| {
             if scope == "(root)" {
                 ".".to_string()
@@ -50,36 +55,44 @@ pub fn status(repo_path: &Path) {
                 scope.clone()
             }
         });
-        println!("    路径:         {}", rel_path);
-        println!("    最新标签:     {}", tag);
+        writeln!(writer, "    路径:         {}", rel_path)?;
+        writeln!(writer, "    最新标签:     {}", tag)?;
 
         let unreleased = count_unreleased_in_dir(repo_path, tag, &scope_dir);
-        println!("    未发布提交:   {}", unreleased);
+        writeln!(writer, "    未发布提交:   {}", unreleased)?;
 
         if check_changelog(&scope_dir, ver) {
-            println!("    CHANGELOG:    ✅");
+            writeln!(writer, "    CHANGELOG:    ✅")?;
         } else {
-            println!("    CHANGELOG:    ❌ 缺少 {} 条目", ver);
+            writeln!(writer, "    CHANGELOG:    ❌ 缺少 {} 条目", ver)?;
         }
 
-        check_github_release(repo_path, tag, &scope_dir, ver);
-        check_all_configs(&scope_dir, &other_scope_dirs, ver);
+        check_github_release(writer, repo_path, tag, &scope_dir, ver)?;
+        check_all_configs(writer, &scope_dir, &other_scope_dirs, ver)?;
     }
 
     if dirty {
-        println!("  工作区:       ❌ 有未提交变更");
+        writeln!(writer, "  工作区:       ❌ 有未提交变更")?;
     } else {
-        println!("  工作区:       ✅ 干净");
+        writeln!(writer, "  工作区:       ✅ 干净")?;
     }
+
+    Ok(())
 }
 
 /// 检查 GitHub Release 是否存在，以及 body 是否与 CHANGELOG 同步。
-fn check_github_release(repo_path: &Path, tag: &str, scope_dir: &Path, _version: &str) {
+fn check_github_release(
+    writer: &mut impl std::io::Write,
+    repo_path: &Path,
+    tag: &str,
+    scope_dir: &Path,
+    _version: &str,
+) -> std::io::Result<()> {
     // 解析 GitHub 仓库
     let repo = get_github_repo(repo_path);
     let repo = match repo {
         Some(r) => r,
-        None => return,
+        None => return Ok(()),
     };
 
     // 查询 Release
@@ -93,8 +106,8 @@ fn check_github_release(repo_path: &Path, tag: &str, scope_dir: &Path, _version:
     let body = match out {
         Some(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
         _ => {
-            println!("    GitHub Release: ❌ 不存在");
-            return;
+            writeln!(writer, "    GitHub Release: ❌ 不存在")?;
+            return Ok(());
         }
     };
 
@@ -104,14 +117,19 @@ fn check_github_release(repo_path: &Path, tag: &str, scope_dir: &Path, _version:
     let notes = notes.unwrap_or_default();
 
     if body == notes {
-        println!("    GitHub Release: ✅ body 与 CHANGELOG 一致");
+        writeln!(writer, "    GitHub Release: ✅ body 与 CHANGELOG 一致")?;
     } else if body.trim().is_empty() {
-        println!("    GitHub Release: ⚠️ body 为空");
+        writeln!(writer, "    GitHub Release: ⚠️ body 为空")?;
     } else if notes.is_empty() {
-        println!("    GitHub Release: ✅ 已创建 (CHANGELOG 无此版本条目)");
+        writeln!(
+            writer,
+            "    GitHub Release: ✅ 已创建 (CHANGELOG 无此版本条目)"
+        )?;
     } else {
-        println!("    GitHub Release: ⚠️ body 与 CHANGELOG 不同步");
+        writeln!(writer, "    GitHub Release: ⚠️ body 与 CHANGELOG 不同步")?;
     }
+
+    Ok(())
 }
 
 /// 从契约加载 scope 列表，转为 (name → dir) 映射。
@@ -210,7 +228,12 @@ fn get_github_repo(repo_path: &Path) -> Option<String> {
     Some(caps.get(1)?.as_str().to_string())
 }
 
-fn check_all_configs(repo_path: &Path, other_scope_dirs: &[std::path::PathBuf], expected: &str) {
+fn check_all_configs(
+    writer: &mut impl std::io::Write,
+    repo_path: &Path,
+    other_scope_dirs: &[std::path::PathBuf],
+    expected: &str,
+) -> std::io::Result<()> {
     let checks: [(&str, fn(&str) -> Option<String>); 5] = [
         ("Cargo.toml", |c| extract_kv(c, "version")),
         ("pyproject.toml", |c| extract_kv(c, "version")),
@@ -224,14 +247,17 @@ fn check_all_configs(repo_path: &Path, other_scope_dirs: &[std::path::PathBuf], 
             Err(_) => continue,
         };
         match extract(&content) {
-            Some(v) if v == expected => println!("    {:<15} {} ✅", format!("{}:", name), v),
-            Some(v) => println!(
+            Some(v) if v == expected => {
+                writeln!(writer, "    {:<15} {} ✅", format!("{}:", name), v)?
+            }
+            Some(v) => writeln!(
+                writer,
                 "    {:<15} {} ❌ (期望 {})",
                 format!("{}:", name),
                 v,
                 expected
-            ),
-            None => println!("    {:<15} (未找到版本字段)", format!("{}:", name)),
+            )?,
+            None => writeln!(writer, "    {:<15} (未找到版本字段)", format!("{}:", name))?,
         }
     }
     let vf = repo_path.join("VERSION");
@@ -239,9 +265,9 @@ fn check_all_configs(repo_path: &Path, other_scope_dirs: &[std::path::PathBuf], 
         let v = c.trim().to_string();
         if !v.is_empty() {
             if v == expected {
-                println!("    VERSION          {} ✅", v);
+                writeln!(writer, "    VERSION          {} ✅", v)?;
             } else {
-                println!("    VERSION          {} ❌ (期望 {})", v, expected);
+                writeln!(writer, "    VERSION          {} ❌ (期望 {})", v, expected)?;
             }
         }
     }
@@ -265,14 +291,15 @@ fn check_all_configs(repo_path: &Path, other_scope_dirs: &[std::path::PathBuf], 
                             let rel = p.strip_prefix(repo_path).unwrap_or(&p);
                             let name = rel.to_string_lossy();
                             if v == expected {
-                                println!("    {:<15} {} ✅", format!("{}:", name), v);
+                                writeln!(writer, "    {:<15} {} ✅", format!("{}:", name), v)?;
                             } else {
-                                println!(
+                                writeln!(
+                                    writer,
                                     "    {:<15} {} ❌ (期望 {})",
                                     format!("{}:", name),
                                     v,
                                     expected
-                                );
+                                )?;
                             }
                         }
                     }
@@ -280,6 +307,7 @@ fn check_all_configs(repo_path: &Path, other_scope_dirs: &[std::path::PathBuf], 
             }
         }
     }
+    Ok(())
 }
 
 fn find_go_files(dir: &Path, excludes: &[std::path::PathBuf]) -> Vec<std::path::PathBuf> {

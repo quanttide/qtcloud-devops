@@ -15,10 +15,7 @@ use std::path::Path;
 pub fn load(repo_path: &Path) -> Contract {
     match quanttide_devops::contract::load(repo_path) {
         Ok(c) => c,
-        Err(e) => {
-            eprintln!("  ℹ contract.yaml: {}，使用默认契约", e);
-            auto_detect_contract(repo_path)
-        }
+        Err(_) => auto_detect_contract(repo_path),
     }
 }
 

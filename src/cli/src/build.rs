@@ -13,10 +13,15 @@ struct CiRun {
 
 /// 输出当前仓库的构建状态（按 scope）。
 pub fn status(repo_path: &Path) {
+    let mut stdout = std::io::stdout();
+    status_to(&mut stdout, repo_path).ok();
+}
+
+pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io::Result<()> {
     let c = contract::load(repo_path);
 
-    println!("构建状态");
-    println!("{}", "-".repeat(50));
+    writeln!(writer, "构建状态")?;
+    writeln!(writer, "{}", "-".repeat(50))?;
 
     if c.scopes.is_empty() {
         let lang = contract::detect_by_files(repo_path);
@@ -33,31 +38,24 @@ pub fn status(repo_path: &Path) {
         };
         let vs = contract::version_status(repo_path, &root_scope);
         let release = c.scope_release(&root_scope);
-        print_scope("(root)", repo_path, &lang, &vs, release, &c, None);
+        print_scope(writer, "(root)", repo_path, &lang, &c, &vs, &release)?;
     } else {
         for scope in &c.scopes {
             let scope_dir = repo_path.join(&scope.dir);
             if !scope_dir.exists() {
-                println!("  [{}]     ⚠ 目录不存在: {}", scope.name, scope.dir);
+                writeln!(writer, "  [{}]     ⚠ 目录不存在: {}", scope.name, scope.dir)?;
                 continue;
             }
             let lang = c.resolve_language(scope, &scope_dir);
             let vs = contract::version_status(repo_path, scope);
             let release = c.scope_release(scope);
-            print_scope(
-                &scope.name,
-                &scope_dir,
-                &lang,
-                &vs,
-                release,
-                &c,
-                scope.ci_workflow.as_deref(),
-            );
+            print_scope(writer, &scope.name, &scope_dir, &lang, &c, &vs, &release)?;
         }
     }
 
     let dirty = is_working_tree_dirty(repo_path);
-    println!(
+    writeln!(
+        writer,
         "  {}         {}",
         "工作区".to_string(),
         if dirty {
@@ -65,46 +63,60 @@ pub fn status(repo_path: &Path) {
         } else {
             "✅ 干净"
         }
-    );
+    )?;
+    Ok(())
 }
 
 fn print_scope(
+    writer: &mut impl std::io::Write,
     name: &str,
     dir: &Path,
     lang: &contract::Language,
+    c: &contract::Contract,
     vs: &contract::VersionStatus,
     release: &contract::StageRelease,
-    c: &contract::Contract,
-    ci_workflow: Option<&str>,
-) {
-    println!("  [{:<12}] {}", name, lang.as_str());
-    println!("    CI:         {}", check_ci(name, ci_workflow));
-    println!("    build:      {}", check_syntax(lang, dir));
+) -> std::io::Result<()> {
+    writeln!(writer, "  [{:<12}] {}", name, lang.as_str())?;
+    writeln!(writer, "    CI:         {}", check_ci(name, None))?;
+    writeln!(writer, "    build:      {}", check_syntax(lang, dir))?;
     match (&vs.tag_version, &vs.config_version) {
-        (Some(t), Some(_)) if vs.consistent => println!("    version:    ✅ {}（一致）", t),
-        (Some(t), Some(_)) => println!("    version:    ⚠ {}（配置不一致）", t),
-        (Some(t), None) => println!("    version:    tag {}（无配置文件）", t),
-        (None, Some(_)) => println!("    version:    有配置版本（无 tag）"),
-        (None, None) => println!("    version:    暂无发布"),
+        (Some(t), Some(_)) if vs.consistent => {
+            writeln!(writer, "    version:    ✅ {}（一致）", t)?
+        }
+        (Some(t), Some(_)) => writeln!(writer, "    version:    ⚠ {}（配置不一致）", t)?,
+        (Some(t), None) => writeln!(writer, "    version:    tag {}（无配置文件）", t)?,
+        (None, Some(_)) => writeln!(writer, "    version:    有配置版本（无 tag）")?,
+        (None, None) => writeln!(writer, "    version:    暂无发布")?,
     }
     for (fname, ver) in &vs.config_files {
         match (ver, &vs.tag_version) {
             (Some(v), Some(t)) if v == t => {
-                println!("      {:<15} {} ✅", format!("{}:", fname), v)
+                writeln!(writer, "      {:<15} {} ✅", format!("{}:", fname), v)?
             }
-            (Some(v), Some(_)) => println!(
+            (Some(v), Some(_)) => writeln!(
+                writer,
                 "      {:<15} {} ❌（期望 {})",
                 format!("{}:", fname),
                 v,
                 vs.tag_version.as_deref().unwrap_or("?")
-            ),
-            (Some(v), None) => println!("      {:<15} {}（无 tag）", format!("{}:", fname), v),
-            (None, _) => println!("      {:<15} （未找到版本字段）", format!("{}:", fname)),
+            )?,
+            (Some(v), None) => writeln!(
+                writer,
+                "      {:<15} {}（无 tag）",
+                format!("{}:", fname),
+                v
+            )?,
+            (None, _) => writeln!(
+                writer,
+                "      {:<15} （未找到版本字段）",
+                format!("{}:", fname)
+            )?,
         }
     }
-    println!("    registry:   {:?}", c.platform.artifact_registry);
-    println!("    deps:       {}", check_dependencies(dir));
-    println!("    changelog:  {}", release.changelog);
+    writeln!(writer, "    registry:   {:?}", c.platform.artifact_registry)?;
+    writeln!(writer, "    deps:       {}", check_dependencies(dir))?;
+    writeln!(writer, "    changelog:  {}", release.changelog)?;
+    Ok(())
 }
 
 /// 解析 CI workflow 名称。ci_workflow 优先，无则按约定 build-{scope}。
@@ -317,14 +329,15 @@ mod tests {
         };
         let release = contract::StageRelease::default();
         print_scope(
+            &mut std::io::sink(),
             "test",
             d.path(),
             &contract::Language::Rust,
+            &c,
             &vs,
             &release,
-            &c,
-            None,
-        );
+        )
+        .unwrap();
     }
 
     #[test]

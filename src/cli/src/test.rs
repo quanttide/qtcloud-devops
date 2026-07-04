@@ -24,35 +24,51 @@ impl Coverage {
     }
 }
 
-/// 按 scope 输出测试状态。
+/// 按 scope 输出测试状态（写 stdout 的便捷封装）。
 pub fn status(repo_path: &Path, c: &contract::Contract) {
+    let _ = status_to(&mut std::io::stdout(), repo_path, c);
+}
+
+/// 按 scope 输出测试状态，写入任意 writer。
+pub fn status_to(
+    writer: &mut impl std::io::Write,
+    repo_path: &Path,
+    c: &contract::Contract,
+) -> std::io::Result<()> {
     let scopes = &c.scopes;
 
-    println!("测试状态");
-    println!("{}", "-".repeat(50));
+    writeln!(writer, "测试状态")?;
+    writeln!(writer, "{}", "-".repeat(50))?;
 
     if scopes.is_empty() {
         let lang = contract::detect_by_files(repo_path);
         let summary = collect_test_summary(repo_path, &lang);
         let coverage = collect_coverage(repo_path, &lang, c.stages.test.threshold);
-        print_scope("(root)", &summary, &coverage);
+        print_scope(writer, "(root)", &summary, &coverage)?;
     } else {
         for scope in scopes {
             let scope_dir = repo_path.join(&scope.dir);
             if !scope_dir.exists() {
-                println!("  [{}]     ⚠ 目录不存在", scope.name);
+                writeln!(writer, "  [{}]     ⚠ 目录不存在", scope.name)?;
                 continue;
             }
             let lang = c.resolve_language(scope, &scope_dir);
             let summary = collect_test_summary(&scope_dir, &lang);
             let threshold = c.scope_test_threshold(scope);
             let coverage = collect_coverage(&scope_dir, &lang, threshold);
-            print_scope(&scope.name, &summary, &coverage);
+            print_scope(writer, &scope.name, &summary, &coverage)?;
         }
     }
+
+    Ok(())
 }
 
-fn print_scope(name: &str, summary: &TestSummary, coverage: &Coverage) {
+fn print_scope(
+    writer: &mut impl std::io::Write,
+    name: &str,
+    summary: &TestSummary,
+    coverage: &Coverage,
+) -> std::io::Result<()> {
     let status_icon = if summary.failed > 0 {
         "❌"
     } else if summary.skipped > 0 {
@@ -78,8 +94,8 @@ fn print_scope(name: &str, summary: &TestSummary, coverage: &Coverage) {
         "暂无测试".into()
     };
 
-    println!("  [{:<12}] {}", name, status_icon);
-    println!("    测试数:       {}", detail);
+    writeln!(writer, "  [{:<12}] {}", name, status_icon)?;
+    writeln!(writer, "    测试数:       {}", detail)?;
 
     let cov_icon = if coverage.met() {
         "✅"
@@ -89,14 +105,17 @@ fn print_scope(name: &str, summary: &TestSummary, coverage: &Coverage) {
         "—"
     };
     if coverage.percentage > 0.0 {
-        println!(
+        writeln!(
+            writer,
             "    覆盖率:       {:.1}%{}（阈值 {}%）",
             coverage.percentage, cov_icon, coverage.threshold,
-        );
+        )?;
     } else {
-        println!("    覆盖率:       未检测到覆盖率报告");
-        println!("                  运行 `cargo llvm-cov --lcov --output-path target/coverage/lcov.info` 生成");
+        writeln!(writer, "    覆盖率:       未检测到覆盖率报告")?;
+        writeln!(writer, "                  运行 `cargo llvm-cov --lcov --output-path target/coverage/lcov.info` 生成")?;
     }
+
+    Ok(())
 }
 
 /// 返回语言对应的测试命令和标签，None 表示不支持。
