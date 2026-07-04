@@ -227,33 +227,36 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, String> {
     // 第一遍：删除 done item 行
     lines.retain(|l| !is_done_item(l));
 
-    // 第二遍：删除空的分类标题
+    // 第二遍：删除空的分类标题（跳过空行看后面是否真有内容）
     let mut i = 0;
-    while i + 1 < lines.len() {
+    while i < lines.len() {
         if is_category_header(lines[i]) {
-            let next = lines[i + 1].trim();
-            if next.is_empty() || is_category_header(next) || is_version_header(next) {
+            let mut j = i + 1;
+            while j < lines.len() && lines[j].trim().is_empty() {
+                j += 1;
+            }
+            if j >= lines.len() || is_category_header(lines[j]) || is_version_header(lines[j]) {
                 lines.remove(i);
                 continue;
             }
         }
         i += 1;
     }
-    if let Some(last) = lines.last() {
-        if is_category_header(last) {
-            lines.pop();
-        }
-    }
 
-    // 第三遍：删除空的版本标题
+    // 第三遍：删除空的版本标题（跳过空行看后面是否真有内容）
     let mut i = 0;
-    while i + 1 < lines.len() {
+    while i < lines.len() {
         if is_version_header(lines[i]) {
-            let next = lines[i + 1].trim();
-            if next.is_empty() || is_version_header(next) {
+            let mut j = i + 1;
+            while j < lines.len() && lines[j].trim().is_empty() {
+                j += 1;
+            }
+            if j >= lines.len() || is_version_header(lines[j]) {
+                // 后面是文件尾或另一个版本头 → 此版本为空
                 lines.remove(i);
                 continue;
             }
+            // 后面有内容（checkbox、分类等）→ 保留
         }
         i += 1;
     }
@@ -324,6 +327,34 @@ fn apply_rule_fixes(path: &Path, content: &str, scope: &str) -> Result<Vec<Issue
     for (idx, raw_line) in content.lines().enumerate() {
         let line_num = idx + 1;
         let trimmed = raw_line.trim();
+
+        // 0a. 检测非标准 ## 头（如 ## P0 — 阻塞）
+        if trimmed.starts_with("## ") && !is_version_line(trimmed).is_some() {
+            issues.push(Issue {
+                line: line_num,
+                scope: scope.to_string(),
+                message: format!("非标准版本头（应为 ## [X.Y.Z]）: {}", trimmed),
+            });
+            new_lines.push(raw_line.to_string());
+            continue;
+        }
+
+        // 0b. 检测非标准 ### 分类（如 ### 0.1 xxx）
+
+        // 0b. 检测非标准 ### 分类（如 ### 0.1 xxx）
+        if trimmed.starts_with("### ")
+            && !CATEGORIES
+                .iter()
+                .any(|c| c.to_lowercase() == trimmed.to_lowercase())
+        {
+            issues.push(Issue {
+                line: line_num,
+                scope: scope.to_string(),
+                message: format!("非标准分类标题: {}", trimmed),
+            });
+            new_lines.push(raw_line.to_string());
+            continue;
+        }
 
         // 1. 版本标题：去掉 v 前缀
         if let Some(ver) = is_version_line(trimmed) {
@@ -638,6 +669,22 @@ mod tests {
     }
 
     #[test]
+    fn test_clean_cascade_does_not_delete_adjacent_version() {
+        // Issue #5-4: [0.5.0] 全 done 被清后，[0.6.0] 不应被连带删除
+        let content = "## [0.6.0]\n\
+- [ ] 修复 bug\n\
+\n\
+## [0.5.0]\n\
+- [x] 已删除 legacy\n";
+        let d = write_roadmap(content);
+        clean_roadmap(&d.path().join("ROADMAP.md")).unwrap();
+        let result = read_roadmap(d.path());
+        assert!(result.contains("0.6.0"), "[0.6.0] 不应被删除: {}", result);
+        assert!(!result.contains("0.5.0"), "[0.5.0] 应被删除: {}", result);
+        assert!(result.contains("修复 bug"), "内容应保留: {}", result);
+    }
+
+    #[test]
     fn test_clean_trailing_newlines_removed() {
         // 末尾多余空行应被清理
         let d = write_roadmap("## [0.1.0]\n- [ ] todo\n\n\n");
@@ -675,7 +722,6 @@ mod tests {
 
     #[test]
     fn test_doctor_modifies_file() {
-        // doctor 会实际修改文件，不再是只读
         let d = write_roadmap("## [v0.1.0]\n### ADDED\n-  [x] bad\n");
         let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert!(!issues.is_empty());
@@ -683,6 +729,28 @@ mod tests {
         assert!(content.contains("## [0.1.0]"));
         assert!(content.contains("### Added"));
         assert!(content.contains("- [x] bad"));
+    }
+
+    #[test]
+    fn test_doctor_detects_nonstandard_header() {
+        let d = write_roadmap("## 现状 (Current)\n- [ ] item\n");
+        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        assert!(
+            issues.iter().any(|i| i.message.contains("非标准版本头")),
+            "应检测到非标准版本头: {:?}",
+            issues
+        );
+    }
+
+    #[test]
+    fn test_doctor_detects_nonstandard_category() {
+        let d = write_roadmap("## [0.1.0]\n### 0.1 fix bug\n- [ ] item\n");
+        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        assert!(
+            issues.iter().any(|i| i.message.contains("非标准分类")),
+            "应检测到非标准分类: {:?}",
+            issues
+        );
     }
 
     // ── print_status_to ─────────────────────────────────────────
