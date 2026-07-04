@@ -103,6 +103,7 @@ fn print_scope(
         }
     }
     println!("    registry:   {:?}", c.platform.artifact_registry);
+    println!("    deps:       {}", check_dependencies(dir));
     println!("    changelog:  {}", release.changelog);
 }
 
@@ -257,6 +258,47 @@ fn is_working_tree_dirty(repo_path: &Path) -> bool {
         Err(_) => return false,
     };
     repo.statuses(None).map_or(false, |s| !s.is_empty())
+}
+
+/// 检查 scope 目录下的 Cargo.toml 是否有 path 或 git 依赖。
+fn check_dependencies(dir: &Path) -> String {
+    let cargo_toml = dir.join("Cargo.toml");
+    if !cargo_toml.exists() {
+        return "—".into();
+    }
+    let content = match std::fs::read_to_string(&cargo_toml) {
+        Ok(c) => c,
+        Err(_) => return "⚠ 无法读取".into(),
+    };
+
+    // 检查 [dependencies] 和 [dev-dependencies] 段
+    let mut in_deps = false;
+    let mut issues: Vec<&str> = Vec::new();
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            in_deps = t == "[dependencies]"
+                || t.starts_with("[dependencies.")
+                || t == "[dev-dependencies]"
+                || t.starts_with("[dev-dependencies.");
+            continue;
+        }
+        if !in_deps || t.starts_with('#') || t.is_empty() {
+            continue;
+        }
+        if t.contains("path = \"") && !t.contains("\"\"") {
+            issues.push("path");
+        }
+        if t.contains("git = \"") && !t.contains("rev = \"") {
+            issues.push("git (no rev)");
+        }
+    }
+
+    if issues.is_empty() {
+        "✅ crates.io".into()
+    } else {
+        format!("⚠ {}", issues.join(", "))
+    }
 }
 
 #[cfg(test)]
@@ -441,5 +483,49 @@ mod tests {
     fn test_check_args_unknown_returns_none() {
         let d = tempfile::tempdir().unwrap();
         assert!(check_args(&contract::Language::Unknown("?".into()), d.path()).is_none());
+    }
+
+    // ── check_dependencies ──────────────────────────────────────
+
+    #[test]
+    fn test_check_deps_clean() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join("Cargo.toml"),
+            "[dependencies]\nserde = \"1\"\n",
+        )
+        .unwrap();
+        let r = check_dependencies(d.path());
+        assert!(r.contains("✅"), "应返回干净: {}", r);
+    }
+
+    #[test]
+    fn test_check_deps_path_dep() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join("Cargo.toml"),
+            "[dependencies]\nfoo = { path = \"../local\" }\n",
+        )
+        .unwrap();
+        let r = check_dependencies(d.path());
+        assert!(r.contains("⚠"), "应检测到 path 依赖: {}", r);
+    }
+
+    #[test]
+    fn test_check_deps_git_no_rev() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join("Cargo.toml"),
+            "[dependencies]\nbar = { git = \"https://github.com/foo/bar\" }\n",
+        )
+        .unwrap();
+        let r = check_dependencies(d.path());
+        assert!(r.contains("⚠"), "应检测到 git 无 rev: {}", r);
+    }
+
+    #[test]
+    fn test_check_deps_no_cargo_toml() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(check_dependencies(d.path()), "—");
     }
 }
