@@ -131,6 +131,9 @@ pub fn push_tag(version: &str, repo_path: &Path) -> bool {
             if msg.contains("does not appear") || msg.contains("repository '' does not exist") {
                 return true;
             }
+            if msg.contains("already exists") || msg.contains("already up to date") {
+                return true;
+            }
             eprintln!("推送标签失败: {}", msg);
             false
         }
