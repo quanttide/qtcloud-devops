@@ -66,6 +66,8 @@ enum BuildAction {
 enum TestAction {
     /// 查看测试状态
     Status,
+    /// 运行单元测试和覆盖率
+    Run,
 }
 
 #[derive(Subcommand)]
@@ -189,6 +191,7 @@ fn main() {
                 qtcloud_devops_cli::test::status(&repo_path(), &c);
                 Ok(())
             }
+            TestAction::Run => qtcloud_devops_cli::test::run(&repo_path()),
         },
         Commands::Release { action } => match action {
             ReleaseAction::Publish {

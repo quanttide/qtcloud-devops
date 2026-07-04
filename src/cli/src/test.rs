@@ -29,6 +29,74 @@ pub fn status(repo_path: &Path, c: &contract::Contract) {
     let _ = status_to(&mut std::io::stdout(), repo_path, c);
 }
 
+/// 运行单元测试和覆盖率。
+pub fn run(repo_path: &Path) -> Result<(), String> {
+    use std::process::Command;
+
+    let c = crate::contract::load(repo_path);
+    let scopes = &c.scopes;
+
+    if scopes.is_empty() {
+        let lang = crate::contract::detect_by_files(repo_path);
+        run_tests_for_lang(repo_path, &lang)?;
+    } else {
+        for scope in scopes {
+            let scope_dir = repo_path.join(&scope.dir);
+            if !scope_dir.exists() {
+                println!("  [{}]     ⚠ 目录不存在，跳过", scope.name);
+                continue;
+            }
+            let lang = c.resolve_language(scope, &scope_dir);
+            println!("  [{}] 运行测试...", scope.name);
+            run_tests_for_lang(&scope_dir, &lang)?;
+        }
+    }
+
+    // 全局覆盖率（仅 Rust 支持）
+    if has_cargo_toml(repo_path) {
+        println!("\n生成覆盖率报告...");
+        let cov = Command::new("cargo")
+            .args([
+                "llvm-cov",
+                "--lcov",
+                "--output-path",
+                "target/coverage/lcov.info",
+            ])
+            .status()
+            .map_err(|e| format!("启动覆盖率失败: {}", e))?;
+        if !cov.success() {
+            return Err("覆盖率生成失败".into());
+        }
+        println!("✅ 覆盖率已更新");
+    }
+
+    Ok(())
+}
+
+fn run_tests_for_lang(dir: &Path, lang: &contract::Language) -> Result<(), String> {
+    let Some((cmd, args)) = test_command(lang) else {
+        println!("  ⚠ 不支持的语言: {:?}，跳过", lang);
+        return Ok(());
+    };
+
+    let status = std::process::Command::new(cmd)
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .map_err(|e| format!("启动 {} 失败: {}", cmd, e))?;
+
+    if status.success() {
+        println!("  ✅ {} 测试通过", cmd);
+        Ok(())
+    } else {
+        Err(format!("{} 测试失败", cmd))
+    }
+}
+
+fn has_cargo_toml(dir: &Path) -> bool {
+    dir.join("Cargo.toml").exists()
+}
+
 /// 按 scope 输出测试状态，写入任意 writer。
 pub fn status_to(
     writer: &mut impl std::io::Write,
