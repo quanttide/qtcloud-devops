@@ -143,7 +143,24 @@ pub fn print_status_to(
 
     let versions = parse_roadmap(&roadmap_path)?;
     if versions.is_empty() {
-        writeln!(writer, "  未找到规划条目").ok();
+        writeln!(writer, "  未找到标准规划条目").ok();
+        // 诊断：检查文件是否有非标准格式
+        let content = std::fs::read_to_string(&roadmap_path).unwrap_or_default();
+        let has_unknown_headers = content.lines().any(|l| {
+            let t = l.trim();
+            (t.starts_with("## ") && !t.starts_with("## ["))
+                || (t.starts_with("### ")
+                    && !CATEGORIES
+                        .iter()
+                        .any(|c| c.to_lowercase() == t.to_lowercase()))
+        });
+        if has_unknown_headers {
+            writeln!(
+                writer,
+                "  ⚠ 文件含有非标准格式的标题，运行 `plan doctor` 查看详情"
+            )
+            .ok();
+        }
         return Ok(());
     }
 
@@ -770,7 +787,21 @@ mod tests {
         let mut buf = Vec::new();
         print_status_to(&mut buf, d.path(), None).unwrap();
         let output = String::from_utf8_lossy(&buf);
-        assert!(output.contains("未找到规划条目"));
+        assert!(output.contains("未找到标准规划条目"));
+    }
+
+    #[test]
+    fn test_print_status_unknown_headers_warns() {
+        // 非标准 ## 头应触发 warning
+        let d = write_roadmap("## 现状 (Current)\n- [ ] item\n");
+        let mut buf = Vec::new();
+        print_status_to(&mut buf, d.path(), None).unwrap();
+        let output = String::from_utf8_lossy(&buf);
+        assert!(
+            output.contains("plan doctor"),
+            "应提示运行 plan doctor: {}",
+            output
+        );
     }
 
     #[test]
