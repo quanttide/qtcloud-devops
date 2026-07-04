@@ -24,7 +24,10 @@ pub fn status() {
             println!(
                 "  {:<12} ✅ {}",
                 "gh-auth",
-                msg.lines().next().unwrap_or("")
+                msg.lines()
+                    .nth(1)
+                    .map(|l| l.trim())
+                    .unwrap_or(msg.lines().next().unwrap_or(""))
             );
         }
         Ok(out) => {
