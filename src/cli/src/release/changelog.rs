@@ -321,4 +321,57 @@ mod tests {
             .unwrap();
         assert_eq!(get_latest_tag(d.path()).as_deref(), Some("v0.2.0"));
     }
+
+    #[test]
+    fn test_collect_git_log_with_tags_hides_older() {
+        let d = tempfile::tempdir().unwrap();
+        git_init(d.path());
+        git_commit(d.path(), "A");
+        std::process::Command::new("git")
+            .args(["tag", "v0.1.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        git_commit(d.path(), "B");
+        git_commit(d.path(), "C");
+        let log = collect_git_log(d.path()).unwrap();
+        assert!(log.contains("B"));
+        assert!(log.contains("C"));
+    }
+
+    #[test]
+    fn test_ensure_changelog_repo_path_differs_from_scope_dir() {
+        let d = tempfile::tempdir().unwrap();
+        let root_dir = d.path().join("repo");
+        std::fs::create_dir_all(&root_dir).unwrap();
+        git_init(&root_dir);
+        git_commit(&root_dir, "init");
+        let scope_dir = root_dir.join("sub/scope");
+        std::fs::create_dir_all(&scope_dir).unwrap();
+        std::fs::write(
+            scope_dir.join("CHANGELOG.md"),
+            "# CHANGELOG\n\n## [0.1.0]\n\ncontent\n",
+        )
+        .unwrap();
+        assert!(ensure_changelog(&root_dir, &scope_dir, "v0.2.0").is_ok());
+        let scoped_content = std::fs::read_to_string(scope_dir.join("CHANGELOG.md")).unwrap();
+        assert!(scoped_content.contains("[0.2.0]"));
+        assert!(!root_dir.join("CHANGELOG.md").exists());
+    }
+
+    #[test]
+    fn test_ensure_changelog_appends_new_version() {
+        let d = tempfile::tempdir().unwrap();
+        git_init(d.path());
+        git_commit(d.path(), "init");
+        std::fs::write(
+            d.path().join("CHANGELOG.md"),
+            "# CHANGELOG\n\n## [0.1.0]\n\n### Added\n- init\n",
+        )
+        .unwrap();
+        assert!(ensure_changelog(d.path(), d.path(), "v0.2.0").is_ok());
+        let content = std::fs::read_to_string(d.path().join("CHANGELOG.md")).unwrap();
+        assert!(content.contains("[0.1.0]"));
+        assert!(content.contains("[0.2.0]"));
+    }
 }

@@ -251,4 +251,89 @@ mod tests {
         let result = update_version_in_content(content, "2.0.0");
         assert!(result.contains("\"version\": \"2.0.0\""));
     }
+
+    #[test]
+    fn test_resolve_scope_dir_with_contract() {
+        let d = tempfile::tempdir().unwrap();
+        let contract_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&contract_dir).unwrap();
+        std::fs::write(
+            contract_dir.join("contract.yaml"),
+            "scopes:\n  cli:\n    dir: packages/cli\n    language: rust\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(d.path().join("packages/cli")).unwrap();
+        let resolved = resolve_scope_dir("cli/v0.1.0", d.path());
+        assert!(
+            resolved.ends_with("packages/cli"),
+            "预期以 packages/cli 结尾，但得到: {:?}",
+            resolved
+        );
+    }
+
+    #[test]
+    fn test_update_config_version_creates_files() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join("Cargo.toml"),
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            d.path().join("pyproject.toml"),
+            "[project]\nname = \"test\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        update_config_version(d.path(), "0.2.0");
+        let cargo = std::fs::read_to_string(d.path().join("Cargo.toml")).unwrap();
+        assert!(cargo.contains("version = \"0.2.0\""));
+        let pyproject = std::fs::read_to_string(d.path().join("pyproject.toml")).unwrap();
+        assert!(pyproject.contains("version = \"0.2.0\""));
+    }
+
+    #[test]
+    fn test_publish_scoped_version_with_contract() {
+        let d = tempfile::tempdir().unwrap();
+        git_init(d.path());
+        git_commit(d.path(), "init");
+
+        let contract_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&contract_dir).unwrap();
+        std::fs::write(
+            contract_dir.join("contract.yaml"),
+            "scopes:\n  cli:\n    dir: packages/cli\n    language: rust\n",
+        )
+        .unwrap();
+
+        let scope_dir = d.path().join("packages/cli");
+        std::fs::create_dir_all(&scope_dir).unwrap();
+        std::fs::write(
+            scope_dir.join("Cargo.toml"),
+            "[package]\nname = \"cli\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            scope_dir.join("CHANGELOG.md"),
+            "# CHANGELOG\n\n## [0.1.0]\n\ncontent\n",
+        )
+        .unwrap();
+
+        // git add + commit 所有文件
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "setup scope"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+
+        let result = publish("cli/v0.2.0", d.path(), true, None);
+        assert!(result.is_ok(), "publish 失败: {:?}", result.err());
+
+        let cargo = std::fs::read_to_string(scope_dir.join("Cargo.toml")).unwrap();
+        assert!(cargo.contains("version = \"0.2.0\""));
+    }
 }

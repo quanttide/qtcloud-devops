@@ -742,6 +742,27 @@ mod tests {
         assert_eq!(content.trim_end().lines().count(), 2); // 版本标题 + 条目
     }
 
+    #[test]
+    fn test_clean_file_not_found() {
+        let d = tempfile::tempdir().unwrap();
+        let nonexistent = d.path().join("NONEXISTENT.md");
+        let result = clean_roadmap(&nonexistent);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_clean_suffix_version_all_done_cascade() {
+        let d = write_roadmap("## [0.2.0]\n\n- [ ] 待办\n\n## [0.1.0] — 已发布\n\n- [x] 旧功能\n");
+        clean_roadmap(&d.path().join("ROADMAP.md")).unwrap();
+        let content = read_roadmap(d.path());
+        // 0.1.0 版本应被删除（全部 done 且带后缀）
+        assert!(!content.contains("0.1.0"), "0.1.0 版本应被删除");
+        // 0.2.0 版本应保留
+        assert!(content.contains("0.2.0"), "0.2.0 版本应保留");
+        // 待办内容应保留
+        assert!(content.contains("待办"), "待办内容应保留");
+    }
+
     // ── doctor_roadmap ────────────────────────────────────────
 
     #[test]
@@ -798,6 +819,25 @@ mod tests {
         assert!(
             issues.iter().any(|i| i.message.contains("非标准分类")),
             "应检测到非标准分类: {:?}",
+            issues
+        );
+    }
+
+    #[test]
+    fn test_doctor_file_not_found() {
+        let d = tempfile::tempdir().unwrap();
+        let nonexistent = d.path().join("NONEXISTENT.md");
+        let result = doctor_roadmap(&nonexistent, "test");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_doctor_mixed_format() {
+        let d = write_roadmap("## [0.1.0]\n\n- [ ] 标准条目\n\n## 杂项 (Misc)\n\n- [ ] 非标准\n");
+        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        assert!(
+            issues.iter().any(|i| i.message.contains("非标准版本头")),
+            "应检测到非标准版本头: {:?}",
             issues
         );
     }

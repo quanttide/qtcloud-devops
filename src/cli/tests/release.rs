@@ -259,3 +259,59 @@ fn test_release_publish_extract_notes_filters_headers() {
     assert!(notes.contains("### Added"));
     assert!(notes.contains("- init"));
 }
+
+#[test]
+fn test_release_publish_scoped_monorepo() {
+    // monorepo: git 根 ≠ scope 子目录
+    let dir = tempfile::tempdir().unwrap();
+    git_init(dir.path());
+
+    // 创建契约
+    let contract_dir = dir.path().join(".quanttide/devops");
+    std::fs::create_dir_all(&contract_dir).unwrap();
+    std::fs::write(
+        contract_dir.join("contract.yaml"),
+        "scopes:\n  cli:\n    dir: packages/cli\n    language: rust\n",
+    )
+    .unwrap();
+
+    // 创建 scope 子目录
+    let scope_dir = dir.path().join("packages/cli");
+    std::fs::create_dir_all(&scope_dir).unwrap();
+
+    // scope 的配置文件
+    std::fs::write(
+        scope_dir.join("Cargo.toml"),
+        "[package]\nname = \"cli\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        scope_dir.join("CHANGELOG.md"),
+        "# CHANGELOG\n\n## [0.1.0]\n\n### Added\n- init\n",
+    )
+    .unwrap();
+
+    // 提交所有文件
+    git_commit(dir.path());
+
+    // 发布 scoped 版本 —— repo_path=git根, scope_dir=contract映射的子目录
+    let result = qtcloud_devops_cli::release::publish("cli/v0.2.0", dir.path(), true, None);
+    assert!(result.is_ok(), "monorepo scoped publish 应成功: {:?}", result);
+
+    // 验证 scope 目录文件已更新
+    let cargo = std::fs::read_to_string(scope_dir.join("Cargo.toml")).unwrap_or_default();
+    assert!(cargo.contains("version = \"0.2.0\""), "scope 的 Cargo.toml 应更新: {}", cargo);
+
+    // 验证 CHANGELOG 在 scope 目录下（不在根目录）
+    let scope_changelog = std::fs::read_to_string(scope_dir.join("CHANGELOG.md")).unwrap_or_default();
+    assert!(scope_changelog.contains("## [0.2.0]"), "scope 的 CHANGELOG 应含新版本: {}", scope_changelog);
+    let root_changelog = dir.path().join("CHANGELOG.md");
+    assert!(!root_changelog.exists(), "根目录不应生成 CHANGELOG");
+
+    // 验证 tag 存在
+    let output = std::process::Command::new("git")
+        .args(["-C", dir.path().to_str().unwrap(), "tag", "-l", "cli/v0.2.0"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&output.stdout).contains("cli/v0.2.0"), "tag 应存在");
+}
