@@ -303,3 +303,53 @@ fn test_cli_test_status() {
         .unwrap();
     assert!(output.status.success());
 }
+
+#[test]
+fn test_cli_plan_doctor() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("ROADMAP.md"), "## [0.1.0]\n- [ ] item\n").unwrap();
+    let output = cli()
+        .args(["plan", "doctor"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+}
+
+#[test]
+fn test_cli_code_sync_help() {
+    let output = cli().args(["code", "--help"]).output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("sync"));
+}
+
+#[test]
+fn test_cli_test_run_help() {
+    let output = cli().args(["test", "run", "--help"]).output().unwrap();
+    assert!(output.status.success());
+}
+
+#[test]
+fn test_cli_doctor_help() {
+    let output = cli().args(["doctor", "--help"]).output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("doctor"));
+}
+
+#[test]
+fn test_cli_code_status_empty() {
+    let d = tempfile::tempdir().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    let output = cli()
+        .args(["code", "status"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+}
