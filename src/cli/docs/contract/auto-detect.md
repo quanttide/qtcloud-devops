@@ -46,6 +46,47 @@ load(repo_path)
 
 根目录也按同样规则检测。检测到语言时生成 `(root)` scope（`dir: "."`），优先级最低——`find_scope_by_path` 按 dir 长度排序，长的先匹配。
 
+## 三层过滤逻辑
+
+代码内部按三层过滤判断一个子目录是否为 scope：
+
+**第一层：目录过滤**
+
+只在 `src/`、`packages/`、`apps/` 下的一级子目录里寻找。不在这些目录下的子目录不会被扫描。
+
+```
+src/ 下的 .rs 文件         → 不是目录，跳过
+packages/lab/Cargo.toml    → 是一级子目录，进入第二层
+src/cli/                   → 是一级子目录，进入第二层
+src/cli/sub/deep.rs        → 不是一级子目录，跳过
+```
+
+**第二层：文件检测**
+
+进入扫描范围的子目录，检查是否有可识别的项目配置文件。没有配置文件的普通目录就只是目录，不是 scope。
+
+```
+packages/lab/
+├── Cargo.toml             → Rust → 生成 scope "lab"
+└── src/ ...               → 不扫描嵌套内容
+
+src/utils/
+└── (只有 .rs 文件)        → 无 Cargo.toml → 跳过
+```
+
+**第三层：根目录兜底**
+
+根目录能识别语言时，生成一个 `(root)` scope 覆盖整个仓库。`src/` 下没有 Cargo.toml 的源文件、`docs/`、`tests/` 等普通目录都归入 `(root)`。
+
+```
+repo 根
+├── Cargo.toml             → 根目录可识别 → 生成 (root) scope
+├── src/main.rs             → 属于 (root)
+├── docs/                   → 属于 (root)
+└── packages/lab/
+    └── Cargo.toml          → 独立 scope "lab"
+```
+
 ## 自动推断的默认值
 
 | 维度 | 默认值 |
