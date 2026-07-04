@@ -174,6 +174,10 @@ pub fn collect_latest_tags(tags: &[&str]) -> Vec<(String, String)> {
 }
 
 fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usize {
+    // 如果 scope_dir 本身是 git 仓库（子模组），在子模组内计数
+    if is_git_repo(scope_dir) {
+        return count_unreleased_in_submodule(scope_dir, tag);
+    }
     let repo = match git2::Repository::open(repo_path) {
         Ok(r) => r,
         Err(_) => return 0,
@@ -217,6 +221,37 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usi
             }
         })
         .count()
+}
+
+/// 检测路径是否为 git 仓库
+fn is_git_repo(path: &Path) -> bool {
+    let git_dir = path.join(".git");
+    git_dir.is_dir() || git_dir.is_file()
+}
+
+/// 在子模组内统计未发布提交数（子模组自己的 tag 和 HEAD）
+fn count_unreleased_in_submodule(submodule_path: &Path, tag: &str) -> usize {
+    let repo = match git2::Repository::open(submodule_path) {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    let tag_ref = format!("refs/tags/{}", tag);
+    let tag_oid = match repo.find_reference(&tag_ref).ok().and_then(|r| r.target()) {
+        Some(t) => t,
+        None => return 0,
+    };
+    let head_oid = match repo.head().ok().and_then(|h| h.target()) {
+        Some(t) => t,
+        None => return 0,
+    };
+    let mut revwalk = match repo.revwalk() {
+        Ok(w) => w,
+        Err(_) => return 0,
+    };
+    if revwalk.push(head_oid).is_err() || revwalk.hide(tag_oid).is_err() {
+        return 0;
+    }
+    revwalk.count()
 }
 
 fn get_github_repo(repo_path: &Path) -> Option<String> {

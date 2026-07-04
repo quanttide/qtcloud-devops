@@ -48,8 +48,21 @@ pub fn publish(
         return Err("存在版本号不一致的配置文件，请先同步".into());
     }
 
+    // 如果是 Rust 项目，更新 Cargo.lock 保持与 Cargo.toml 同步
+    if scope_dir.join("Cargo.toml").exists() {
+        let lockfile_updated = std::process::Command::new("cargo")
+            .args(["generate-lockfile"])
+            .current_dir(&scope_dir)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if lockfile_updated {
+            println!("✓ Cargo.lock 已同步");
+        }
+    }
+
     // git add 配置文件，让 ensure_changelog 的 commit 一并提交
-    for f in &["Cargo.toml", "pyproject.toml"] {
+    for f in &["Cargo.toml", "pyproject.toml", "Cargo.lock"] {
         let path = scope_dir.join(f);
         if path.exists() {
             if let Ok(rel) = path.strip_prefix(repo_path) {
