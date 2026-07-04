@@ -49,6 +49,11 @@ enum Commands {
     },
     /// 概览状态：聚合 build / test / release / contract / plan 状态
     Status,
+    /// 系统诊断：检查外部依赖命令状态
+    Doctor {
+        #[command(subcommand)]
+        action: DoctorAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -103,6 +108,12 @@ enum ReleaseAction {
         registry: Option<PublishTarget>,
     },
     /// 查看发布状态：版本号、标签、CHANGELOG、工作区状态
+    Status,
+}
+
+#[derive(Subcommand)]
+enum DoctorAction {
+    /// 检查外部依赖命令状态
     Status,
 }
 
@@ -222,6 +233,12 @@ fn main() {
             qtcloud_devops_cli::release::status(&rp);
             Ok(())
         }
+        Commands::Doctor { action } => match action {
+            DoctorAction::Status => {
+                qtcloud_devops_cli::doctor::status();
+                Ok(())
+            }
+        },
     };
 
     if let Err(e) = result {

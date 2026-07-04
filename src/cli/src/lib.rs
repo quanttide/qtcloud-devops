@@ -1,6 +1,7 @@
 pub mod build;
 pub mod code;
 pub mod contract;
+pub mod doctor;
 pub mod git;
 pub mod plan;
 pub mod release;
