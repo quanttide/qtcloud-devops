@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.9.1] - 2026-07-04
+
+### Added
+- release status 命令支持子模组计数
+
+### Fixed
+- release publish 命令自动同步 Cargo.lock
+
 ## [0.9.0] - 2026-07-04
 
 ### Added
