@@ -3,29 +3,25 @@
 ## [0.8.3] - 2026-07-04
 
 ### Added
-- contract 自动推断（三层过滤：目录→文件→根兜底）
-- monorepo 默认布局规范（src/* packages/* apps/*）
-- 无 contract.yaml 时的智能 scope 发现
-- 文档：contract/ 文件夹（auto-detect、config、model、monorepo、scope、version）
+- contract 自动推断（无 contract.yaml 时扫描 src/* packages/* apps/* 自动生成 scope）
+- monorepo 默认布局规范
+- 文档：contract/ 模块文档（auto-detect、config、model、monorepo、scope、version）
 - 教程：monorepo 入门
 
 ### Changed
-- println → writeln(writer) 重构，三个模块（build/test/release/status）全部改为 status_to 模式
-- release publish 增加内置预检步骤
-- repo_path() 使用 git2::Repository::discover() 自动查找 git 根目录
+- println → writeln(writer) 重构，提升可测试性
+- repo_path() 自动查找 git 根目录，支持 monorepo 子目录运行
 
 ### Fixed
-- ensure_changelog repo_path ≠ scope_dir 场景（Issue #4-1）
-- release publish 自动更新版本号置于预检前（Issue #4-2）
-- plan doctor 非标准 ##/### 检测、status 诊断输出、clean 级联误删（Issue #5）
-- contract.yaml platform 字段名（platforms→platform, ci→pipeline）
+- release publish scope 子目录被当作独立 git 仓库的问题
+- release publish 版本号更新时序（先更新、再检查）
+- plan doctor/status/clean 多格式检测和级联清理
+- contract.yaml 字段名与模型不匹配（platforms→platform, ci→pipeline）
 - test status 重复加载 contract.yaml
 - eprintln 暴露原始 OS 错误
-- 无覆盖率报告时提示生成命令
 
 ### Removed
-- 仓库中的 contract.yaml 文件（auto-detect 已覆盖）
-- cli/docs/contract.md 拆分为多文件后删除
+- 仓库中的 contract.yaml（auto-detect 已覆盖）
 
 ## [0.8.2] - 2026-07-03
 
