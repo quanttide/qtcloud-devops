@@ -26,7 +26,7 @@ impl Coverage {
 
 /// 按 scope 输出测试状态。
 pub fn status(repo_path: &Path, c: &contract::Contract) {
-    let scopes = contract::load_scopes(repo_path);
+    let scopes = &c.scopes;
 
     println!("测试状态");
     println!("{}", "-".repeat(50));
@@ -37,7 +37,7 @@ pub fn status(repo_path: &Path, c: &contract::Contract) {
         let coverage = collect_coverage(repo_path, &lang, c.stages.test.threshold);
         print_scope("(root)", &summary, &coverage);
     } else {
-        for scope in &scopes {
+        for scope in scopes {
             let scope_dir = repo_path.join(&scope.dir);
             if !scope_dir.exists() {
                 println!("  [{}]     ⚠ 目录不存在", scope.name);
@@ -95,6 +95,7 @@ fn print_scope(name: &str, summary: &TestSummary, coverage: &Coverage) {
         );
     } else {
         println!("    覆盖率:       未检测到覆盖率报告");
+        println!("                  运行 `cargo llvm-cov --lcov --output-path target/coverage/lcov.info` 生成");
     }
 }
 
