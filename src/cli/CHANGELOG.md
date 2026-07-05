@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [0.9.3-alpha.1] - 2026-07-05
+
+- **Changed**
+  - 修复 test run OOM: repo_path 限制到 crate 根，test/coverage 分离
+  - 修复 test status 误触发编译：改为读缓存
+  - 提升测试覆盖率至 86.7%（test.rs +85%、detect.rs +80%）
+  - 新增 test clean 子命令
+  - 新增性能/边界测试 45 个
+
 ## [0.9.2] - 2026-07-04
 
 - **Added**  

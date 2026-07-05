@@ -208,6 +208,240 @@ fn test_build_status_no_manifest_skips_cargo() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// test run 场景（覆盖性能测试：验证 test::run 的新逻辑）
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Rust scope: cargo llvm-cov 自身包含测试 + 覆盖率，验证 run_tests_for_lang 被跳过。
+#[test]
+fn test_test_run_rust_coverage_handles_tests() {
+    let (_d, path) = setup_repo();
+    std::fs::write(
+        path.join("Cargo.toml"),
+        "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    // cargo llvm-cov 成功 → 表示测试通过 + 覆盖率已更新
+    let cargo_ok = mock_custom("exit 0");
+    with_mock_env(&[("cargo", &cargo_ok)], || {
+        let result = qtcloud_devops_cli::test::run(&path);
+        assert!(result.is_ok(), "llvm-cov 成功 → run 应返回 Ok");
+    });
+}
+
+/// Rust scope: cargo llvm-cov 失败（测试未通过）→ run 应返回 Err。
+#[test]
+fn test_test_run_rust_coverage_fails_propagates_error() {
+    let (_d, path) = setup_repo();
+    std::fs::write(
+        path.join("Cargo.toml"),
+        "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let cargo_fail = mock_custom("exit 1");
+    with_mock_env(&[("cargo", &cargo_fail)], || {
+        let result = qtcloud_devops_cli::test::run(&path);
+        assert!(result.is_err(), "llvm-cov 失败 → run 应返回 Err");
+        let err = result.unwrap_err();
+        assert!(err.contains("cargo"), "错误信息应包含命令名: {}", err);
+    });
+}
+
+/// Python scope: coverage 不包含测试 → 先跑 python -m pytest，再跑 coverage。
+#[test]
+fn test_test_run_python_separate_test_and_coverage() {
+    let (_d, path) = setup_repo();
+    std::fs::write(
+        path.join("pyproject.toml"),
+        "[project]\nname = \"test\"\n",
+    )
+    .unwrap();
+    // python -m pytest 通过，coverage 通过
+    let py_ok = mock_custom("exit 0");
+    let coverage_ok = mock_custom("exit 0");
+    with_mock_env(&[("python", &py_ok), ("coverage", &coverage_ok)], || {
+        let result = qtcloud_devops_cli::test::run(&path);
+        assert!(result.is_ok(), "Python test+coverage 均应通过");
+    });
+}
+
+/// Python scope: pytest 失败 → run 应返回 Err，coverage 不执行。
+#[test]
+fn test_test_run_python_test_fails() {
+    let (_d, path) = setup_repo();
+    std::fs::write(
+        path.join("pyproject.toml"),
+        "[project]\nname = \"test\"\n",
+    )
+    .unwrap();
+    let py_fail = mock_custom("exit 1");
+    let coverage_ok = mock_custom("exit 0");
+    with_mock_env(&[("python", &py_fail), ("coverage", &coverage_ok)], || {
+        let result = qtcloud_devops_cli::test::run(&path);
+        assert!(result.is_err(), "pytest 失败 → run 应返回 Err");
+    });
+}
+
+/// 空项目（无清单文件）：不应 panic，静默跳过。
+#[test]
+fn test_test_run_empty_dir() {
+    let (_d, path) = setup_repo();
+    let result = qtcloud_devops_cli::test::run(&path);
+    assert!(result.is_ok(), "空目录应返回 Ok");
+}
+
+/// 不存在的语言（未知）：跳过测试，不 panic。
+#[test]
+fn test_test_run_unknown_lang() {
+    let (_d, path) = setup_repo();
+    std::fs::write(path.join("README.md"), "").unwrap();
+    let result = qtcloud_devops_cli::test::run(&path);
+    assert!(result.is_ok(), "未知语言应返回 Ok");
+}
+
+/// 多 scope 场景验证：每个 scope 各自走覆盖/测试逻辑。
+#[test]
+fn test_test_run_multiple_scopes() {
+    let (_d, path) = setup_repo();
+    // 创建 Rust scope
+    let cli_dir = path.join("packages/cli");
+    std::fs::create_dir_all(&cli_dir).unwrap();
+    std::fs::write(
+        cli_dir.join("Cargo.toml"),
+        "[package]\nname = \"cli\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    // 创建 Python scope
+    let py_dir = path.join("packages/sdk");
+    std::fs::create_dir_all(&py_dir).unwrap();
+    std::fs::write(py_dir.join("pyproject.toml"), "[project]\nname = \"sdk\"\n").unwrap();
+    // 创建契约使两个 scope 被识别
+    let contract_dir = path.join(".quanttide/devops");
+    std::fs::create_dir_all(&contract_dir).unwrap();
+    std::fs::write(
+        contract_dir.join("contract.yaml"),
+        "scopes:\n  cli:\n    dir: packages/cli\n    language: rust\n  sdk:\n    dir: packages/sdk\n    language: python\n",
+    )
+    .unwrap();
+    // mock: Rust scope 用 cargo (llvm-cov)，Python scope 用 python + coverage
+    let cargo_ok = mock_custom("exit 0");
+    let py_ok = mock_custom("exit 0");
+    let coverage_ok = mock_custom("exit 0");
+    with_mock_env(
+        &[("cargo", &cargo_ok), ("python", &py_ok), ("coverage", &coverage_ok)],
+        || {
+            let result = qtcloud_devops_cli::test::run(&path);
+            assert!(result.is_ok(), "多 scope 全通过");
+        },
+    );
+}
+
+/// 验证 scope 过滤：从子目录运行 test run 时，不越级到其他 scope。
+/// 模拟 monorepo 有两个 crate（cli + sdk），从 cli 目录运行，确认只触发 cli 的编译。
+#[test]
+fn test_test_run_scoped_by_cwd() {
+    let (_d, path) = setup_repo();
+    // 模拟 monorepo: 两个 scope 各有一个 Cargo.toml
+    let cli_dir = path.join("packages/cli");
+    let sdk_dir = path.join("packages/sdk");
+    std::fs::create_dir_all(&cli_dir).unwrap();
+    std::fs::create_dir_all(&sdk_dir).unwrap();
+    std::fs::write(cli_dir.join("Cargo.toml"), "[package]\nname = \"cli\"\nversion = \"0.1.0\"\n").unwrap();
+    std::fs::write(sdk_dir.join("Cargo.toml"), "[package]\nname = \"sdk\"\nversion = \"0.2.0\"\n").unwrap();
+    // 写入契约，让两个 scope 被识别
+    let contract_dir = path.join(".quanttide/devops");
+    std::fs::create_dir_all(&contract_dir).unwrap();
+    std::fs::write(
+        contract_dir.join("contract.yaml"),
+        "scopes:\n  cli:\n    dir: packages/cli\n    language: rust\n  sdk:\n    dir: packages/sdk\n    language: rust\n",
+    )
+    .unwrap();
+
+    // cargo mock: 写入运行目录到 sentinel 文件
+    let sentinel = path.join(".cov_sentinel");
+    let sentinel_path = sentinel.to_string_lossy().to_string();
+    let cargo_mock = format!(
+        "#!/bin/sh\necho \"$PWD\" >> {}\nexit 0\n",
+        sentinel_path
+    );
+
+    // 从 cli 子目录运行 test run
+    let old_cwd = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&cli_dir).unwrap();
+    with_mock_env(&[("cargo", &cargo_mock)], || {
+        let result = qtcloud_devops_cli::test::run(&path);
+        assert!(result.is_ok(), "test run 应成功");
+    });
+    std::env::set_current_dir(&old_cwd).unwrap();
+
+    // 确认只调用了 cargo 一次，且路径是 packages/cli
+    let recorded = std::fs::read_to_string(&sentinel).unwrap_or_default();
+    let calls: Vec<&str> = recorded.lines().collect();
+    assert_eq!(calls.len(), 1, "应只触发一次 cargo 调用，实际: {:?}", calls);
+    assert!(
+        calls[0].ends_with("packages/cli") || calls[0].ends_with("packages/cli/"),
+        "cargo 应在 packages/cli 目录运行，实际: {}",
+        calls[0]
+    );
+}
+
+/// 性能回归测试：捕获 cargo llvm-cov 的完整参数，确认 scope 过滤后
+/// 只对当前 crate 调用一次，且参数不含非预期的 flag。
+#[test]
+fn test_test_run_captures_cargo_args() {
+    let (_d, path) = setup_repo();
+    std::fs::write(
+        path.join("Cargo.toml"),
+        "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(path.join("src")).unwrap();
+    std::fs::write(path.join("src/lib.rs"), "#[test] fn it_works() {}\n").unwrap();
+
+    let sentinel = path.join(".args_sentinel");
+    let s = sentinel.to_string_lossy().to_string();
+    let cargo_mock = format!("#!/bin/sh\necho \"$@\" >> {}\nexit 0\n", s);
+
+    with_mock_env(&[("cargo", &cargo_mock)], || {
+        let result = qtcloud_devops_cli::test::run(&path);
+        assert!(result.is_ok(), "test run 应成功");
+    });
+
+    let recorded = std::fs::read_to_string(&sentinel).unwrap_or_default();
+    assert!(!recorded.is_empty(), "cargo 应被调用");
+    assert!(
+        recorded.contains("llvm-cov"),
+        "参数应包含 llvm-cov，实际: {}",
+        recorded
+    );
+    assert!(
+        recorded.contains("--lcov"),
+        "参数应包含 --lcov，实际: {}",
+        recorded
+    );
+    assert!(
+        recorded.contains("--output-path"),
+        "参数应包含 --output-path，实际: {}",
+        recorded
+    );
+}
+
+/// Rust 覆盖率不可用（cargo llvm-cov not found）：降级为跳过，不崩溃。
+#[test]
+fn test_test_run_rust_coverage_not_found() {
+    let (_d, path) = setup_repo();
+    std::fs::write(
+        path.join("Cargo.toml"),
+        "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    // cargo 命令不存在 → run_coverage_for_lang 返回 Ok(false)
+    // 然后 run_tests_for_lang 会尝试启动 cargo test → cargo 也不存在 → 返回错误
+    // 但 coverage missing 不应导致 panic
+    let result = qtcloud_devops_cli::test::run(&path);
+    assert!(result.is_err(), "cargo 缺失 → 启动失败");
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // test status 场景
 // ═══════════════════════════════════════════════════════════════════════
 

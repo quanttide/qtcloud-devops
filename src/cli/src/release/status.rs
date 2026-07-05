@@ -729,6 +729,161 @@ mod tests {
         assert_eq!(cli.1, "cli/v0.2.0");
     }
 
+    // ── is_git_repo ───────────────────────────────────────────
+
+    #[test]
+    fn test_is_git_repo_dir() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir(d.path().join(".git")).unwrap();
+        assert!(is_git_repo(d.path()));
+    }
+
+    #[test]
+    fn test_is_git_repo_file() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join(".git"), "gitdir: ../.git/modules/foo").unwrap();
+        assert!(is_git_repo(d.path()));
+    }
+
+    #[test]
+    fn test_is_git_repo_false() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(!is_git_repo(d.path()));
+    }
+
+    // ── check_changelog ────────────────────────────────────────
+
+    #[test]
+    fn test_check_changelog_found() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("CHANGELOG.md"), "## [1.0.0]\n\ncontent\n").unwrap();
+        assert!(check_changelog(d.path(), "1.0.0"));
+    }
+
+    #[test]
+    fn test_check_changelog_not_found() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("CHANGELOG.md"), "## [0.9.0]\n\ncontent\n").unwrap();
+        assert!(!check_changelog(d.path(), "1.0.0"));
+    }
+
+    #[test]
+    fn test_check_changelog_no_file() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(!check_changelog(d.path(), "1.0.0"));
+    }
+
+    #[test]
+    fn test_check_changelog_empty_version() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(!check_changelog(d.path(), ""));
+    }
+
+    // ── extract_kv 更多边缘 ─────────────────────────────────
+
+    #[test]
+    fn test_extract_kv_single_quotes_indented() {
+        assert_eq!(
+            extract_kv("  version = '1.2.3'\n", "version"),
+            Some("1.2.3".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_kv_double_quotes_trailing() {
+        assert_eq!(
+            extract_kv("version = \"1.0.0\"  # comment\n", "version"),
+            Some("1.0.0".into())
+        );
+    }
+
+    // ── extract_json_version 边缘 ────────────────────────────
+
+    #[test]
+    fn test_extract_json_version_nested() {
+        let content = r#"{"scripts":{"test":"jest"},"version":"4.5.6"}"#;
+        assert_eq!(extract_json_version(content), Some("4.5.6".into()));
+    }
+
+    // ── find_go_files ──────────────────────────────────────────
+
+    #[test]
+    fn test_find_go_files_empty_dir() {
+        let d = tempfile::tempdir().unwrap();
+        let files = find_go_files(d.path(), &[]);
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_find_go_files_finds_go() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("main.go"), "package main").unwrap();
+        let files = find_go_files(d.path(), &[]);
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("main.go"));
+    }
+
+    #[test]
+    fn test_find_go_files_skips_excluded() {
+        let d = tempfile::tempdir().unwrap();
+        let sub = d.path().join("vendor");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("lib.go"), "package lib").unwrap();
+        let files = find_go_files(d.path(), &[]);
+        assert!(files.is_empty(), "vendor 目录应被跳过");
+    }
+
+    #[test]
+    fn test_find_go_files_skips_custom_excludes() {
+        let d = tempfile::tempdir().unwrap();
+        let sub = d.path().join("generated");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("code.go"), "package code").unwrap();
+        let files = find_go_files(d.path(), &[sub]);
+        assert!(files.is_empty(), "自定义排除应有 0 个文件");
+    }
+
+    #[test]
+    fn test_find_go_files_nested() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("pkg/util")).unwrap();
+        std::fs::write(d.path().join("pkg/util/helper.go"), "package util").unwrap();
+        let files = find_go_files(d.path(), &[]);
+        assert_eq!(files.len(), 1);
+    }
+
+    // ── get_github_repo ───────────────────────────────────────
+
+    #[test]
+    fn test_get_github_repo_no_repo() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(get_github_repo(d.path()), None);
+    }
+
+    // ── status_to_output ───────────────────────────────────────
+
+    // ── collect_latest_tags 性能 ────────────────────────────
+
+    #[test]
+    fn test_collect_latest_tags_large_input() {
+        use std::time::Instant;
+        let mut tags: Vec<&str> = Vec::with_capacity(10000);
+        for i in 0..5000 {
+            tags.push(Box::leak(format!("cli/v0.{}.{}", i / 100, i % 100).into_boxed_str()));
+            tags.push(Box::leak(format!("sdk/v0.{}.{}", i / 100, i % 100).into_boxed_str()));
+        }
+        tags.sort_by(|a, b| b.cmp(a));
+        let start = Instant::now();
+        let result = collect_latest_tags(&tags);
+        let elapsed = start.elapsed();
+        assert_eq!(result.len(), 2, "两个 scope 各有最新 tag");
+        assert!(
+            elapsed.as_micros() < 10_000,
+            "10000 tag 排序应 < 10ms，实际: {}μs",
+            elapsed.as_micros()
+        );
+    }
+
     #[test]
     fn test_status_to_output() {
         let d = tempfile::tempdir().unwrap();

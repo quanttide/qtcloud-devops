@@ -68,6 +68,8 @@ enum TestAction {
     Status,
     /// 运行单元测试和覆盖率
     Run,
+    /// 清理缓存的测试结果
+    Clean,
 }
 
 #[derive(Subcommand)]
@@ -198,6 +200,10 @@ fn main() {
                 Ok(())
             }
             TestAction::Run => qtcloud_devops_cli::test::run(&repo_path()),
+            TestAction::Clean => {
+                qtcloud_devops_cli::test::clear_cache(&repo_path());
+                Ok(())
+            }
         },
         Commands::Release { action } => match action {
             ReleaseAction::Publish {

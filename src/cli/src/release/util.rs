@@ -347,6 +347,34 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_notes_with_v_prefix_marker() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("C.md"), "## [v1.0.0]\n\ncontent line").unwrap();
+        let notes = extract_notes("v1.0.0", &d.path().join("C.md")).unwrap_or_default();
+        assert!(notes.contains("content line"));
+    }
+
+    #[test]
+    fn test_extract_notes_next_version_stops() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join("C.md"),
+            "## [1.0.0]\n\ncontent\n## [2.0.0]\n\nnext\n",
+        )
+        .unwrap();
+        let notes = extract_notes("v1.0.0", &d.path().join("C.md")).unwrap();
+        assert!(notes.contains("content"));
+        assert!(!notes.contains("next"));
+    }
+
+    #[test]
+    fn test_precheck_changelog_with_v_prefix_marker() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("C.md"), "## [v1.0.0]\n\ncontent\n").unwrap();
+        assert!(precheck_version_changelog("v1.0.0", &d.path().join("C.md")).is_empty());
+    }
+
+    #[test]
     fn test_confirm_release_yes_flag() {
         assert!(confirm_release("v1.0.0", true));
     }

@@ -525,6 +525,30 @@ mod tests {
         assert_eq!(run.title, "Check");
     }
 
+    #[test]
+    fn test_parse_gh_run_list_large_input() {
+        use std::time::Instant;
+        // 生成 1000 条 CI 运行记录 JSON
+        let mut items = Vec::with_capacity(1000);
+        for i in 0..1000 {
+            items.push(format!(
+                r#"{{"conclusion":"success","displayTitle":"CI","headBranch":"main","number":{}}}"#,
+                i
+            ));
+        }
+        let out = format!("[{}]", items.join(","));
+        let start = Instant::now();
+        let run = parse_gh_run_list(&out);
+        let elapsed = start.elapsed();
+        assert!(run.is_some(), "应解析成功");
+        assert_eq!(run.as_ref().unwrap().number, "0");
+        assert!(
+            elapsed.as_micros() < 5000,
+            "1000 条记录应在 5ms 内解析，实际: {}μs",
+            elapsed.as_micros()
+        );
+    }
+
     // ── check_command ─────────────────────────────────────────
 
     #[test]

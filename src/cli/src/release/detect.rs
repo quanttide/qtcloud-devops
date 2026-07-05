@@ -631,4 +631,395 @@ mod tests {
         let d = fallback_heuristic(&["feat!: breaking".into()]);
         assert_eq!(d.action, "human");
     }
+
+    // ── 更多 parse_tag 边缘 ─────────────────────────────────────
+
+    #[test]
+    fn test_parse_tag_multiple_slashes() {
+        assert_eq!(parse_tag("scope/v0.1.0-rc.1"), (Some("scope".into()), "v0.1.0-rc.1"));
+    }
+
+    #[test]
+    fn test_parse_tag_empty() {
+        assert_eq!(parse_tag(""), (None, ""));
+    }
+
+    // ── 更多 parse_version 边缘 ─────────────────────────────────
+
+    #[test]
+    fn test_parse_version_alpha() {
+        let (ma, mi, pa, st, nu) = parse_version("1.0.0-alpha.1").unwrap();
+        assert_eq!((ma, mi, pa), (1, 0, 0));
+        assert_eq!(st.as_deref(), Some("alpha"));
+        assert_eq!(nu, Some(1));
+    }
+
+    #[test]
+    fn test_parse_version_beta() {
+        let (ma, mi, pa, st, nu) = parse_version("0.5.0-beta.2").unwrap();
+        assert_eq!((ma, mi, pa), (0, 5, 0));
+        assert_eq!(st.as_deref(), Some("beta"));
+        assert_eq!(nu, Some(2));
+    }
+
+    #[test]
+    fn test_parse_version_prerelease_no_number() {
+        let (ma, mi, pa, st, nu) = parse_version("1.2.3-rc").unwrap();
+        assert_eq!((ma, mi, pa), (1, 2, 3));
+        assert_eq!(st.as_deref(), Some("rc"));
+        assert_eq!(nu, None);
+    }
+
+    #[test]
+    fn test_parse_version_non_numeric_parts() {
+        assert!(parse_version("a.b.c").is_err());
+        assert!(parse_version("1.x.3").is_err());
+    }
+
+    // ── 更多 build_version ─────────────────────────────────────
+
+    #[test]
+    fn test_build_version_patch_with_same_stage() {
+        assert_eq!(
+            build_version(1, 0, 0, Some("beta"), Some(3), "patch", None),
+            "v1.0.0-beta.4"
+        );
+    }
+
+    #[test]
+    fn test_build_version_minor_with_alpha() {
+        assert_eq!(
+            build_version(0, 1, 0, None, None, "minor", Some("alpha")),
+            "v0.2.0-alpha.1"
+        );
+    }
+
+    #[test]
+    fn test_build_version_no_prerelease_info() {
+        // prerelease 为 None 但 increment 不是 patch → 直发正式
+        assert_eq!(build_version(1, 0, 0, None, None, "patch", None), "v1.0.1");
+    }
+
+    // ── fallback_heuristic 更多模式 ───────────────────────────
+
+    #[test]
+    fn test_fallback_heuristic_refactor() {
+        let d = fallback_heuristic(&["refactor: extract method".into()]);
+        assert_eq!(d.action, "release");
+        assert_eq!(d.increment.as_deref(), Some("patch"));
+    }
+
+    #[test]
+    fn test_fallback_heuristic_test_commit() {
+        let d = fallback_heuristic(&["test: add coverage".into()]);
+        assert_eq!(d.action, "release");
+        assert_eq!(d.increment.as_deref(), Some("patch"));
+    }
+
+    #[test]
+    fn test_fallback_heuristic_added_commits() {
+        // "Added" 开头（传统提交风格）应识别为 feat
+        let d = fallback_heuristic(&["Added new feature".into()]);
+        assert_eq!(d.action, "release");
+        assert_eq!(d.increment.as_deref(), Some("minor"));
+    }
+
+    #[test]
+    fn test_fallback_heuristic_fixed_commits() {
+        let d = fallback_heuristic(&["Fixed crash on startup".into()]);
+        assert_eq!(d.action, "release");
+        assert_eq!(d.increment.as_deref(), Some("patch"));
+    }
+
+    #[test]
+    fn test_fallback_heuristic_changed_commits() {
+        let d = fallback_heuristic(&["Changed behavior of X".into()]);
+        assert_eq!(d.action, "release");
+        assert_eq!(d.increment.as_deref(), Some("patch"));
+    }
+
+    // ── load_contract_scopes ───────────────────────────────────
+
+    #[test]
+    fn test_load_contract_scopes_from_file() {
+        let d = tempfile::tempdir().unwrap();
+        let contract_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&contract_dir).unwrap();
+        std::fs::write(
+            contract_dir.join("contract.yaml"),
+            "scopes:\n  cli:\n    dir: packages/cli\n    language: rust\n  sdk:\n    dir: packages/sdk\n    language: python\n",
+        )
+        .unwrap();
+        let scopes = load_contract_scopes(d.path());
+        assert_eq!(scopes.len(), 2);
+        assert_eq!(scopes.get("cli").map(|s| s.as_str()), Some("packages/cli"));
+        assert_eq!(scopes.get("sdk").map(|s| s.as_str()), Some("packages/sdk"));
+    }
+
+    #[test]
+    fn test_load_contract_scopes_nonexistent() {
+        let d = tempfile::tempdir().unwrap();
+        let scopes = load_contract_scopes(d.path());
+        assert!(scopes.is_empty());
+    }
+
+    #[test]
+    fn test_load_contract_scopes_root_contract_yaml() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join("contract.yaml"),
+            "scopes:\n  root:\n    dir: .\n    language: rust\n",
+        )
+        .unwrap();
+        let scopes = load_contract_scopes(d.path());
+        assert_eq!(scopes.len(), 1);
+        assert_eq!(scopes.get("root").map(|s| s.as_str()), Some("."));
+    }
+
+    // ── detect_project_type ───────────────────────────────────
+
+    fn git_init_detect(path: &std::path::Path) {
+        std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::fs::write(path.join(".gitkeep"), "").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_detect_project_type_code_with_src() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        std::fs::create_dir(d.path().join("src")).unwrap();
+        let repo = git2::Repository::open(d.path()).unwrap();
+        assert_eq!(detect_project_type(&repo), "code");
+    }
+
+    #[test]
+    fn test_detect_project_type_code_with_cargo() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        std::fs::write(d.path().join("Cargo.toml"), "").unwrap();
+        let repo = git2::Repository::open(d.path()).unwrap();
+        assert_eq!(detect_project_type(&repo), "code");
+    }
+
+    #[test]
+    fn test_detect_project_type_docs() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        let repo = git2::Repository::open(d.path()).unwrap();
+        assert_eq!(detect_project_type(&repo), "docs");
+    }
+
+    #[test]
+    fn test_detect_project_type_no_workdir() {
+        let d = tempfile::tempdir().unwrap();
+        let bare = d.path().join("bare.git");
+        std::fs::create_dir(&bare).unwrap();
+        std::process::Command::new("git")
+            .args(["init", "--bare"])
+            .current_dir(&bare)
+            .output()
+            .unwrap();
+        let repo = git2::Repository::open(&bare).unwrap();
+        assert_eq!(detect_project_type(&repo), "unknown");
+    }
+
+    // ── git tag 辅助函数 ──────────────────────────────────────
+
+    fn git_tag(repo_path: &std::path::Path, tag: &str) {
+        std::process::Command::new("git")
+            .args(["tag", tag])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+    }
+
+    fn git_commit_file(repo_path: &std::path::Path, path: &str, content: &str) {
+        std::fs::write(repo_path.join(path), content).unwrap();
+        std::process::Command::new("git")
+            .args(["add", path])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", &format!("update {path}")])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+    }
+
+    // ── collect_tags_with_scope ───────────────────────────────
+
+    #[test]
+    fn test_collect_tags_empty_repo() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        let repo = git2::Repository::open(d.path()).unwrap();
+        let tags = collect_tags_with_scope(&repo);
+        assert!(tags.is_empty());
+    }
+
+    #[test]
+    fn test_collect_tags_root_only() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        git_tag(d.path(), "v1.0.0");
+        git_tag(d.path(), "v1.1.0");
+        let repo = git2::Repository::open(d.path()).unwrap();
+        let tags = collect_tags_with_scope(&repo);
+        assert_eq!(tags.len(), 1);
+        assert!(tags.contains_key("(root)"));
+        assert_eq!(tags["(root)"], vec!["v1.1.0", "v1.0.0"]);
+    }
+
+    #[test]
+    fn test_collect_tags_scoped_ordered() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        git_tag(d.path(), "cli/v0.2.0");
+        git_tag(d.path(), "cli/v0.3.0");
+        git_tag(d.path(), "cli/v0.1.0");
+        let repo = git2::Repository::open(d.path()).unwrap();
+        let tags = collect_tags_with_scope(&repo);
+        assert_eq!(tags.len(), 1);
+        assert!(tags.contains_key("cli"));
+        assert_eq!(tags["cli"], vec!["cli/v0.3.0", "cli/v0.2.0", "cli/v0.1.0"]);
+    }
+
+    #[test]
+    fn test_collect_tags_multi_scope_with_prerelease() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        git_tag(d.path(), "v0.5.0");
+        git_tag(d.path(), "cli/v0.2.0-rc.1");
+        git_tag(d.path(), "cli/v0.2.0");
+        git_tag(d.path(), "sdk/v0.1.0-alpha.1");
+        git_tag(d.path(), "sdk/v0.1.0-beta.1");
+        git_tag(d.path(), "sdk/v0.1.0");
+        let repo = git2::Repository::open(d.path()).unwrap();
+        let tags = collect_tags_with_scope(&repo);
+        assert_eq!(tags.len(), 3);
+        // prerelease 版本排序在正式版之后
+        assert_eq!(tags["cli"][0], "cli/v0.2.0-rc.1", "rc 排序高于正式版");
+        assert_eq!(tags["cli"][1], "cli/v0.2.0");
+        // sdk: 降序排列: beta > alpha > 正式
+        assert!(tags["sdk"][0].contains("beta"), "beta 应排第一");
+        assert!(tags["sdk"][1].contains("alpha"), "alpha 应在 beta 之后");
+        assert_eq!(tags["(root)"][0], "v0.5.0");
+    }
+
+    // ── get_latest_tag_for_scope ───────────────────────────────
+
+    #[test]
+    fn test_get_latest_tag_root_scope() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        git_tag(d.path(), "v1.0.0");
+        git_tag(d.path(), "v2.0.0");
+        let repo = git2::Repository::open(d.path()).unwrap();
+        assert_eq!(get_latest_tag_for_scope(&repo, None).as_deref(), Some("v2.0.0"));
+        assert_eq!(get_latest_tag_for_scope(&repo, Some("(root)")).as_deref(), Some("v2.0.0"));
+    }
+
+    #[test]
+    fn test_get_latest_tag_scoped() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        git_tag(d.path(), "cli/v0.1.0");
+        git_tag(d.path(), "cli/v0.2.0");
+        git_tag(d.path(), "sdk/v0.5.0");
+        let repo = git2::Repository::open(d.path()).unwrap();
+        assert_eq!(get_latest_tag_for_scope(&repo, Some("cli")).as_deref(), Some("cli/v0.2.0"));
+        assert_eq!(get_latest_tag_for_scope(&repo, Some("sdk")).as_deref(), Some("sdk/v0.5.0"));
+        assert_eq!(get_latest_tag_for_scope(&repo, Some("nosuch")).as_deref(), None);
+    }
+
+    // ── get_changed_paths_since_last_tag ───────────────────────
+
+    #[test]
+    fn test_get_changed_paths_no_tag() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        git_commit_file(d.path(), "new.txt", "hello");
+        let repo = git2::Repository::open(d.path()).unwrap();
+        let paths = get_changed_paths_since_last_tag(&repo).unwrap();
+        // 无 tag → base_tree 为 None → 与 HEAD diff → 显示所有文件
+        assert!(paths.contains(&"new.txt".to_string()), "无 tag 时应显示所有变更");
+    }
+
+    #[test]
+    fn test_get_changed_paths_after_tag() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        // 创建第一个文件并打 tag
+        git_commit_file(d.path(), "initial.txt", "initial");
+        git_tag(d.path(), "v1.0.0");
+        // 后续变更
+        git_commit_file(d.path(), "added.txt", "added");
+        git_commit_file(d.path(), "modified.txt", "modified");
+        let repo = git2::Repository::open(d.path()).unwrap();
+        let paths = get_changed_paths_since_last_tag(&repo).unwrap();
+        assert!(paths.contains(&"added.txt".to_string()));
+        assert!(paths.contains(&"modified.txt".to_string()));
+        assert!(!paths.contains(&"initial.txt".to_string()), "tag 前的文件不应出现");
+    }
+
+    #[test]
+    fn test_get_changed_paths_no_new_commits() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        git_tag(d.path(), "v1.0.0");
+        let repo = git2::Repository::open(d.path()).unwrap();
+        let paths = get_changed_paths_since_last_tag(&repo).unwrap();
+        assert!(paths.is_empty(), "无新提交应返回空");
+    }
+
+    // ── detect_single_scope ───────────────────────────────────
+
+    #[test]
+    fn test_detect_single_scope_no_changes() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        let repo = git2::Repository::open(d.path()).unwrap();
+        let scope = detect_single_scope(&repo).unwrap();
+        assert_eq!(scope, None, "无 tag 无 contract 应返回 None");
+    }
+
+    #[test]
+    fn test_detect_single_scope_fallback_to_tags() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        // 只有一个 scope 有 tag
+        std::fs::create_dir_all(d.path().join("packages/cli")).unwrap();
+        git_commit_file(d.path(), "packages/cli/readme.md", "cli");
+        git_tag(d.path(), "cli/v0.1.0");
+        git_commit_file(d.path(), "readme.md", "root");
+        let repo = git2::Repository::open(d.path()).unwrap();
+        let scope = detect_single_scope(&repo).unwrap();
+        assert_eq!(scope.as_deref(), Some("cli"), "唯一有 tag 的 scope");
+    }
+
+    #[test]
+    fn test_detect_single_scope_root_tag() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_detect(d.path());
+        git_commit_file(d.path(), "file.txt", "content");
+        git_tag(d.path(), "v1.0.0");
+        let repo = git2::Repository::open(d.path()).unwrap();
+        let scope = detect_single_scope(&repo).unwrap();
+        assert_eq!(scope, None, "只有 root tag 应返回 None");
+    }
 }

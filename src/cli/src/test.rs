@@ -1,9 +1,11 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::contract;
 
+const TEST_SUMMARY_CACHE: &str = ".quanttide/devops/test-summary.json";
+
 /// 测试结果汇总。
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct TestSummary {
     pub total: u32,
     pub passed: u32,
@@ -32,14 +34,21 @@ pub fn status(repo_path: &Path, c: &contract::Contract) {
 /// 运行测试和覆盖率。
 pub fn run(repo_path: &Path) -> Result<(), String> {
     let c = crate::contract::load(repo_path);
-    let scopes = &c.scopes;
+    let cwd = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
+    let scopes: Vec<_> = c.scopes.iter().filter(|s| {
+        let scope_abs = repo_path.join(&s.dir);
+        // 只保留当前工作目录所在 scope，避免越级扫全仓库
+        cwd.starts_with(&scope_abs) || scope_abs.starts_with(&cwd)
+    }).collect();
 
     if scopes.is_empty() {
         let lang = crate::contract::detect_by_files(repo_path);
-        run_tests_for_lang(repo_path, &lang)?;
-        run_coverage_for_lang(repo_path, &lang);
+        if !run_coverage_for_lang(repo_path, &lang)? {
+            let summary = collect_test_summary_from_run(repo_path, &lang)?;
+            save_test_summary(repo_path, &summary);
+        }
     } else {
-        for scope in scopes {
+        for scope in &scopes {
             let scope_dir = repo_path.join(&scope.dir);
             if !scope_dir.exists() {
                 println!("  [{}]     ⚠ 目录不存在，跳过", scope.name);
@@ -47,13 +56,16 @@ pub fn run(repo_path: &Path) -> Result<(), String> {
             }
             let lang = c.resolve_language(scope, &scope_dir);
             println!("  [{}] 运行测试...", scope.name);
-            run_tests_for_lang(&scope_dir, &lang)?;
-            run_coverage_for_lang(&scope_dir, &lang);
+            if !run_coverage_for_lang(&scope_dir, &lang)? {
+                let summary = collect_test_summary_from_run(&scope_dir, &lang)?;
+                save_test_summary(&scope_dir, &summary);
+            }
         }
     }
     Ok(())
 }
 
+#[allow(dead_code)]
 fn run_tests_for_lang(dir: &Path, lang: &contract::Language) -> Result<(), String> {
     let Some((cmd, args)) = test_command(lang) else {
         println!("  ⚠ 不支持的语言: {:?}，跳过", lang);
@@ -94,20 +106,79 @@ fn coverage_command(lang: &contract::Language) -> Option<(&'static str, &'static
     }
 }
 
-fn run_coverage_for_lang(dir: &Path, lang: &contract::Language) {
-    let Some((cmd, args)) = coverage_command(lang) else {
-        println!("  ⚠ {:?} 覆盖率不可用，跳过", lang);
-        return;
+/// 从 /proc/meminfo 读取 MemAvailable (kB)，计算安全的并行编译 job 数。
+/// 公式：jobs = max(1, min(CPU核数, MemAvailable_GB / 1.5))
+fn safe_parallel_jobs() -> usize {
+    let mem_kb = std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|s| {
+            s.lines().find_map(|l| {
+                if l.starts_with("MemAvailable:") {
+                    l.split_whitespace().nth(1)?.parse::<usize>().ok()
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or(4_194_304);
+    let mem_gb = mem_kb as f64 / 1_048_576.0;
+    let jobs_from_mem = (mem_gb / 1.5).floor() as usize;
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    jobs_from_mem.max(1).min(cpus)
+}
+
+/// 为 Rust 构建 cargo llvm-cov 参数（含自动并行度限制）。
+fn rust_coverage_args(jobs: usize) -> Vec<String> {
+    let mut args = vec![
+        "llvm-cov".to_string(),
+        "--lcov".to_string(),
+        "--output-path".to_string(),
+        "target/coverage/lcov.info".to_string(),
+    ];
+    if jobs > 0 {
+        args.push("-j".to_string());
+        args.push(jobs.to_string());
+    }
+    args
+}
+
+/// 生成覆盖率。返回 Ok(true) 表示该命令已一并运行了测试（如 cargo llvm-cov），
+/// 调用方可跳过单独的 run_tests_for_lang。Err 表示测试/覆盖率执行失败。
+fn run_coverage_for_lang(dir: &Path, lang: &contract::Language) -> Result<bool, String> {
+    let (cmd, args): (&str, Vec<String>) = match lang {
+        contract::Language::Rust => ("cargo", rust_coverage_args(safe_parallel_jobs())),
+        _ => {
+            let Some((c, a)) = coverage_command(lang) else {
+                println!("  ⚠ {:?} 覆盖率不可用，跳过", lang);
+                return Ok(false);
+            };
+            (c, a.iter().map(|s| s.to_string()).collect())
+        }
     };
+    let handles_tests = matches!(lang, contract::Language::Rust);
     println!("  生成覆盖率 ({})...", cmd);
     match std::process::Command::new(cmd)
-        .args(args)
+        .args(&args)
         .current_dir(dir)
         .status()
     {
-        Ok(s) if s.success() => println!("  ✅ 覆盖率已更新"),
-        Ok(_) => println!("  ⚠ 覆盖率生成失败（可忽略）"),
-        Err(e) => println!("  ⚠ 覆盖率工具不可用: {}（可忽略）", e),
+        Ok(s) if s.success() => {
+            println!("  ✅ 覆盖率已更新");
+            Ok(handles_tests)
+        }
+        Ok(_) if handles_tests => {
+            Err(format!("{} 测试失败", cmd))
+        }
+        Ok(_) => {
+            println!("  ⚠ 覆盖率生成失败（可忽略）");
+            Ok(false)
+        }
+        Err(e) => {
+            println!("  ⚠ 覆盖率工具不可用: {}（可忽略）", e);
+            Ok(false)
+        }
     }
 }
 
@@ -117,7 +188,11 @@ pub fn status_to(
     repo_path: &Path,
     c: &contract::Contract,
 ) -> std::io::Result<()> {
-    let scopes = &c.scopes;
+    let cwd = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
+    let scopes: Vec<_> = c.scopes.iter().filter(|s| {
+        let scope_abs = repo_path.join(&s.dir);
+        cwd.starts_with(&scope_abs) || scope_abs.starts_with(&cwd)
+    }).collect();
 
     writeln!(writer, "测试状态")?;
     writeln!(writer, "{}", "-".repeat(50))?;
@@ -128,7 +203,7 @@ pub fn status_to(
         let coverage = collect_coverage(repo_path, &lang, c.stages.test.threshold);
         print_scope(writer, "(root)", &summary, &coverage)?;
     } else {
-        for scope in scopes {
+        for scope in &scopes {
             let scope_dir = repo_path.join(&scope.dir);
             if !scope_dir.exists() {
                 writeln!(writer, "  [{}]     ⚠ 目录不存在", scope.name)?;
@@ -224,33 +299,64 @@ fn test_manifest_file(lang: &contract::Language) -> Option<&'static str> {
     }
 }
 
-/// 收集测试结果。
-///
-/// 按语言运行对应的测试命令，解析输出。
-fn collect_test_summary(dir: &Path, lang: &contract::Language) -> TestSummary {
+/// 读取缓存的测试摘要路径。
+fn cache_path(dir: &Path) -> PathBuf {
+    dir.join(TEST_SUMMARY_CACHE)
+}
+
+/// 收集已缓存的测试结果（不运行测试）。
+fn collect_test_summary(dir: &Path, _lang: &contract::Language) -> TestSummary {
+    let cache = cache_path(dir);
+    let content = match std::fs::read_to_string(&cache) {
+        Ok(c) => c,
+        Err(_) => return TestSummary::default(),
+    };
+    serde_json::from_str(&content).unwrap_or_default()
+}
+
+/// 运行测试并收集结果。
+fn collect_test_summary_from_run(dir: &Path, lang: &contract::Language) -> Result<TestSummary, String> {
     let (cmd, args) = match test_command(lang) {
         Some(x) => x,
-        None => return TestSummary::default(),
+        None => return Ok(TestSummary::default()),
     };
     if let Some(mf) = test_manifest_file(lang) {
         if !dir.join(mf).exists() {
-            return TestSummary::default();
+            return Ok(TestSummary::default());
         }
     }
-    let result = std::process::Command::new(cmd)
+    let output = std::process::Command::new(cmd)
         .args(args)
         .current_dir(dir)
-        .output();
-    match result {
-        Ok(o) => {
-            let output = String::from_utf8_lossy(&o.stdout);
-            let errors = String::from_utf8_lossy(&o.stderr);
-            // Rust 的输出在 stdout，pytest 的输出在 stderr
-            let combined = format!("{}{}", output, errors);
-            parse_test_summary(&combined)
-        }
-        Err(_) => TestSummary::default(),
+        .output()
+        .map_err(|e| format!("启动 {} 失败: {}", cmd, e))?;
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let summary = parse_test_summary(&combined);
+    if !output.status.success() {
+        return Err(format!("{} 测试失败", cmd));
     }
+    Ok(summary)
+}
+
+/// 保存测试摘要到缓存文件。
+fn save_test_summary(dir: &Path, summary: &TestSummary) {
+    let cache = cache_path(dir);
+    if let Some(parent) = cache.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    if let Ok(content) = serde_json::to_string(summary) {
+        std::fs::write(&cache, &content).ok();
+    }
+}
+
+/// 清除缓存的测试摘要。
+pub fn clear_cache(dir: &Path) {
+    let cache = cache_path(dir);
+    std::fs::remove_file(&cache).ok();
 }
 
 fn parse_test_summary(content: &str) -> TestSummary {
@@ -472,6 +578,72 @@ mod tests {
         assert!(c.met());
     }
 
+    // ── 性能测试（大输入边界） ──────────────────────────────────
+
+    #[test]
+    fn test_parse_test_summary_large_output() {
+        // 模拟 1000 组测试结果
+        let mut content = String::new();
+        for i in 0..500 {
+            content.push_str(&format!(
+                "test test_{i} ... ok\ntest test_{i}_a ... FAILED\n"
+            ));
+        }
+        content.push_str("test result: FAILED. 500 passed; 500 failed; 0 ignored; 0 measured\n");
+        let s = parse_test_summary(&content);
+        assert_eq!(s.passed, 500);
+        assert_eq!(s.failed, 500);
+        assert_eq!(s.total, 1000);
+    }
+
+    #[test]
+    fn test_parse_lcov_large_input() {
+        // 10000 DA 行的 lcov 输出
+        let mut lines = vec!["SF:src/lib.rs".to_string()];
+        for i in 0..5000 {
+            lines.push(format!("DA:{},1", i + 1));
+            lines.push(format!("DA:{},0", i + 5001));
+        }
+        lines.push("end_of_record".to_string());
+        let content = lines.join("\n");
+        let pct = parse_lcov_coverage(&content).unwrap();
+        assert!((pct - 50.0).abs() < 0.01, "10000 行应正确解析为 50%");
+    }
+
+    #[test]
+    fn test_parse_test_summary_very_large_stdout() {
+        // 大量非测试行（CI 日志、warnings）中间夹杂测试结果
+        let mut lines: Vec<String> = (0..2000)
+            .map(|i| format!("  Compiling crate-{} v0.1.0", i))
+            .collect();
+        lines.push("test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured".into());
+        for i in 2000..4000 {
+            lines.push(format!("warning: unused variable `x` in crate-{}", i));
+        }
+        let content = lines.join("\n");
+        let start = std::time::Instant::now();
+        let s = parse_test_summary(&content);
+        let elapsed = start.elapsed();
+        assert_eq!(s.passed, 1);
+        assert!(
+            elapsed.as_millis() < 500,
+            "4000 行日志应在 500ms 内解析完成: {}ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[test]
+    fn test_parse_lcov_no_match() {
+        // 大量不相关行，没有 DA: 前缀
+        let mut lines = vec!["TN:".to_string()];
+        for i in 0..5000 {
+            lines.push(format!("SF:src/file_{i}.rs"));
+            lines.push("end_of_record".to_string());
+        }
+        let content = lines.join("\n");
+        assert!(parse_lcov_coverage(&content).is_none());
+    }
+
     #[test]
     fn test_parse_cobertura_simple() {
         let content = r#"<coverage line-rate="0.85"></coverage>"#;
@@ -566,6 +738,348 @@ mod tests {
         assert_eq!(
             test_manifest_file(&contract::Language::Unknown("?".into())),
             None
+        );
+    }
+
+    // ── cache_path ────────────────────────────────────────────
+
+    #[test]
+    fn test_cache_path_resolves_in_dir() {
+        let d = tempfile::tempdir().unwrap();
+        let p = cache_path(d.path());
+        assert!(p.ends_with(".quanttide/devops/test-summary.json"));
+    }
+
+    #[test]
+    fn test_cache_path_absolute() {
+        let p = cache_path(Path::new("/tmp/myproject"));
+        assert_eq!(p, Path::new("/tmp/myproject/.quanttide/devops/test-summary.json"));
+    }
+
+    // ── save / collect / clear cache ─────────────────────────
+
+    #[test]
+    fn test_save_and_collect_cache_roundtrip() {
+        let d = tempfile::tempdir().unwrap();
+        let summary = TestSummary {
+            total: 42,
+            passed: 40,
+            failed: 1,
+            skipped: 1,
+        };
+        save_test_summary(d.path(), &summary);
+        let cached = collect_test_summary(d.path(), &contract::Language::Rust);
+        assert_eq!(cached.total, 42);
+        assert_eq!(cached.passed, 40);
+        assert_eq!(cached.failed, 1);
+        assert_eq!(cached.skipped, 1);
+    }
+
+    #[test]
+    fn test_collect_cache_nonexistent_returns_default() {
+        let d = tempfile::tempdir().unwrap();
+        let summary = collect_test_summary(d.path(), &contract::Language::Rust);
+        assert_eq!(summary.total, 0);
+        assert_eq!(summary.passed, 0);
+    }
+
+    #[test]
+    fn test_clear_cache_removes_file() {
+        let d = tempfile::tempdir().unwrap();
+        save_test_summary(d.path(), &TestSummary { total: 5, ..Default::default() });
+        assert!(cache_path(d.path()).exists());
+        clear_cache(d.path());
+        assert!(!cache_path(d.path()).exists());
+    }
+
+    // ── parse_test_summary 边缘情况 ───────────────────────
+
+    #[test]
+    fn test_parse_test_summary_empty() {
+        let s = parse_test_summary("");
+        assert_eq!(s.total, 0);
+    }
+
+    #[test]
+    fn test_parse_test_summary_no_result_line() {
+        let s = parse_test_summary("Compiling foo ...\n   Compiling bar ...\n");
+        assert_eq!(s.total, 0);
+    }
+
+    #[test]
+    fn test_parse_test_summary_malformed_skips_bad_tokens() {
+        // 'abc' 不是合法数字，应跳过
+        let s = parse_test_summary("test result: ok. abc passed; 0 failed");
+        assert_eq!(s.passed, 0);
+        assert_eq!(s.failed, 0);
+    }
+
+    #[test]
+    fn test_parse_test_summary_multiple_result_lines() {
+        // 工作空间多 crate 场景：每行一个 test result
+        let content = "test result: ok. 5 passed; 0 failed; 1 ignored\n\
+                       test result: ok. 3 passed; 1 failed; 0 ignored\n";
+        let s = parse_test_summary(content);
+        assert_eq!(s.passed, 8);
+        assert_eq!(s.failed, 1);
+        assert_eq!(s.skipped, 1);
+        assert_eq!(s.total, 10);
+    }
+
+    // ── collect_coverage 不存在文件时的行为 ────────────────
+
+    #[test]
+    fn test_collect_coverage_no_file_rust() {
+        let d = tempfile::tempdir().unwrap();
+        let cov = collect_coverage(d.path(), &contract::Language::Rust, 70.0);
+        assert_eq!(cov.percentage, 0.0);
+        assert_eq!(cov.threshold, 70.0);
+        assert!(!cov.met());
+    }
+
+    #[test]
+    fn test_collect_coverage_unknown_lang_no_paths() {
+        let d = tempfile::tempdir().unwrap();
+        let cov = collect_coverage(d.path(), &contract::Language::Unknown("x".into()), 80.0);
+        assert_eq!(cov.percentage, 0.0);
+        assert_eq!(cov.threshold, 80.0);
+    }
+
+    #[test]
+    fn test_collect_coverage_rust_with_lcov_file() {
+        let d = tempfile::tempdir().unwrap();
+        let cov_dir = d.path().join("target/coverage");
+        std::fs::create_dir_all(&cov_dir).unwrap();
+        std::fs::write(cov_dir.join("lcov.info"), "SF:src/lib.rs\nDA:1,1\nDA:2,0\nDA:3,1\nend_of_record\n").unwrap();
+        let cov = collect_coverage(d.path(), &contract::Language::Rust, 70.0);
+        assert!((cov.percentage - 66.666).abs() < 0.01);
+        assert!(!cov.met());
+    }
+
+    #[test]
+    fn test_collect_coverage_python_with_cobertura() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("coverage.xml"), r#"<coverage line-rate="0.92"></coverage>"#).unwrap();
+        let cov = collect_coverage(d.path(), &contract::Language::Python, 80.0);
+        assert!((cov.percentage - 92.0).abs() < 0.01);
+        assert!(cov.met());
+    }
+
+    // ── TestSummary 序列化/反序列化 ────────────────────────
+
+    #[test]
+    fn test_test_summary_serde_roundtrip() {
+        let s = TestSummary { total: 100, passed: 90, failed: 5, skipped: 5 };
+        let json = serde_json::to_string(&s).unwrap();
+        let back: TestSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.total, 100);
+        assert_eq!(back.passed, 90);
+        assert_eq!(back.failed, 5);
+        assert_eq!(back.skipped, 5);
+    }
+
+    #[test]
+    fn test_test_summary_serde_default_roundtrip() {
+        let s = TestSummary::default();
+        let json = serde_json::to_string(&s).unwrap();
+        let back: TestSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.total, 0);
+    }
+
+    // ── Coverage 方法 ─────────────────────────────────────────
+
+    #[test]
+    fn test_coverage_met_exact() {
+        let c = Coverage { percentage: 70.0, threshold: 70.0 };
+        assert!(c.met());
+    }
+
+    #[test]
+    fn test_coverage_met_zero_threshold() {
+        let c = Coverage { percentage: 0.0, threshold: 0.0 };
+        assert!(c.met());
+    }
+
+    // ── status_to ──────────────────────────────────────────────
+
+    // ── print_scope 更多变体 ───────────────────────────────
+
+    #[test]
+    fn test_print_scope_all_passed_no_coverage() {
+        let mut buf = Vec::new();
+        let s = TestSummary { total: 5, passed: 5, failed: 0, skipped: 0 };
+        let c = Coverage { percentage: 0.0, threshold: 70.0 };
+        print_scope(&mut buf, "core", &s, &c).unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("✅"), "全部通过应有 ✅");
+        assert!(out.contains("未检测到覆盖率报告"));
+    }
+
+    #[test]
+    fn test_print_scope_with_coverage_met() {
+        let mut buf = Vec::new();
+        let s = TestSummary { total: 10, passed: 10, failed: 0, skipped: 0 };
+        let c = Coverage { percentage: 85.0, threshold: 70.0 };
+        print_scope(&mut buf, "lib", &s, &c).unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("✅"), "满足阈值应有 ✅");
+        assert!(out.contains("85.0%"));
+    }
+
+    #[test]
+    fn test_print_scope_all_failed() {
+        let mut buf = Vec::new();
+        let s = TestSummary { total: 3, passed: 0, failed: 3, skipped: 0 };
+        let c = Coverage::default();
+        print_scope(&mut buf, "test", &s, &c).unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("❌"), "全部失败应有 ❌");
+        assert!(out.contains("3 / 3"));
+    }
+
+    #[test]
+    fn test_print_scope_coverage_below_threshold() {
+        let mut buf = Vec::new();
+        let s = TestSummary { total: 1, passed: 1, failed: 0, skipped: 0 };
+        let c = Coverage { percentage: 30.0, threshold: 70.0 };
+        print_scope(&mut buf, "lib", &s, &c).unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("⚠"), "低于阈值应有 ⚠");
+        assert!(out.contains("30.0%"));
+    }
+
+    // ── parse_test_summary 更多变体 ─────────────────────────
+
+    #[test]
+    fn test_parse_test_summary_filtered_out() {
+        let s = parse_test_summary("test result: ok. 5 passed; 0 failed; 0 ignored; 50 filtered out");
+        assert_eq!(s.total, 5);
+        assert_eq!(s.passed, 5);
+    }
+
+    #[test]
+    fn test_parse_test_summary_with_measured() {
+        let s = parse_test_summary("test result: ok. 3 passed; 1 failed; 0 ignored; 2 measured");
+        assert_eq!(s.total, 4);
+        assert_eq!(s.passed, 3);
+        assert_eq!(s.failed, 1);
+    }
+
+    #[test]
+    fn test_parse_test_summary_zero_all() {
+        let s = parse_test_summary("test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured");
+        assert_eq!(s.total, 0);
+    }
+
+    // ── parse_lcov_coverage 边缘 ─────────────────────────────
+
+    #[test]
+    fn test_parse_lcov_da_with_non_numeric_count() {
+        // count 不是数字，行仍计为 total_lines 但不计入 hit
+        let content = "DA:1,abc\nDA:2,1\nend_of_record\n";
+        let pct = parse_lcov_coverage(content).unwrap();
+        assert!((pct - 50.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_lcov_multiple_records() {
+        // 多个 end_of_record 块，只累计 DA 行
+        let content = "DA:1,1\nend_of_record\nSF:other.rs\nDA:2,0\nend_of_record\n";
+        let pct = parse_lcov_coverage(content).unwrap();
+        assert!((pct - 50.0).abs() < 0.01);
+    }
+
+    // ── parse_cobertura_coverage 边缘 ────────────────────────
+
+    #[test]
+    fn test_parse_cobertura_no_match() {
+        assert!(parse_cobertura_coverage("<html></html>").is_none());
+    }
+
+    #[test]
+    fn test_parse_cobertura_no_line_rate() {
+        assert!(parse_cobertura_coverage(r#"<coverage branch-rate="0.5"></coverage>"#).is_none());
+    }
+
+    #[test]
+    fn test_parse_cobertura_bad_line_rate() {
+        assert!(parse_cobertura_coverage(r#"<coverage line-rate="abc"></coverage>"#).is_none());
+    }
+
+    #[test]
+    fn test_parse_cobertura_large_xml() {
+        use std::time::Instant;
+        let mut lines = vec![r#"<coverage line-rate="0.85">"#.to_string()];
+        for i in 0..5000 {
+            lines.push(format!(r#"<package name="pkg-{i}" line-rate="0.9"><class name="Cls{i}" filename="src/file{i}.rs" line-rate="0.9"/></package>"#));
+        }
+        lines.push("</coverage>".to_string());
+        let content = lines.join("\n");
+        let start = Instant::now();
+        let pct = parse_cobertura_coverage(&content);
+        let elapsed = start.elapsed();
+        assert!((pct.unwrap() - 85.0).abs() < 0.01);
+        assert!(
+            elapsed.as_micros() < 5000,
+            "5000 行 Cobertura 应在 5ms 内解析，实际: {}μs",
+            elapsed.as_micros()
+        );
+    }
+
+    // ── TestSummary serde 零值 ─────────────────────────────
+
+    #[test]
+    fn test_test_summary_serde_all_zero() {
+        let s = TestSummary { total: 0, passed: 0, failed: 0, skipped: 0 };
+        let json = serde_json::to_string(&s).unwrap();
+        let back: TestSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.total, 0);
+    }
+
+    // ── scope 过滤性能 ────────────────────────────────────────
+
+    #[test]
+    fn test_scope_filter_large_contract() {
+        use std::time::Instant;
+        let repo_path = Path::new("/tmp/repo");
+        let cwd = Path::new("/tmp/repo/packages/cli");
+        let mut scopes = Vec::new();
+        for i in 0..1000 {
+            scopes.push(contract::Scope {
+                name: format!("scope-{}", i),
+                dir: format!("packages/scope-{}", i),
+                language: contract::Language::Unknown("?".into()),
+                framework: String::new(),
+                build_tool: contract::BuildTool::Unknown("?".into()),
+                registry: contract::Registry::None,
+                release: contract::StageRelease::default(),
+                test_threshold: None,
+                ci_workflow: None,
+            });
+        }
+        scopes.push(contract::Scope {
+            name: "cli".into(),
+            dir: "packages/cli".into(),
+            language: contract::Language::Rust,
+            framework: String::new(),
+            build_tool: contract::BuildTool::Cargo,
+            registry: contract::Registry::Crates,
+            release: contract::StageRelease::default(),
+            test_threshold: None,
+            ci_workflow: None,
+        });
+        let start = Instant::now();
+        let filtered: Vec<_> = scopes.iter().filter(|s| {
+            let scope_abs = repo_path.join(&s.dir);
+            cwd.starts_with(&scope_abs) || scope_abs.starts_with(&cwd)
+        }).collect();
+        let elapsed = start.elapsed();
+        assert_eq!(filtered.len(), 1, "应只匹配一个");
+        assert_eq!(filtered[0].name, "cli");
+        assert!(
+            elapsed.as_micros() < 5000,
+            "1000 scope 过滤应 < 5ms，实际: {}μs",
+            elapsed.as_micros()
         );
     }
 
