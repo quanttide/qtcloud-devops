@@ -19,6 +19,9 @@ pub fn load_scopes(repo_path: &Path) -> Vec<Scope> {
     load(repo_path).scopes
 }
 
+pub fn detect_by_files(dir: &Path) -> Language {
+    detect_language(dir)
+}
 
 /// 检查 scope 版本一致性。失败时返回空状态。
 pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionState {
@@ -45,86 +48,63 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
     let exists = contract_path.exists();
     let c = load(repo_path);
 
-    writeln!(writer, "契约状态")?;
-    writeln!(writer, "{}", "-".repeat(40))?;
-    if exists {
-        writeln!(writer, "  配置文件:  {}", contract_path.display())?;
-        writeln!(writer, "  状态:      ✅ 已加载")?;
+    let status = if exists {
+        "✅ 已加载"
     } else {
-        writeln!(writer, "  配置文件:  未找到，使用默认契约")?;
-        writeln!(writer, "  状态:      ⚠ 默认配置")?;
-    }
-    writeln!(writer)?;
+        "⚠ 默认配置"
+    };
+    let loc = if exists {
+        format!("{}", contract_path.display())
+    } else {
+        "未找到，使用默认契约".into()
+    };
 
-    writeln!(writer, "  Stages:")?;
-    writeln!(
-        writer,
-        "    build:    {}",
-        c.stages.build.command.as_deref().unwrap_or("—")
-    )?;
-    writeln!(
-        writer,
-        "    test:     {}（阈值 {}%）",
+    let mut o = format!(
+        "契约状态\n{}\n  配置文件:  {}\n  状态:      {}\n\n",
+        "-".repeat(40),
+        loc,
+        status,
+    );
+    o.push_str(&format!(
+        "  Stages:\n    build:    {}\n    test:     {}（阈值 {}%）\n    release:  {}（pre_publish: {:?}）\n\n",
+        c.stages.build.command.as_deref().unwrap_or("—"),
         c.stages.test.command.as_deref().unwrap_or("—"),
-        c.stages.test.threshold
-    )?;
-    writeln!(
-        writer,
-        "    release:  {}（pre_publish: {:?}）",
-        c.stages.release.changelog, c.stages.release.pre_publish
-    )?;
-    writeln!(writer)?;
-
-    writeln!(writer, "  Platform:")?;
-    writeln!(
-        writer,
-        "    source_control:   {:?}",
-        c.platform.source_control
-    )?;
-    writeln!(writer, "    pipeline:         {:?}", c.platform.pipeline)?;
-    writeln!(
-        writer,
-        "    artifact_registry: {}",
-        c.platform.artifact_registry
-    )?;
-    writeln!(writer)?;
-
-    writeln!(writer, "  Sources:")?;
-    writeln!(
-        writer,
-        "    version:  {:?} {:?}",
-        c.sources.version.source_type, c.sources.version.path
-    )?;
-    writeln!(writer)?;
-
-    writeln!(writer, "  Scopes:  {} 个", c.scopes.len())?;
+        c.stages.test.threshold,
+        c.stages.release.changelog,
+        c.stages.release.pre_publish,
+    ));
+    o.push_str(&format!(
+        "  Platform:\n    source_control:   {:?}\n    pipeline:         {:?}\n    artifact_registry: {}\n\n",
+        c.platform.source_control, c.platform.pipeline, c.platform.artifact_registry,
+    ));
+    o.push_str(&format!(
+        "  Sources:\n    version:  {:?} {:?}\n\n",
+        c.sources.version.source_type, c.sources.version.path,
+    ));
     if c.scopes.is_empty() {
-        writeln!(writer, "    未定义 scope")?;
+        o.push_str("  Scopes:  0 个\n    未定义 scope\n");
     } else {
+        o.push_str(&format!("  Scopes:  {} 个\n", c.scopes.len()));
         for s in &c.scopes {
-            writeln!(
-                writer,
-                "    {:<12} dir: {:<24} {} / {}",
+            o.push_str(&format!(
+                "    {:<12} dir: {:<24} {} / {}\n",
                 s.name,
                 s.dir,
                 s.language.as_str(),
                 s.build_tool.as_str()
-            )?;
+            ));
         }
     }
-
     let langs = detect_languages(repo_path);
     if !langs.is_empty() {
-        writeln!(writer)?;
-        writeln!(
-            writer,
-            "  语言:      {}",
+        o.push_str(&format!(
+            "\n  语言:      {}\n",
             langs
                 .iter()
                 .map(|l| l.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
-        )?;
+        ));
     }
-    Ok(())
+    write!(writer, "{}", o)
 }
