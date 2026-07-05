@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.9.3-alpha.2] - 2026-07-05
+
+**Added**
+- release publish 命令 `-v` 参数变为可选，省略时自动检测版本；新增 `--dry-run` 选项用于预演发布流程。
+
+**Changed**
+- 更新 ROADMAP 及相关文档，说明自动版本检测和 `--dry-run` 的使用方式。
+
 ## [0.9.3-alpha.1] - 2026-07-05
 
 - **Changed**
