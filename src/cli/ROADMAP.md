@@ -10,7 +10,7 @@
 
 ### Changed
 - [ ] 移除 `git2` 依赖，全部读操作走 `gix` + `quanttide-devops` trait
-- [ ] `parse_gitmodules` 从 `gix::submodule::File` 改为 `quanttide-devops` 统一入口
+
 - [ ] 测试辅助函数从 git2 改为 `MockGit`
 
 ### Fixed
