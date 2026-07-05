@@ -18,13 +18,12 @@ pub fn status_to(writer: &mut impl Write, repo_path: &Path) -> std::io::Result<(
     let c = crate::contract::load(repo_path);
     let mut used_langs: Vec<String> = Vec::new();
     if c.scopes.is_empty() {
-        let lang = crate::contract::detect_language(repo_path);
-        if !matches!(lang, crate::contract::Language::Unknown(_)) {
-            used_langs.push(lang.as_str().to_string());
-        }
+        used_langs = crate::contract::detect_all_languages(repo_path);
     } else {
         for s in &c.scopes {
-            used_langs.push(s.language.as_str().to_string());
+            let scope_dir = repo_path.join(&s.dir);
+            let mut langs = crate::contract::detect_all_languages(&scope_dir);
+            used_langs.append(&mut langs);
         }
     }
     used_langs.sort();

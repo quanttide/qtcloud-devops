@@ -21,15 +21,24 @@ pub fn detect_by_files(dir: &Path) -> Language {
     detect_language(dir)
 }
 
-/// 从契约的 scopes 收集所有语言。
-fn collect_languages(c: &Contract) -> Vec<String> {
-    let mut langs: Vec<String> = c
-        .scopes
-        .iter()
-        .map(|s| s.language.as_str().to_string())
-        .collect();
-    langs.sort();
-    langs.dedup();
+/// 检测目录下的所有语言（不限于优先级最高的一个）。
+pub fn detect_all_languages(dir: &Path) -> Vec<String> {
+    let mut langs = Vec::new();
+    if dir.join("Cargo.toml").exists() {
+        langs.push("rust".into());
+    }
+    if dir.join("pyproject.toml").exists() || dir.join("requirements.txt").exists() {
+        langs.push("python".into());
+    }
+    if dir.join("go.mod").exists() {
+        langs.push("go".into());
+    }
+    if dir.join("pubspec.yaml").exists() {
+        langs.push("dart".into());
+    }
+    if dir.join("package.json").exists() {
+        langs.push("typescript".into());
+    }
     langs
 }
 
@@ -126,7 +135,7 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
         }
     }
 
-    let langs = collect_languages(&c);
+    let mut langs = detect_all_languages(repo_path);
     if !langs.is_empty() {
         writeln!(writer)?;
         writeln!(writer, "  语言:      {}", langs.join(", "))?;
