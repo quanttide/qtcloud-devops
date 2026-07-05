@@ -23,14 +23,6 @@ pub fn detect_by_files(dir: &Path) -> Language {
     detect_language(dir)
 }
 
-/// 检测目录下的所有语言（不限于优先级最高的一个）。
-pub fn detect_all_languages(dir: &Path) -> Vec<String> {
-    detect_languages(dir)
-        .iter()
-        .map(|l| l.as_str().to_string())
-        .collect()
-}
-
 /// 检查 scope 版本一致性。失败时返回空状态。
 pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionState {
     verify_version(repo_path, scope).unwrap_or_else(|e| {
@@ -124,10 +116,18 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
         }
     }
 
-    let langs = detect_all_languages(repo_path);
+    let langs = detect_languages(repo_path);
     if !langs.is_empty() {
         writeln!(writer)?;
-        writeln!(writer, "  语言:      {}", langs.join(", "))?;
+        writeln!(
+            writer,
+            "  语言:      {}",
+            langs
+                .iter()
+                .map(|l| l.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )?;
     }
     Ok(())
 }
