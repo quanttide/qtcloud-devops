@@ -19,9 +19,6 @@ pub fn load_scopes(repo_path: &Path) -> Vec<Scope> {
     load(repo_path).scopes
 }
 
-pub fn detect_by_files(dir: &Path) -> Language {
-    detect_language(dir)
-}
 
 /// 检查 scope 版本一致性。失败时返回空状态。
 pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionState {

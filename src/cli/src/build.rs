@@ -24,7 +24,7 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
     writeln!(writer, "{}", "-".repeat(50))?;
 
     if c.scopes.is_empty() {
-        let lang = contract::detect_by_files(repo_path);
+        let lang = contract::detect_language(repo_path);
         let root_scope = contract::Scope {
             name: "(root)".into(),
             dir: ".".into(),
