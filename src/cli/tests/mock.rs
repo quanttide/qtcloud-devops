@@ -3,7 +3,7 @@
 //! 原理：将 mock 脚本写入临时 bin/ 目录，前置到 PATH，
 //! 然后调用真实的库函数。`Command::new("gh")` 会找到我们的 mock 而非真实命令。
 //!
-//! 注意：这些测试会修改全局 PATH，必须串行执行。
+//! 注意：这些测试会修改全局 PATH，已通过全局锁串行化。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -30,7 +30,14 @@ fn mock_custom(body: &str) -> String {
 }
 
 /// 在 mock 环境中运行闭包。
+///
+/// 修改全局 PATH，所以通过全局锁串行化，避免并行测试竞争。
 fn with_mock_env<F: FnOnce() -> R, R>(scripts: &[(&str, &str)], f: F) -> R {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap();
     let dir = tempfile::tempdir().expect("创建 temp dir");
     let bin = dir.path().join("bin");
     std::fs::create_dir(&bin).expect("创建 bin/");
@@ -250,11 +257,7 @@ fn test_test_run_rust_coverage_fails_propagates_error() {
 #[test]
 fn test_test_run_python_separate_test_and_coverage() {
     let (_d, path) = setup_repo();
-    std::fs::write(
-        path.join("pyproject.toml"),
-        "[project]\nname = \"test\"\n",
-    )
-    .unwrap();
+    std::fs::write(path.join("pyproject.toml"), "[project]\nname = \"test\"\n").unwrap();
     // python -m pytest 通过，coverage 通过
     let py_ok = mock_custom("exit 0");
     let coverage_ok = mock_custom("exit 0");
@@ -268,11 +271,7 @@ fn test_test_run_python_separate_test_and_coverage() {
 #[test]
 fn test_test_run_python_test_fails() {
     let (_d, path) = setup_repo();
-    std::fs::write(
-        path.join("pyproject.toml"),
-        "[project]\nname = \"test\"\n",
-    )
-    .unwrap();
+    std::fs::write(path.join("pyproject.toml"), "[project]\nname = \"test\"\n").unwrap();
     let py_fail = mock_custom("exit 1");
     let coverage_ok = mock_custom("exit 0");
     with_mock_env(&[("python", &py_fail), ("coverage", &coverage_ok)], || {
@@ -327,7 +326,11 @@ fn test_test_run_multiple_scopes() {
     let py_ok = mock_custom("exit 0");
     let coverage_ok = mock_custom("exit 0");
     with_mock_env(
-        &[("cargo", &cargo_ok), ("python", &py_ok), ("coverage", &coverage_ok)],
+        &[
+            ("cargo", &cargo_ok),
+            ("python", &py_ok),
+            ("coverage", &coverage_ok),
+        ],
         || {
             let result = qtcloud_devops_cli::test::run(&path);
             assert!(result.is_ok(), "多 scope 全通过");
@@ -345,8 +348,16 @@ fn test_test_run_scoped_by_cwd() {
     let sdk_dir = path.join("packages/sdk");
     std::fs::create_dir_all(&cli_dir).unwrap();
     std::fs::create_dir_all(&sdk_dir).unwrap();
-    std::fs::write(cli_dir.join("Cargo.toml"), "[package]\nname = \"cli\"\nversion = \"0.1.0\"\n").unwrap();
-    std::fs::write(sdk_dir.join("Cargo.toml"), "[package]\nname = \"sdk\"\nversion = \"0.2.0\"\n").unwrap();
+    std::fs::write(
+        cli_dir.join("Cargo.toml"),
+        "[package]\nname = \"cli\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        sdk_dir.join("Cargo.toml"),
+        "[package]\nname = \"sdk\"\nversion = \"0.2.0\"\n",
+    )
+    .unwrap();
     // 写入契约，让两个 scope 被识别
     let contract_dir = path.join(".quanttide/devops");
     std::fs::create_dir_all(&contract_dir).unwrap();
@@ -359,10 +370,7 @@ fn test_test_run_scoped_by_cwd() {
     // cargo mock: 写入运行目录到 sentinel 文件
     let sentinel = path.join(".cov_sentinel");
     let sentinel_path = sentinel.to_string_lossy().to_string();
-    let cargo_mock = format!(
-        "#!/bin/sh\necho \"$PWD\" >> {}\nexit 0\n",
-        sentinel_path
-    );
+    let cargo_mock = format!("#!/bin/sh\necho \"$PWD\" >> {}\nexit 0\n", sentinel_path);
 
     // 从 cli 子目录运行 test run
     let old_cwd = std::env::current_dir().unwrap();
