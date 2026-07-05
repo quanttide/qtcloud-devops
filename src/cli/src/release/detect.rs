@@ -27,8 +27,6 @@ fn git_output(args: &[&str], repo_path: &Path) -> Result<String, String> {
 /// 检测结果。
 pub struct DetectResult {
     pub version: String,
-    pub scope: Option<String>,
-    pub project_type: String,
 }
 
 /// 主入口。
@@ -141,11 +139,7 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, String> {
     };
 
     println!("\n🔮 建议版本: {}", version);
-    Ok(DetectResult {
-        version,
-        scope,
-        project_type: project_type.to_string(),
-    })
+    Ok(DetectResult { version })
 }
 
 /// LLM 决策输出。
