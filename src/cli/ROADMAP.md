@@ -3,8 +3,14 @@
 ## [0.10.0] — 基于 quanttide-devops 0.2 重构 + code 命令重新设计
 
 ### Added
-- [ ] 基于 quanttide-devops 0.2 的 `Git` trait 重构 git 模块
-- [ ] `Git` trait 双实现：`RealGit`（gix） + `MockGit`（测试）
+- [ ] quanttide-devops 0.2 升级
+  - [ ] 更新 Cargo.toml 依赖版本至 0.2
+  - [ ] 适配 contract 模块 API 变更
+- [ ] `Git` trait 接入
+  - [ ] 删除 `src/git/` 手写模块，委托给 `quanttide-devops::git_core`
+  - [ ] 删除 `src/code/` 适配层
+  - [ ] `RealGit` 由 `quanttide-devops` 提供
+  - [ ] `MockGit` 集成到测试
 - [ ] code 命令重新设计：简化 status/sync 接口
 - [ ] `release publish --dry-run` 支持 cwd scope 自动检测
 
