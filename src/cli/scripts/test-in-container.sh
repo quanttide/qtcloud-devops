@@ -50,6 +50,14 @@ if ! $VERBOSE; then
     BUILD_OPTS+=("-q")
 fi
 
+# 传递代理环境变量给 Docker 构建（从 ~/.docker/config.json 或系统 env）
+for var in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy; do
+    val="$(eval echo "\${$var:-}")"
+    if [ -n "$val" ]; then
+        BUILD_OPTS+=("--build-arg" "$var=$val")
+    fi
+done
+
 echo "📦 构建测试容器镜像..."
 docker build "${BUILD_OPTS[@]}" "$PROJECT_DIR"
 
