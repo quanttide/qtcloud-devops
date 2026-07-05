@@ -1,4 +1,4 @@
-use crate::git::{self, GitSubmoduleEditor};
+use crate::git::{GitSubmoduleEditor, RepoState};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::path::PathBuf;
