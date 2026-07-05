@@ -18,6 +18,3 @@
 - [ ] `gh release create` 超时无重试
 - [ ] release 后主仓库子模组指针未自动更新
 
-### Removed
-- [ ] 删除 `src/git/` 模块，全部委托给 `quanttide-devops::git_core` 和 `quanttide-devops::git_submodule`
-- [ ] 删除 `git2` crate 依赖
