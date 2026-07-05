@@ -18,6 +18,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+gix = "0.66"
+git2 = "0.19"
 quanttide-devops = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

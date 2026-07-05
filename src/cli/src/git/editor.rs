@@ -21,14 +21,34 @@ impl GitSubmoduleEditor {
         self.offline = offline;
     }
 
-    pub fn fetch_submodule(path: &Path) -> Result<(), ()> {
-        let has_remote = std::process::Command::new("git")
-            .args(["remote", "get-url", "origin"])
+    /// 检测是否有远端。优先用 gix，回退到 CLI。
+    fn has_remote(path: &Path) -> bool {
+        git_output(&["remote", "get-url", "origin"], path).is_ok()
+    }
+
+    /// 获取当前 branch 名。
+    fn branch_name(path: &Path) -> Option<String> {
+        std::process::Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
             .current_dir(path)
             .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if !has_remote {
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    let b = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    if b != "HEAD" && !b.is_empty() {
+                        Some(b)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+    }
+
+    pub fn fetch_submodule(path: &Path) -> Result<(), ()> {
+        if !Self::has_remote(path) {
             return Ok(());
         }
         std::process::Command::new("git")
@@ -43,29 +63,11 @@ impl GitSubmoduleEditor {
         if !path.exists() {
             return Ok(());
         }
-        let branch = std::process::Command::new("git")
-            .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .current_dir(path)
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_default();
+        let branch = Self::branch_name(path).unwrap_or_default();
         if branch.is_empty() || branch == "HEAD" {
             return Ok(());
         }
-        if !std::process::Command::new("git")
-            .args(["remote", "get-url", "origin"])
-            .current_dir(path)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
+        if !Self::has_remote(path) {
             return Ok(());
         }
         let output = std::process::Command::new("git")
@@ -90,29 +92,11 @@ impl GitSubmoduleEditor {
         if !path.exists() {
             return Ok(());
         }
-        let branch = std::process::Command::new("git")
-            .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .current_dir(path)
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_default();
+        let branch = Self::branch_name(path).unwrap_or_default();
         if branch.is_empty() || branch == "HEAD" {
             return Ok(());
         }
-        if !std::process::Command::new("git")
-            .args(["remote", "get-url", "origin"])
-            .current_dir(path)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
+        if !Self::has_remote(path) {
             return Ok(());
         }
         let tracking = format!("origin/{}", branch);
@@ -149,61 +133,46 @@ impl GitSubmoduleEditor {
             .unwrap_or_else(|e| Err(format!("git push 无法执行: {}", e)))
     }
 
+    /// 用 git2 更新父仓库的子模块指针并提交。
     pub fn update_parent_pointer(
         root: &Path,
         sm_path: &Path,
         name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let sm_rel = sm_path.to_string_lossy().to_string();
-        std::process::Command::new("git")
-            .args(["add", &sm_rel])
-            .current_dir(root)
-            .output()?;
-        let out = std::process::Command::new("git")
-            .args([
-                "commit",
-                "-m",
-                &format!("chore: 更新子模块 '{}' 指针", name),
-            ])
-            .current_dir(root)
-            .output()?;
-        if !out.status.success() {
-            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            let msg2 = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let combined = format!("{}\n{}", msg, msg2);
-            if !combined.contains("nothing to commit")
-                && !combined.contains("no changes")
-                && !combined.contains("无文件")
-            {
-                return Err(msg.into());
+        let repo = git2::Repository::open(root)?;
+        // index.add_path + write_tree + commit
+        let mut index = repo.index()?;
+        index.add_path(sm_path)?;
+        index.write()?;
+        let tree_id = index.write_tree()?;
+        let tree = repo.find_tree(tree_id)?;
+        let parent = repo.head()?.peel_to_commit()?;
+        let sig = repo.signature()?;
+        match repo.commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            &format!("chore: 更新子模块 '{}' 指针", name),
+            &tree,
+            &[&parent],
+        ) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let msg = e.message();
+                if msg.contains("nothing to commit") || msg.contains("no changes") {
+                    Ok(())
+                } else {
+                    Err(Box::new(e))
+                }
             }
         }
-        Ok(())
     }
 
     pub fn push_parent(root: &Path) -> Result<(), String> {
-        if !std::process::Command::new("git")
-            .args(["remote", "get-url", "origin"])
-            .current_dir(root)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
+        if !Self::has_remote(root) {
             return Ok(());
         }
-        let branch = std::process::Command::new("git")
-            .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .current_dir(root)
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_default();
+        let branch = Self::branch_name(root).unwrap_or_default();
         if branch.is_empty() || branch == "HEAD" {
             return Err("无法检测当前分支".into());
         }
@@ -221,12 +190,20 @@ impl GitSubmoduleEditor {
             .unwrap_or_else(|e| Err(format!("git push 无法执行: {}", e)))
     }
 
+    /// 用 git2 回滚最近一次提交（`git reset --hard HEAD~1`）。
     pub fn revert_parent_commit(root: &Path) {
-        std::process::Command::new("git")
-            .args(["reset", "--hard", "HEAD~1"])
-            .current_dir(root)
-            .output()
-            .ok();
+        if let Ok(repo) = git2::Repository::open(root) {
+            if let Ok(head) = repo.find_reference("HEAD") {
+                if let Some(target) = head.target() {
+                    if let Ok(commit) = repo.find_commit(target) {
+                        if let Ok(parent) = commit.parent(0) {
+                            repo.reset(parent.as_object(), git2::ResetType::Hard, None)
+                                .ok();
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn root(&self) -> &Path {
@@ -291,7 +268,6 @@ impl GitSubmoduleEditor {
         Ok(issues)
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,12 +432,8 @@ mod tests {
             .current_dir(&parent.join("libs/sub"))
             .output()
             .unwrap();
-        assert!(
-            GitSubmoduleEditor::new(parent)
-                .sync_to_parent("libs/sub")
-                .is_ok(),
-            "sync failed"
-        );
+        let result = GitSubmoduleEditor::new(parent).sync_to_parent("libs/sub");
+        assert!(result.is_ok(), "sync failed: {:?}", result.err());
     }
 
     #[test]
