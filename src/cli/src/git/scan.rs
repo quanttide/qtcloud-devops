@@ -4,50 +4,35 @@ use std::path::Path;
 /// 从 .gitmodules 解析子模块列表：name, path, url, branch
 pub fn parse_gitmodules(root: &Path) -> Vec<(String, PathBuf, String, String)> {
     let cfg_path = root.join(".gitmodules");
-    if !cfg_path.exists() {
-        return vec![];
-    }
     let content = match std::fs::read_to_string(&cfg_path) {
         Ok(c) => c,
         Err(_) => return vec![],
     };
-    let mut entries: Vec<(String, PathBuf, String, String)> = Vec::new();
-    let mut current_name = String::new();
-    let mut current_path = PathBuf::new();
-    let mut current_url = String::new();
-    let mut current_branch = String::from("main");
-    let mut in_submodule = false;
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if let Some(name) = trimmed
-            .strip_prefix("[submodule \"")
-            .and_then(|s| s.strip_suffix("\"]"))
-        {
-            if in_submodule {
-                entries.push((
-                    std::mem::take(&mut current_name),
-                    std::mem::take(&mut current_path),
-                    std::mem::take(&mut current_url),
-                    std::mem::take(&mut current_branch),
-                ));
-            }
-            current_name = name.to_string();
-            in_submodule = true;
-        } else if in_submodule {
-            if let Some(path) = trimmed.strip_prefix("path = ") {
-                current_path = PathBuf::from(path);
-            } else if let Some(url) = trimmed.strip_prefix("url = ") {
-                current_url = url.to_string();
-            } else if let Some(branch) = trimmed.strip_prefix("branch = ") {
-                current_branch = branch.to_string();
-            }
-        }
-    }
-    if in_submodule {
-        entries.push((current_name, current_path, current_url, current_branch));
-    }
-    entries
+    let file = match gix::submodule::File::from_bytes(
+        content.as_bytes(),
+        None,
+        &gix::config::File::default(),
+    ) {
+        Ok(f) => f,
+        Err(_) => return vec![],
+    };
+    file.names()
+        .filter_map(|name| {
+            let name_str = name.to_string();
+            let p = file.path(name).ok()?;
+            let url = file.url(name).ok()?;
+            let branch = match file.branch(name).ok().flatten() {
+                Some(gix::submodule::config::Branch::Name(b)) => b.to_string(),
+                _ => "main".to_string(),
+            };
+            Some((
+                name_str,
+                PathBuf::from(p.as_ref().to_string()),
+                url.to_string(),
+                branch,
+            ))
+        })
+        .collect()
 }
 
 /// 用 gix 统计两个 commit 之间的提交数（等价于 `git rev-list --count from..to`）。
