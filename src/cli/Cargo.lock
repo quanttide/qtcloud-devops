@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "qtcloud-devops-cli"
-version = "0.9.3-alpha.2"
+version = "0.9.3-alpha.3"
 dependencies = [
  "clap",
  "pyo3",
