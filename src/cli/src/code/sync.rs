@@ -15,18 +15,9 @@ pub fn sync_all(root: PathBuf) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{git_init, git_commit};
 
-    fn git_init(path: &std::path::Path) {
-        std::process::Command::new("git").args(["init", "-b", "main"]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["config", "user.email", "t@t"]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["config", "user.name", "t"]).current_dir(path).output().unwrap();
-    }
 
-    fn git_commit(path: &std::path::Path, msg: &str) {
-        std::fs::write(path.join("f"), msg).unwrap();
-        std::process::Command::new("git").args(["add", "."]).current_dir(path).output().unwrap();
-        std::process::Command::new("git").args(["commit", "-m", msg]).current_dir(path).output().unwrap();
-    }
 
     #[test]
     fn test_sync_nonexistent_name() {

@@ -223,39 +223,10 @@ fn update_version_in_content(content: &str, new_ver: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{git_init, git_commit};
     use std::path::Path;
 
-    fn git_init(path: &Path) {
-        std::process::Command::new("git")
-            .args(["init", "-b", "main"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.email", "test@test.com"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.name", "Test"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-    }
 
-    fn git_commit(path: &Path, msg: &str) {
-        std::fs::write(path.join("file"), msg).unwrap();
-        std::process::Command::new("git")
-            .args(["add", "."])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["commit", "-m", msg])
-            .current_dir(path)
-            .output()
-            .unwrap();
-    }
 
     #[test]
     fn test_publish_rejects_invalid_version() {

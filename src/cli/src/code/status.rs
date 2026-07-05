@@ -50,6 +50,7 @@ pub fn status(root: PathBuf, offline: bool) -> Result<StatusReport, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{git_init, git_commit};
     use crate::git::SubmoduleStatus;
 
     // ---- map_status ----
@@ -94,37 +95,7 @@ mod tests {
 
     // ---- status (integration) ----
 
-    fn git_init(path: &std::path::Path) {
-        std::process::Command::new("git")
-            .args(["init", "-b", "main"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.email", "t@t"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.name", "t"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-    }
 
-    fn git_commit(path: &std::path::Path, msg: &str) {
-        std::fs::write(path.join("f"), msg).unwrap();
-        std::process::Command::new("git")
-            .args(["add", "."])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["commit", "-m", msg])
-            .current_dir(path)
-            .output()
-            .unwrap();
-    }
 
     #[test]
     fn test_status_non_git_dir() {

@@ -32,7 +32,7 @@ pub fn collect_git_log(repo_path: &Path) -> Result<String, String> {
 
 /// 获取仓库中最新版本 tag（按版本排序取第一个）。
 fn get_latest_tag(repo_path: &Path) -> Option<String> {
-    let out = Command::new("git")
+    let out = std::process::Command::new("git")
         .args(["tag", "--list"])
         .current_dir(repo_path)
         .output()
@@ -111,7 +111,7 @@ pub fn write_changelog(path: &Path, version: &str, content: &str) -> Result<(), 
 }
 
 fn today() -> String {
-    // 不使用 chrono，用 git 的方式获取当前日期
+    // 使用 date CLI 获取当前日期，不额外引入 chrono
     let output = std::process::Command::new("date")
         .args(["+%Y-%m-%d"])
         .output()
@@ -179,38 +179,7 @@ pub fn ensure_changelog(repo_path: &Path, scope_dir: &Path, version: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn git_init(path: &Path) {
-        std::process::Command::new("git")
-            .args(["init", "-b", "main"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.email", "t@t"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.name", "t"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-    }
-
-    fn git_commit(path: &Path, msg: &str) {
-        std::fs::write(path.join("f"), msg).unwrap();
-        std::process::Command::new("git")
-            .args(["add", "."])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["commit", "-m", msg])
-            .current_dir(path)
-            .output()
-            .unwrap();
-    }
+    use crate::test_support::{git_commit, git_init};
 
     #[test]
     fn test_collect_git_log_with_commits() {
