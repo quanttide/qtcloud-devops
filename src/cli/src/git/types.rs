@@ -2,9 +2,9 @@ pub use std::path::PathBuf;
 
 /// 截断 OID 到 7 字符显示（等价旧 CommitHash Display）。
 pub fn fmt_oid(id: &gix::ObjectId) -> String {
-    let hex = id.to_hex();
-    let s = hex.to_string();
-    s[..s.len().min(7)].to_string()
+    gix::hash::Prefix::new(id, 7)
+        .map(|p| p.to_string())
+        .unwrap_or_else(|_| id.to_string())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
