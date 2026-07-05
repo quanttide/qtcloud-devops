@@ -99,15 +99,18 @@ enum ContractAction {
 enum ReleaseAction {
     /// 发布版本：校验 CHANGELOG → 创建 tag → 推送到远端 → 创建 GitHub Release
     Publish {
-        /// 版本号。格式 `vX.Y.Z` 或 `scope/vX.Y.Z`（如 `cli/v0.5.0`）
+        /// 版本号。格式 `vX.Y.Z` 或 `scope/vX.Y.Z`（如 `cli/v0.5.0`）。省略时自动检测。
         #[arg(short = 'v', long)]
-        version: String,
+        version: Option<String>,
         /// 跳过用户确认
         #[arg(long, short = 'y')]
         yes: bool,
         /// 强制重新发布：删除已存在的 tag 和 Release 后重新创建
         #[arg(long, short = 'f')]
         force: bool,
+        /// 仅预览，不执行任何操作
+        #[arg(long)]
+        dry_run: bool,
         /// CI 发布目标（仅打印提示，不执行发布）
         #[arg(long, value_enum)]
         registry: Option<PublishTarget>,
@@ -201,9 +204,17 @@ fn main() {
                 version,
                 yes,
                 force,
+                dry_run,
                 registry,
-            } => qtcloud_devops_cli::release::publish(&version, &repo_path(), yes, force, registry)
-                .map_err(|e| format!("{}", e)),
+            } => qtcloud_devops_cli::release::publish(
+                version.as_deref(),
+                &repo_path(),
+                yes,
+                force,
+                dry_run,
+                registry,
+            )
+            .map_err(|e| format!("{}", e)),
             ReleaseAction::Status => {
                 qtcloud_devops_cli::release::status(&repo_path());
                 Ok(())

@@ -1,4 +1,5 @@
 mod changelog;
+mod detect;
 mod publish;
 mod status;
 mod util;

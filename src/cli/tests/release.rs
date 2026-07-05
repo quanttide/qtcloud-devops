@@ -165,9 +165,10 @@ fn test_release_create_tag_uses_repo_path() {
 #[test]
 fn test_release_publish_rejects_invalid_version() {
     assert!(qtcloud_devops_cli::release::publish(
-        "bad",
+        Some("bad"),
         tempfile::tempdir().unwrap().path(),
         true,
+        false,
         false,
         None
     )
@@ -178,7 +179,8 @@ fn test_release_publish_rejects_invalid_version() {
 fn test_release_publish_auto_generates_changelog() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
-    let result = qtcloud_devops_cli::release::publish("v1.0.0", dir.path(), true, false, None);
+    let result =
+        qtcloud_devops_cli::release::publish(Some("v1.0.0"), dir.path(), true, false, false, None);
     assert!(
         result.is_ok(),
         "publish with auto-generated CHANGELOG 应成功, 得到: {:?}",
@@ -201,12 +203,24 @@ fn test_release_publish_idempotent() {
         "## [1.0.0-rc.1]\n\ncontent\n",
     )
     .unwrap();
-    assert!(
-        qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, false, None).is_ok()
-    );
-    assert!(
-        qtcloud_devops_cli::release::publish("v1.0.0-rc.1", dir.path(), true, false, None).is_ok()
-    );
+    assert!(qtcloud_devops_cli::release::publish(
+        Some("v1.0.0-rc.1"),
+        dir.path(),
+        true,
+        false,
+        false,
+        None
+    )
+    .is_ok());
+    assert!(qtcloud_devops_cli::release::publish(
+        Some("v1.0.0-rc.1"),
+        dir.path(),
+        true,
+        false,
+        false,
+        None
+    )
+    .is_ok());
 }
 
 #[test]
@@ -214,7 +228,8 @@ fn test_release_publish_without_changelog_entry() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
     std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0]\n\ncontent\n").unwrap();
-    let result = qtcloud_devops_cli::release::publish("v2.0.0", dir.path(), true, false, None);
+    let result =
+        qtcloud_devops_cli::release::publish(Some("v2.0.0"), dir.path(), true, false, false, None);
     assert!(
         result.is_ok(),
         "LLM 应自动生成缺失的 CHANGELOG 条目, 得到: {:?}",
@@ -238,7 +253,8 @@ fn test_release_publish_with_v_prefix_changelog() {
         "# CHANGELOG\n\n## [v0.1.0]\n\n### Added\n- init\n",
     )
     .unwrap();
-    let result = qtcloud_devops_cli::release::publish("v0.1.0", dir.path(), true, false, None);
+    let result =
+        qtcloud_devops_cli::release::publish(Some("v0.1.0"), dir.path(), true, false, false, None);
     assert!(result.is_ok());
     let changelog = std::fs::read_to_string(dir.path().join("CHANGELOG.md")).unwrap_or_default();
     // 应只有一个 [v0.1.0] 条目，没有 [0.1.0] 重复
@@ -300,7 +316,14 @@ fn test_release_publish_scoped_monorepo() {
     git_commit(dir.path());
 
     // 发布 scoped 版本 —— repo_path=git根, scope_dir=contract映射的子目录
-    let result = qtcloud_devops_cli::release::publish("cli/v0.2.0", dir.path(), true, false, None);
+    let result = qtcloud_devops_cli::release::publish(
+        Some("cli/v0.2.0"),
+        dir.path(),
+        true,
+        false,
+        false,
+        None,
+    );
     assert!(
         result.is_ok(),
         "monorepo scoped publish 应成功: {:?}",

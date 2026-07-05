@@ -6,28 +6,57 @@ use crate::contract;
 /// 发布版本。
 ///
 /// 内部处理流程：
-/// 1. 校验版本号格式
+/// 1. 校验版本号格式（有 `-v` 时），或自动检测版本号（无 `-v` 时）
 /// 2. 从 contract.yaml 获取 scope 子目录
 /// 3. 自动更新 Cargo.toml / pyproject.toml 版本号
 /// 4. 自动生成 CHANGELOG（如有需要）并提交
 /// 5. 校验 CHANGELOG 包含对应版本记录
 /// 6. 用户确认（除非 `yes = true`）
 /// 7. 创建 git tag → 推送 → 创建 GitHub Release
+///
+/// `version` 为 None 时自动检测。`dry_run` 为 true 时只打印不执行。
 pub fn publish(
-    version: &str,
+    version: Option<&str>,
     repo_path: &Path,
     yes: bool,
     force: bool,
+    dry_run: bool,
     registry: Option<PublishTarget>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if !util::validate_version(version) {
-        return Err(format!("版本号格式错误: {}", version).into());
+    // ── 确定版本号 ────────────────────────────────────────────────
+    let version = match version {
+        Some(v) => {
+            if !util::validate_version(v) {
+                return Err(format!("版本号格式错误: {}", v).into());
+            }
+            v.to_string()
+        }
+        None => {
+            let result = super::detect::detect_version(repo_path)?;
+            if dry_run {
+                println!("\n💡 建议版本: {}", result.version);
+                println!("   使用 -v 指定版本执行发布，或直接运行不加 --dry-run");
+                return Ok(());
+            }
+            result.version
+        }
+    };
+
+    // ── dry-run：仅预览 ───────────────────────────────────────────
+    if dry_run {
+        println!("\n💡 预览发布: {}", version);
+        println!("   将更新 Cargo.toml/pyproject.toml 版本号");
+        println!("   将更新 CHANGELOG.md");
+        println!("   将创建 git tag 并推送到远端");
+        println!("   将创建 GitHub Release");
+        println!("   使用 -y 跳过确认直接发布");
+        return Ok(());
     }
 
-    let ver = util::normalize_version(version);
+    let ver = util::normalize_version(&version);
 
     // 从 version 提取 scope 前缀，从契约获取子目录
-    let scope_dir = resolve_scope_dir(version, repo_path);
+    let scope_dir = resolve_scope_dir(&version, repo_path);
 
     // 自动更新配置文件版本（scope 子目录下）—— 先于一致性检查
     update_config_version(&scope_dir, &ver);
@@ -36,10 +65,10 @@ pub fn publish(
     if force {
         if let Some(repo) = super::util::get_remote_repo(repo_path) {
             eprintln!("🔁 强制重新发布，清理旧资源...");
-            super::util::delete_release(version, &repo);
+            super::util::delete_release(&version, &repo);
         }
-        super::util::delete_remote_tag(version, repo_path);
-        super::util::delete_local_tag(version, repo_path);
+        super::util::delete_remote_tag(&version, repo_path);
+        super::util::delete_local_tag(&version, repo_path);
     }
 
     // 预检：所有配置文件版本号一致
@@ -87,7 +116,7 @@ pub fn publish(
     }
 
     // 自动生成 CHANGELOG（scope 子目录下，git 操作在 repo 根）
-    if let Err(e) = super::ensure_changelog(repo_path, &scope_dir, version) {
+    if let Err(e) = super::ensure_changelog(repo_path, &scope_dir, &version) {
         eprintln!(
             "⚠ CHANGELOG 生成失败: {}\n   发布将继续，但请确保 CHANGELOG.md 包含版本 {} 的记录。",
             e, version
@@ -95,28 +124,28 @@ pub fn publish(
     }
 
     let changelog_path = scope_dir.join("CHANGELOG.md");
-    let precheck_errors = util::precheck_version_changelog(version, &changelog_path);
+    let precheck_errors = util::precheck_version_changelog(&version, &changelog_path);
     if !precheck_errors.is_empty() {
         return Err(precheck_errors.join("\n").into());
     }
 
-    if !yes && !util::confirm_release(version, false) {
+    if !yes && !util::confirm_release(&version, false) {
         return Err("已取消发布".into());
     }
 
-    if !util::create_tag(version, repo_path) {
+    if !util::create_tag(&version, repo_path) {
         return Err(format!("创建标签 {} 失败", version).into());
     }
-    if !util::push_tag(version, repo_path) {
-        util::rollback_tag(version, repo_path);
+    if !util::push_tag(&version, repo_path) {
+        util::rollback_tag(&version, repo_path);
         return Err(format!("推送标签 {} 失败", version).into());
     }
     println!("✓ 标签 {} 已创建并推送", version);
 
-    let notes = util::extract_notes(version, &changelog_path);
+    let notes = util::extract_notes(&version, &changelog_path);
     if let Some(repo) = util::get_remote_repo(repo_path) {
-        if !util::create_release(version, notes.as_deref().unwrap_or(""), &repo) {
-            util::rollback_tag(version, repo_path);
+        if !util::create_release(&version, notes.as_deref().unwrap_or(""), &repo) {
+            util::rollback_tag(&version, repo_path);
             return Err("创建 GitHub Release 失败".into());
         }
         println!("✓ GitHub Release {} 已创建", version);
@@ -231,9 +260,10 @@ mod tests {
     #[test]
     fn test_publish_rejects_invalid_version() {
         assert!(publish(
-            "bad",
+            Some("bad"),
             tempfile::tempdir().unwrap().path(),
             true,
+            false,
             false,
             None
         )
@@ -244,7 +274,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         git_init(d.path());
         git_commit(d.path(), "init");
-        let result = publish("v1.0.0", d.path(), true, false, None);
+        let result = publish(Some("v1.0.0"), d.path(), true, false, false, None);
         assert!(result.is_ok());
         let changelog = std::fs::read_to_string(d.path().join("CHANGELOG.md")).unwrap_or_default();
         assert!(changelog.contains("## [1.0.0]"));
@@ -252,7 +282,7 @@ mod tests {
     #[test]
     fn test_publish_formal_with_yes() {
         let d = tempfile::tempdir().unwrap();
-        let r = publish("v1.0.0", d.path(), true, false, None);
+        let r = publish(Some("v1.0.0"), d.path(), true, false, false, None);
         assert!(r.is_ok() || r.is_err());
     }
     #[test]
@@ -265,7 +295,7 @@ mod tests {
             "## [1.0.0-rc.1]\n\ncontent\n",
         )
         .unwrap();
-        let r = publish("v1.0.0-rc.1", d.path(), true, false, None);
+        let r = publish(Some("v1.0.0-rc.1"), d.path(), true, false, false, None);
         assert!(r.is_ok() || r.is_err());
     }
     #[test]
@@ -361,7 +391,7 @@ mod tests {
             .output()
             .unwrap();
 
-        let result = publish("cli/v0.2.0", d.path(), true, false, None);
+        let result = publish(Some("cli/v0.2.0"), d.path(), true, false, false, None);
         assert!(result.is_ok(), "publish 失败: {:?}", result.err());
 
         let cargo = std::fs::read_to_string(scope_dir.join("Cargo.toml")).unwrap();
