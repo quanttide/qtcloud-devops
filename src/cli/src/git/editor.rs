@@ -296,13 +296,12 @@ mod tests {
         let sig = repo.signature().unwrap();
         let parent = repo.head().and_then(|h| h.peel_to_commit()).ok();
         let parents: Vec<&git2::Commit> = parent.iter().collect();
-        repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents)
+            .unwrap();
     }
 
     use super::*;
     use std::process::Command;
-
-
 
     fn setup_repo_with_submodule(tmp: &Path) -> PathBuf {
         let parent = tmp.join("parent");
@@ -336,8 +335,12 @@ mod tests {
     fn test_editor_sync_to_parent() {
         let t = tempfile::tempdir().unwrap();
         let p = setup_repo_with_submodule(t.path());
-        let result = GitSubmoduleEditor::new(p).sync_to_parent("libs/sub");
-        assert!(result.is_ok(), "sync_to_parent error: {:?}", result);
+        assert!(
+            GitSubmoduleEditor::new(p)
+                .sync_to_parent("libs/sub")
+                .is_ok(),
+            "sync_to_parent failed"
+        );
     }
     #[test]
     fn test_editor_sync_to_parent_nonexistent() {

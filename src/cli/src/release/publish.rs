@@ -240,13 +240,11 @@ mod tests {
         let sig = repo.signature().unwrap();
         let parent = repo.head().and_then(|h| h.peel_to_commit()).ok();
         let parents: Vec<&git2::Commit> = parent.iter().collect();
-        repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents)
+            .unwrap();
     }
 
     use super::*;
-    use std::path::Path;
-
-
 
     #[test]
     fn test_publish_rejects_invalid_version() {

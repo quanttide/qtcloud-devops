@@ -87,57 +87,33 @@ pub fn confirm_release(version: &str, yes: bool) -> bool {
 
 /// 创建轻量 tag（`git tag <version>`）。已存在则跳过（幂等）。
 pub fn create_tag(version: &str, repo_path: &Path) -> bool {
-    // 先检查是否已存在（用 gix 查 ref）
-    if let Ok(repo) = gix::open(repo_path) {
-        if repo
-            .find_reference(&format!("refs/tags/{}", version))
-            .is_ok()
-        {
-            return true;
-        }
+    let repo = match git2::Repository::open(repo_path) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    let refname = format!("refs/tags/{}", version);
+    if repo.find_reference(&refname).is_ok() {
+        return true;
     }
-    match Command::new("git")
-        .args(["tag", version])
-        .current_dir(repo_path)
-        .output()
-    {
-        Ok(s) if s.status.success() => true,
-        Ok(s) => {
-            let msg = String::from_utf8_lossy(&s.stderr).trim().to_string();
-            eprintln!("创建标签失败: {}", msg);
-            false
-        }
-        Err(e) => {
-            eprintln!("创建标签失败: {}", e);
-            false
-        }
-    }
+    let head_id = match repo.head().ok().and_then(|h| h.target()) {
+        Some(id) => id,
+        None => return false,
+    };
+    let result = repo.reference(&refname, head_id, false, "");
+    result.is_ok()
 }
 
 /// 推送 tag 到远程（需要网络）。
 pub fn push_tag(version: &str, repo_path: &Path) -> bool {
-    let out = Command::new("git")
-        .args(["push", "origin", version])
-        .current_dir(repo_path)
-        .output();
-    match out {
-        Ok(out) if out.status.success() => true,
-        Ok(out) => {
-            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            if msg.contains("does not appear") || msg.contains("repository '' does not exist") {
-                return true;
-            }
-            if msg.contains("already exists") || msg.contains("already up to date") {
-                return true;
-            }
-            eprintln!("推送标签失败: {}", msg);
-            false
-        }
-        Err(e) => {
-            eprintln!("推送标签失败: {}", e);
-            false
-        }
-    }
+    let repo = match git2::Repository::open(repo_path) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    let mut remote = match repo.find_remote("origin") {
+        Ok(r) => r,
+        Err(_) => return true, // 无 remote 视为成功
+    };
+    remote.push(&[version], None).is_ok()
 }
 
 /// 查询 remote origin 的 GitHub 仓库标识。
@@ -188,47 +164,29 @@ pub fn rollback_tag(version: &str, repo_path: &Path) {
 
 /// 删除本地 tag（`git tag -d <version>`）。不存在也算成功。
 pub fn delete_local_tag(version: &str, repo_path: &Path) -> bool {
-    Command::new("git")
-        .args(["tag", "-d", version])
-        .current_dir(repo_path)
-        .output()
-        .map(|_| true)
-        .unwrap_or(false)
+    let repo = match git2::Repository::open(repo_path) {
+        Ok(r) => r,
+        Err(_) => return true,
+    };
+    let refname = format!("refs/tags/{}", version);
+    repo.find_reference(&refname)
+        .ok()
+        .and_then(|mut r| r.delete().ok())
+        .is_some()
 }
 
 /// 删除远端 tag（等价于 `git push --delete origin <version>`）。
 pub fn delete_remote_tag(version: &str, repo_path: &Path) -> bool {
-    if get_remote_repo(repo_path).is_none() {
-        return true; // 没有 remote 则跳过
-    }
-    let out = Command::new("git")
-        .args([
-            "-C",
-            &repo_path.to_string_lossy(),
-            "push",
-            "--delete",
-            "origin",
-            version,
-        ])
-        .output();
-    match out {
-        Ok(out) if out.status.success() => true,
-        Ok(out) => {
-            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            if msg.contains("does not appear") || msg.contains("repository '' does not exist") {
-                return true;
-            }
-            if msg.contains("ould not delete") && msg.contains("remote ref does not exist") {
-                return true; // 远端 tag 不存在也算成功
-            }
-            eprintln!("删除远端标签失败: {}", msg);
-            false
-        }
-        Err(e) => {
-            eprintln!("删除远端标签失败: {}", e);
-            false
-        }
-    }
+    let repo = match git2::Repository::open(repo_path) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    let mut remote = match repo.find_remote("origin") {
+        Ok(r) => r,
+        Err(_) => return true, // 无 remote 视为成功
+    };
+    let refspec = format!(":refs/tags/{}", version);
+    remote.push(&[&refspec], None).is_ok()
 }
 
 /// 删除 GitHub Release（等价于 `gh release delete <version> --yes`）。
@@ -273,11 +231,11 @@ mod tests {
         let sig = repo.signature().unwrap();
         let parent = repo.head().and_then(|h| h.peel_to_commit()).ok();
         let parents: Vec<&git2::Commit> = parent.iter().collect();
-        repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents)
+            .unwrap();
     }
 
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn test_parse_github_repo_https() {
