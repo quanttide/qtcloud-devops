@@ -4,7 +4,9 @@ pub use quanttide_devops::contract::{
     verify_version, BuildTool, Contract, ContractError, Language, Pipeline, Platform, Registry,
     Scope, SourceControl, Stage, StageBuild, StageRelease, StageTest, VersionState,
 };
-pub use quanttide_devops::source::config_file::{detect_language, read_config_versions};
+pub use quanttide_devops::source::config_file::{
+    detect_language, detect_languages, read_config_versions,
+};
 
 use std::path::Path;
 
@@ -23,23 +25,10 @@ pub fn detect_by_files(dir: &Path) -> Language {
 
 /// 检测目录下的所有语言（不限于优先级最高的一个）。
 pub fn detect_all_languages(dir: &Path) -> Vec<String> {
-    let mut langs = Vec::new();
-    if dir.join("Cargo.toml").exists() {
-        langs.push("rust".into());
-    }
-    if dir.join("pyproject.toml").exists() || dir.join("requirements.txt").exists() {
-        langs.push("python".into());
-    }
-    if dir.join("go.mod").exists() {
-        langs.push("go".into());
-    }
-    if dir.join("pubspec.yaml").exists() {
-        langs.push("dart".into());
-    }
-    if dir.join("package.json").exists() {
-        langs.push("typescript".into());
-    }
-    langs
+    detect_languages(dir)
+        .iter()
+        .map(|l| l.as_str().to_string())
+        .collect()
 }
 
 /// 检查 scope 版本一致性。失败时返回空状态。

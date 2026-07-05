@@ -21,7 +21,7 @@ clap = { version = "4", features = ["derive"] }
 gix = { version = "0.66", features = ["default", "serde"] }
 git2 = "0.19"
 # 临时使用 path，待 USTC mirror 同步后切回 registry
-quanttide-devops = "0.2.1"
+quanttide-devops = { path = "/tmp/qd022/quanttide-devops-0.2.2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
