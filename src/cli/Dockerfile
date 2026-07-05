@@ -1,4 +1,4 @@
-FROM rust:latest
+FROM rust:slim
 
 # Accept proxy build args
 ARG HTTP_PROXY
