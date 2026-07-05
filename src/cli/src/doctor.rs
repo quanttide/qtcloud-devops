@@ -11,10 +11,6 @@ pub fn status(repo_path: &Path) {
 
 /// 将系统诊断信息写入指定的 writer。
 pub fn status_to(writer: &mut impl Write, repo_path: &Path) -> std::io::Result<()> {
-    writeln!(writer, "系统诊断")?;
-    writeln!(writer, "{}", "-".repeat(50))?;
-
-    // 检测项目用到的语言
     let c = crate::contract::load(repo_path);
     let mut used_langs: Vec<String> = Vec::new();
     if c.scopes.is_empty() {
@@ -31,105 +27,88 @@ pub fn status_to(writer: &mut impl Write, repo_path: &Path) -> std::io::Result<(
     used_langs.sort();
     used_langs.dedup();
 
-    // 始终显示的工具
-    writeln!(
-        writer,
-        "  {:<12} {}",
+    let mut o = format!("系统诊断\n{}\n", "-".repeat(50));
+    o.push_str(&format!(
+        "  {:<12} {}\n",
         "git",
         check_command("git", &["--version"])
-    )?;
-    write_gh_status(writer)?;
+    ));
+    o.push_str(&format!(
+        "  {:<12} {}\n",
+        "gh",
+        check_command("gh", &["--version"])
+    ));
 
-    // 按语言显示工具链
     for lang in &["rust", "python", "go", "dart", "typescript"] {
         if !used_langs.iter().any(|l| l == lang) {
             continue;
         }
         match *lang {
             "rust" => {
-                writeln!(
-                    writer,
-                    "  {:<12} {}",
+                o.push_str(&format!(
+                    "  {:<12} {}\n",
                     "cargo",
                     check_command("cargo", &["--version"])
-                )?;
-                writeln!(
-                    writer,
-                    "  {:<12} {}",
+                ));
+                o.push_str(&format!(
+                    "  {:<12} {}\n",
                     "rustc",
                     check_command("rustc", &["--version"])
-                )?;
+                ));
             }
             "python" => {
-                writeln!(
-                    writer,
-                    "  {:<12} {}",
+                o.push_str(&format!(
+                    "  {:<12} {}\n",
                     "python",
                     check_command("python", &["--version"])
-                )?;
+                ));
                 for sub in &["uv", "pytest", "coverage"] {
-                    let v = check_command(sub, &["--version"]);
-                    writeln!(writer, "    {:<10} {}", sub, v)?;
+                    o.push_str(&format!(
+                        "    {:<10} {}\n",
+                        sub,
+                        check_command(sub, &["--version"])
+                    ));
                 }
             }
             "go" => {
-                writeln!(
-                    writer,
-                    "  {:<12} {}",
+                o.push_str(&format!(
+                    "  {:<12} {}\n",
                     "go",
                     check_command("go", &["version"])
-                )?;
+                ));
             }
             "dart" => {
-                writeln!(
-                    writer,
-                    "  {:<12} {}",
+                o.push_str(&format!(
+                    "  {:<12} {}\n",
                     "flutter",
                     check_command("flutter", &["--version"])
-                )?;
-                let v = check_command("dart", &["--version"]);
-                writeln!(writer, "    {:<10} {}", "dart", v)?;
+                ));
+                o.push_str(&format!(
+                    "    {:<10} {}\n",
+                    "dart",
+                    check_command("dart", &["--version"])
+                ));
             }
             "typescript" => {
-                writeln!(
-                    writer,
-                    "  {:<12} {}",
+                o.push_str(&format!(
+                    "  {:<12} {}\n",
                     "node",
                     check_command("node", &["--version"])
-                )?;
+                ));
                 for sub in &["npm", "npx"] {
-                    let v = check_command(sub, &["--version"]);
-                    writeln!(writer, "    {:<10} {}", sub, v)?;
+                    o.push_str(&format!(
+                        "    {:<10} {}\n",
+                        sub,
+                        check_command(sub, &["--version"])
+                    ));
                 }
             }
             _ => {}
         }
     }
-
-    Ok(())
+    write!(writer, "{}", o)
 }
 
-fn write_gh_status(writer: &mut impl Write) -> std::io::Result<()> {
-    let ver = check_command("gh", &["--version"]);
-    writeln!(writer, "  {:<12} {}", "gh", ver)?;
-    match Command::new("gh").args(["auth", "status"]).output() {
-        Ok(out) if out.status.success() => {
-            let msg = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let auth_line = msg.lines().nth(1).map(|l| l.trim()).unwrap_or("");
-            writeln!(writer, "                  ✅ {}", auth_line)?;
-        }
-        Ok(out) => {
-            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            writeln!(
-                writer,
-                "                  ❌ {}",
-                msg.lines().next().unwrap_or("")
-            )?;
-        }
-        Err(_) => writeln!(writer, "                  ❌ 未登录")?,
-    }
-    Ok(())
-}
 
 fn check_command(cmd: &str, args: &[&str]) -> String {
     match Command::new(cmd).args(args).output() {

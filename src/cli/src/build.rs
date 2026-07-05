@@ -19,9 +19,7 @@ pub fn status(repo_path: &Path) {
 
 pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io::Result<()> {
     let c = contract::load(repo_path);
-
-    writeln!(writer, "构建状态")?;
-    writeln!(writer, "{}", "-".repeat(50))?;
+    let mut o = format!("构建状态\n{}\n", "-".repeat(50));
 
     if c.scopes.is_empty() {
         let lang = contract::detect_language(repo_path);
@@ -36,87 +34,107 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
             test_threshold: None,
             ci_workflow: None,
         };
-        let vs = contract::version_status(repo_path, &root_scope);
+        let vs = contract::verify_version(repo_path, &root_scope).unwrap_or_else(|e| {
+            eprintln!("  ⚠ 版本状态检查失败: {}", e);
+            contract::VersionState {
+                tag_version: None,
+                config_version: None,
+                consistent: false,
+                config_files: vec![],
+            }
+        });
         let release = c.scope_release(&root_scope);
-        print_scope(writer, "(root)", repo_path, &lang, &c, &vs, &release)?;
+        o.push_str(&build_scope_str(
+            "(root)", repo_path, &lang, &c, &vs, &release,
+        ));
     } else {
         for scope in &c.scopes {
             let scope_dir = repo_path.join(&scope.dir);
             if !scope_dir.exists() {
-                writeln!(writer, "  [{}]     ⚠ 目录不存在: {}", scope.name, scope.dir)?;
+                o.push_str(&format!(
+                    "  [{}]     ⚠ 目录不存在: {}\n",
+                    scope.name, scope.dir
+                ));
                 continue;
             }
             let lang = c.resolve_language(scope, &scope_dir);
-            let vs = contract::version_status(repo_path, scope);
+            let vs = contract::verify_version(repo_path, scope).unwrap_or_else(|e| {
+                eprintln!("  ⚠ 版本状态检查失败: {}", e);
+                contract::VersionState {
+                    tag_version: None,
+                    config_version: None,
+                    consistent: false,
+                    config_files: vec![],
+                }
+            });
             let release = c.scope_release(scope);
-            print_scope(writer, &scope.name, &scope_dir, &lang, &c, &vs, &release)?;
+            o.push_str(&build_scope_str(
+                &scope.name,
+                &scope_dir,
+                &lang,
+                &c,
+                &vs,
+                &release,
+            ));
         }
     }
 
     let dirty = is_working_tree_dirty(repo_path);
-    writeln!(
-        writer,
-        "  {}         {}",
-        "工作区".to_string(),
+    o.push_str(&format!(
+        "  工作区         {}\n",
         if dirty {
             "⚠ 有未提交变更"
         } else {
             "✅ 干净"
         }
-    )?;
-    Ok(())
+    ));
+    write!(writer, "{}", o)
 }
 
-fn print_scope(
-    writer: &mut impl std::io::Write,
+fn build_scope_str(
     name: &str,
     dir: &Path,
     lang: &contract::Language,
     c: &contract::Contract,
     vs: &contract::VersionState,
     release: &contract::StageRelease,
-) -> std::io::Result<()> {
-    writeln!(writer, "  [{:<12}] {}", name, lang.as_str())?;
-    writeln!(writer, "    CI:         {}", check_ci(name, None))?;
-    writeln!(writer, "    build:      {}", check_syntax(lang, dir))?;
-    match (&vs.tag_version, &vs.config_version) {
-        (Some(t), Some(_)) if vs.consistent => {
-            writeln!(writer, "    version:    ✅ {}（一致）", t)?
-        }
-        (Some(t), Some(_)) => writeln!(writer, "    version:    ⚠ {}（配置不一致）", t)?,
-        (Some(t), None) => writeln!(writer, "    version:    tag {}（无配置文件）", t)?,
-        (None, Some(_)) => writeln!(writer, "    version:    有配置版本（无 tag）")?,
-        (None, None) => writeln!(writer, "    version:    暂无发布")?,
-    }
-    for (fname, ver) in &vs.config_files {
-        match (ver, &vs.tag_version) {
+) -> String {
+    let version_line = match (&vs.tag_version, &vs.config_version) {
+        (Some(t), Some(_)) if vs.consistent => format!("    version:    ✅ {}（一致）", t),
+        (Some(t), Some(_)) => format!("    version:    ⚠ {}（配置不一致）", t),
+        (Some(t), None) => format!("    version:    tag {}（无配置文件）", t),
+        (None, Some(_)) => "    version:    有配置版本（无 tag）".into(),
+        (None, None) => "    version:    暂无发布".into(),
+    };
+    let config_lines: String = vs
+        .config_files
+        .iter()
+        .map(|(fname, ver)| match (ver, &vs.tag_version) {
             (Some(v), Some(t)) if v == t => {
-                writeln!(writer, "      {:<15} {} ✅", format!("{}:", fname), v)?
+                format!("      {:<15} {} ✅\n", format!("{}:", fname), v)
             }
-            (Some(v), Some(_)) => writeln!(
-                writer,
-                "      {:<15} {} ❌（期望 {})",
+            (Some(v), Some(_)) => format!(
+                "      {:<15} {} ❌（期望 {})\n",
                 format!("{}:", fname),
                 v,
                 vs.tag_version.as_deref().unwrap_or("?")
-            )?,
-            (Some(v), None) => writeln!(
-                writer,
-                "      {:<15} {}（无 tag）",
-                format!("{}:", fname),
-                v
-            )?,
-            (None, _) => writeln!(
-                writer,
-                "      {:<15} （未找到版本字段）",
-                format!("{}:", fname)
-            )?,
-        }
-    }
-    writeln!(writer, "    registry:   {:?}", c.platform.artifact_registry)?;
-    writeln!(writer, "    deps:       {}", check_dependencies(dir))?;
-    writeln!(writer, "    changelog:  {}", release.changelog)?;
-    Ok(())
+            ),
+            (Some(v), None) => format!("      {:<15} {}（无 tag）\n", format!("{}:", fname), v),
+            (None, _) => format!("      {:<15} （未找到版本字段）\n", format!("{}:", fname)),
+        })
+        .collect::<String>();
+
+    format!(
+        "  [{:<12}] {}\n    CI:         {}\n    build:      {}\n{}\n{}    registry:   {:?}\n    deps:       {}\n    changelog:  {}\n",
+        name, lang.as_str(),
+        check_ci(name, None),
+        check_syntax(lang, dir),
+        version_line,
+        config_lines,
+        c.platform.artifact_registry,
+        check_dependencies(dir),
+        release.changelog,
+    )
 }
 
 /// 解析 CI workflow 名称。ci_workflow 优先，无则按约定 build-{scope}。
@@ -329,16 +347,15 @@ mod tests {
             config_files: vec![("Cargo.toml".into(), Some("0.1.0".into()))],
         };
         let release = contract::StageRelease::default();
-        print_scope(
-            &mut std::io::sink(),
+        let s = build_scope_str(
             "test",
             d.path(),
             &contract::Language::Rust,
             &c,
             &vs,
             &release,
-        )
-        .unwrap();
+        );
+        assert!(s.contains("✅"), "一致状态应显示 ✅");
     }
 
     #[test]
@@ -351,19 +368,15 @@ mod tests {
         };
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
-        let mut buf = Vec::new();
-        print_scope(
-            &mut buf,
+        let s = build_scope_str(
             "test",
             Path::new("/tmp"),
             &contract::Language::Rust,
             &c,
             &vs,
             &release,
-        )
-        .unwrap();
-        let out = String::from_utf8_lossy(&buf);
-        assert!(out.contains("配置不一致"), "应显示不一致");
+        );
+        assert!(s.contains("配置不一致"), "应显示不一致");
     }
 
     #[test]
@@ -376,19 +389,15 @@ mod tests {
         };
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
-        let mut buf = Vec::new();
-        print_scope(
-            &mut buf,
+        let s = build_scope_str(
             "test",
             Path::new("/tmp"),
             &contract::Language::Rust,
             &c,
             &vs,
             &release,
-        )
-        .unwrap();
-        let out = String::from_utf8_lossy(&buf);
-        assert!(out.contains("无配置文件"), "应显示无配置文件");
+        );
+        assert!(s.contains("无配置文件"), "有 tag 无配置应提示无配置文件");
     }
 
     #[test]
@@ -401,19 +410,15 @@ mod tests {
         };
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
-        let mut buf = Vec::new();
-        print_scope(
-            &mut buf,
+        let s = build_scope_str(
             "test",
             Path::new("/tmp"),
             &contract::Language::Rust,
             &c,
             &vs,
             &release,
-        )
-        .unwrap();
-        let out = String::from_utf8_lossy(&buf);
-        assert!(out.contains("无 tag"), "应显示无 tag");
+        );
+        assert!(s.contains("有配置版本"), "有配置无 tag 应提示");
     }
 
     #[test]
@@ -426,19 +431,15 @@ mod tests {
         };
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
-        let mut buf = Vec::new();
-        print_scope(
-            &mut buf,
+        let s = build_scope_str(
             "test",
             Path::new("/tmp"),
             &contract::Language::Rust,
             &c,
             &vs,
             &release,
-        )
-        .unwrap();
-        let out = String::from_utf8_lossy(&buf);
-        assert!(out.contains("暂无发布"), "应显示暂无发布");
+        );
+        assert!(s.contains("暂无发布"), "无 tag 无配置应显示暂无发布");
     }
 
     #[test]
