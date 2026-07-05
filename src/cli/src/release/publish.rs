@@ -72,7 +72,7 @@ pub fn publish(
     }
 
     // 预检：所有配置文件版本号一致
-    let config_files = contract::read_all_config_versions(&scope_dir);
+    let config_files = contract::read_config_versions(&scope_dir);
     let inconsistent: Vec<&(String, Option<String>)> = config_files
         .iter()
         .filter(|(_, v)| match v {

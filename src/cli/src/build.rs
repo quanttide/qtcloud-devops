@@ -73,7 +73,7 @@ fn print_scope(
     dir: &Path,
     lang: &contract::Language,
     c: &contract::Contract,
-    vs: &contract::VersionStatus,
+    vs: &contract::VersionState,
     release: &contract::StageRelease,
 ) -> std::io::Result<()> {
     writeln!(writer, "  [{:<12}] {}", name, lang.as_str())?;
@@ -322,7 +322,7 @@ mod tests {
     fn test_print_scope_all_ok() {
         let d = tempfile::tempdir().unwrap();
         let c = contract::load(d.path());
-        let vs = contract::VersionStatus {
+        let vs = contract::VersionState {
             tag_version: Some("0.1.0".into()),
             config_version: Some("0.1.0".into()),
             consistent: true,
@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_print_scope_version_inconsistent() {
-        let vs = contract::VersionStatus {
+        let vs = contract::VersionState {
             tag_version: Some("0.2.0".into()),
             config_version: Some("0.1.0".into()),
             consistent: false,
@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn test_print_scope_tag_without_config() {
-        let vs = contract::VersionStatus {
+        let vs = contract::VersionState {
             tag_version: Some("0.1.0".into()),
             config_version: None,
             consistent: false,
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn test_print_scope_config_without_tag() {
-        let vs = contract::VersionStatus {
+        let vs = contract::VersionState {
             tag_version: None,
             config_version: Some("0.1.0".into()),
             consistent: false,
@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_print_scope_no_release() {
-        let vs = contract::VersionStatus {
+        let vs = contract::VersionState {
             tag_version: None,
             config_version: None,
             consistent: false,

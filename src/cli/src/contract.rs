@@ -1,10 +1,10 @@
 /// 契约模块 — 基于 `quanttide-devops` toolkit 的适配层。
 pub use quanttide_devops::contract::{
-    detect_language_by_files, normalize_version, read_all_config_versions, validate_version,
-    BuildTool, Contract, Language, Pipeline, Platform, Registry, Scope, SourceControl, SourceType,
-    Stage, StageBuild, StageRelease, StageTest, VersionSource,
+    check_version_consistency, normalize_version, validate_version, verify_version, BuildTool,
+    Contract, Language, Pipeline, Platform, Registry, Scope, SourceControl, Stage, StageBuild,
+    StageRelease, StageTest, VersionState,
 };
-pub use quanttide_devops::source::git::{GitSourceError, VersionStatus};
+pub use quanttide_devops::source::config_file::{detect_language, read_config_versions};
 
 use std::path::Path;
 
@@ -21,7 +21,7 @@ pub fn load(repo_path: &Path) -> Contract {
 
 /// 无 contract.yaml 时自动推测仓库结构生成契约。
 fn auto_detect_contract(repo_path: &Path) -> Contract {
-    let root_lang = detect_language_by_files(repo_path);
+    let root_lang = detect_language(repo_path);
     let mut scopes: Vec<Scope> = Vec::new();
 
     // 扫描常见 scope 子目录
@@ -40,7 +40,7 @@ fn auto_detect_contract(repo_path: &Path) -> Contract {
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
-                let sub_lang = detect_language_by_files(&sub);
+                let sub_lang = detect_language(&sub);
                 if matches!(sub_lang, Language::Unknown(_)) {
                     continue;
                 }
@@ -113,7 +113,7 @@ pub fn load_scopes(repo_path: &Path) -> Vec<Scope> {
 }
 
 pub fn detect_by_files(dir: &Path) -> Language {
-    detect_language_by_files(dir)
+    detect_language(dir)
 }
 
 /// 检测目录下的所有语言（不限于优先级最高的一个）。
@@ -142,10 +142,10 @@ pub fn detect_all_languages(dir: &Path) -> Vec<String> {
 // ═══════════════════════════════════════════════════════════════════════
 
 /// 检查 scope 版本一致性。失败时返回空的 VersionStatus。
-pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionStatus {
-    quanttide_devops::source::git::version_status(repo_path, scope).unwrap_or_else(|e| {
+pub fn version_status(repo_path: &Path, scope: &Scope) -> VersionState {
+    verify_version(repo_path, scope).unwrap_or_else(|e| {
         eprintln!("  ⚠ 版本状态检查失败: {}", e);
-        VersionStatus {
+        VersionState {
             tag_version: None,
             config_version: None,
             consistent: false,
