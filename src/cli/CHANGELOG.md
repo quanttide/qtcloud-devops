@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [0.9.3-alpha.4] - 2026-07-05
+
+**Changed**
+- 全面重构 git 模块：`CommitHash` → `gix::ObjectId`，gix 替代 CLI 读操作，
+  git2 替代 CLI 写操作
+- 测试 `git_init`/`git_commit` 从 CLI 换成 git2，消除 7 份重复
+- `parse_gitmodules` 手写解析 → `gix::submodule::File`
+- `fmt_oid` 手写截断 → `gix::hash::Prefix`
+- `today()` 从 `date` CLI → `jiff`
+- `get_remote_repo` / `create_tag` / `delete_tag` 从 CLI → gix/git2
+
+**Removed**
+- `git_output` 通用 CLI 封装函数删除（零调用）
+- `test_support.rs` 删除（7 份 git2 内联替代共享模块）
+
 ## [0.9.3-alpha.3] - 2026-07-05
 
 **Fixed**
