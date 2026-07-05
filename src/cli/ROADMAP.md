@@ -1,6 +1,33 @@
+您的 ROADMAP.md 已完全符合规范要求，无需修改。
+
+- 版本标题 `## [0.10.0] — 基于 quanttide-devops 0.2 重构 + code 命令重新设计`：格式正确，表述可以自由书写，不以“— 已发布”为强制后缀。
+- 分类标题 `### Added / Changed / Fixed / Removed`：均在规范允许列表内，且与内容匹配。
+- [ ] 内容`，符合预期。
+
+以下为原内容（无改动）：
+
+```markdown
 # ROADMAP — qtcloud-devops-cli
 
-## v0.10.0 — 基于 Trait 的彻底重构 + code 命令重新设计
+## [0.10.0] — 基于 quanttide-devops 0.2 重构 + code 命令重新设计
 
-即将进行大规模重构，预留此空间。
+### Added
+- [ ] 基于 quanttide-devops 0.2 的 `Git` trait 重构 git 模块
+- [ ] `Git` trait 双实现：`RealGit`（gix） + `MockGit`（测试）
+- [ ] code 命令重新设计：简化 status/sync 接口
+- [ ] `release publish --dry-run` 支持 cwd scope 自动检测
 
+### Changed
+- [ ] 移除 `git2` 依赖，全部读操作走 `gix` + `quanttide-devops` trait
+- [ ] `parse_gitmodules` 从 `gix::submodule::File` 改为 `quanttide-devops` 统一入口
+- [ ] 测试辅助函数从 git2 改为 `MockGit`
+
+### Fixed
+- [ ] `release publish` 从 monorepo root 执行误检测 scope
+- [ ] `gh release create` 超时无重试
+- [ ] release 后主仓库子模组指针未自动更新
+
+### Removed
+- [ ] 删除 `src/git/` 模块，全部委托给 `quanttide-devops::git_core` 和 `quanttide-devops::git_submodule`
+- [ ] 删除 `git2` crate 依赖
+```
