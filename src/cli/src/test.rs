@@ -37,98 +37,13 @@ pub fn status(repo_path: &Path, c: &contract::Contract) {
 /// 覆盖率报告写入容器挂载目录，`test status` 可直接读取。
 /// 运行测试和覆盖率。
 ///
-/// Docker 可用时在容器中运行，隔离编译环境，崩溃不影响宿主机。
-/// Docker 不可用时回退到直接执行。
+/// 在宿主机直接执行。如需容器隔离请使用 `scripts/test-in-container.sh`。
 pub fn run(repo_path: &Path) -> Result<(), String> {
-    if docker_available() && is_within_source_tree(repo_path) {
-        run_in_container(repo_path)
-    } else {
-        println!("⚠ Docker 不可用，直接在宿主机运行测试");
-        run_direct(repo_path)
-    }
+    println!("  运行测试...");
+    run_direct(repo_path)
 }
 
-/// 检查 repo_path 是否在源码树内（避免测试临时目录走容器路径）。
-fn is_within_source_tree(repo_path: &Path) -> bool {
-    let source_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    repo_path
-        .canonicalize()
-        .ok()
-        .map(|p| p.starts_with(source_dir))
-        .unwrap_or(false)
-}
-
-/// 检查 Docker 是否可用（同时确认 Dockerfile 存在）。
-fn docker_available() -> bool {
-    let docker_ok = std::process::Command::new("docker")
-        .args(["info"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !docker_ok {
-        return false;
-    }
-    // 编译期嵌入 CARGO_MANIFEST_DIR，运行时直接可用
-    let source_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let candidates = [
-        source_dir.join("Dockerfile"),
-        source_dir.join("src/cli/Dockerfile"),
-    ];
-    candidates.iter().any(|p| p.exists())
-}
-
-/// 在 Docker 容器中运行测试 + 覆盖率。
-fn run_in_container(repo_path: &Path) -> Result<(), String> {
-    let dockerfile = find_dockerfile(repo_path);
-    let build_dir = dockerfile.parent().unwrap_or(repo_path);
-
-    println!("📦 构建测试容器镜像...");
-    let image_tag = "qtcloud-devops-runner";
-    let build = std::process::Command::new("docker")
-        .args([
-            "build",
-            "-f",
-            &dockerfile.to_string_lossy(),
-            "-t",
-            image_tag,
-            "-q",
-            &build_dir.to_string_lossy(),
-        ])
-        .status()
-        .map_err(|e| format!("构建镜像失败: {}", e))?;
-    if !build.success() {
-        return Err("Docker 镜像构建失败".into());
-    }
-    println!("✅ 镜像已就绪");
-
-    println!("🧪 运行测试（容器内）...");
-    let status = std::process::Command::new("docker")
-        .args([
-            "run",
-            "--rm",
-            "-v",
-            &format!("{}:/app", repo_path.display()),
-            "-w",
-            "/app",
-            image_tag,
-            "sh",
-            "-c",
-            "cargo test 2>&1 && cargo llvm-cov --lcov --output-path target/coverage/lcov.info 2>&1",
-        ])
-        .status()
-        .map_err(|e| format!("容器运行失败: {}", e))?;
-
-    if !status.success() {
-        return Err("测试失败".into());
-    }
-
-    let summary = collect_test_summary(repo_path, &contract::Language::Rust);
-    save_test_summary(repo_path, &summary);
-    println!("✅ 测试全部通过，覆盖率已生成");
-    Ok(())
-}
-
-/// 直接在宿主机运行测试 + 覆盖率（Docker 不可用时的回退）。
+/// 直接在宿主机运行测试 + 覆盖率。
 fn run_direct(repo_path: &Path) -> Result<(), String> {
     let c = crate::contract::load(repo_path);
     let cwd = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
@@ -182,21 +97,6 @@ fn run_direct(repo_path: &Path) -> Result<(), String> {
 }
 
 /// 在 repo 树中向上查找 Dockerfile。
-fn find_dockerfile(_start: &Path) -> std::path::PathBuf {
-    // 使用编译期嵌入的源码路径，而非运行时 repo_path
-    let source_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let candidates = [
-        source_dir.join("Dockerfile"),
-        source_dir.join("src/cli/Dockerfile"),
-    ];
-    for p in &candidates {
-        if p.exists() {
-            return p.clone();
-        }
-    }
-    source_dir.join("Dockerfile")
-}
-
 #[allow(dead_code)]
 fn run_tests_for_lang(dir: &Path, lang: &contract::Language) -> Result<(), String> {
     let Some((cmd, args)) = test_command(lang) else {
