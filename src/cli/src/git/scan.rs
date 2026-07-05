@@ -76,12 +76,15 @@ fn gix_count_between(repo: &gix::Repository, from: gix::ObjectId, to: gix::Objec
     count
 }
 
-/// 用 gix 读取 HEAD:path tree entry 的 OID。
+/// 用 gix 读取 HEAD:path tree entry 的 OID（支持多级路径）。
 fn gix_tree_entry_id(repo: &gix::Repository, path: &Path) -> Option<gix::ObjectId> {
     let commit = repo.head_commit().ok()?;
     let tree = commit.tree().ok()?;
-    tree.find_entry(path.to_string_lossy().as_bytes())
-        .map(|e| gix::ObjectId::from(e.id()))
+    let path_str = path.to_string_lossy();
+    let components: Vec<&str> = path_str.split('/').collect();
+    let mut buf = Vec::new();
+    let entry = tree.lookup_entry(components, &mut buf).ok()??;
+    Some(entry.id().into())
 }
 
 impl RepoState {
@@ -118,22 +121,6 @@ impl RepoState {
             let parent_pointer = parent_repo
                 .as_ref()
                 .and_then(|r| gix_tree_entry_id(r, sm_path))
-                .or_else(|| {
-                    // gix tree 查询失败时 CLI 回退
-                    std::process::Command::new("git")
-                        .args(["rev-parse", &format!("HEAD:{}", sm_path.display())])
-                        .current_dir(root)
-                        .output()
-                        .ok()
-                        .and_then(|o| {
-                            if o.status.success() {
-                                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                                gix::ObjectId::from_hex(s.as_bytes()).ok()
-                            } else {
-                                None
-                            }
-                        })
-                })
                 .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1));
 
             let (
