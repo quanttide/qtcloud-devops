@@ -26,6 +26,7 @@ serde_json = "1"
 regex = "1"
 serde_yaml = "0.9"
 uuid = { version = "1", features = ["v4"] }
+jiff = "0.1"
 quanttide-agent = "0.1"
 
 pyo3 = { version = "0.23", features = ["extension-module"], optional = true }

@@ -111,20 +111,8 @@ pub fn write_changelog(path: &Path, version: &str, content: &str) -> Result<(), 
 }
 
 fn today() -> String {
-    // 使用 date CLI 获取当前日期，不额外引入 chrono
-    let output = std::process::Command::new("date")
-        .args(["+%Y-%m-%d"])
-        .output()
-        .ok();
-    output
-        .and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "unknown".to_string())
+    let zoned = jiff::Zoned::now();
+    zoned.strftime("%Y-%m-%d").to_string()
 }
 
 /// 如果 CHANGELOG.md 不包含当前版本，则自动生成并写入。
