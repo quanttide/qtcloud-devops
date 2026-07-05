@@ -13,6 +13,5 @@
 
 - [ ] `Cargo.toml`: `quanttide-devops = "0.2.1"`
 - [ ] 适配 `contract.rs` API 变更
-- [ ] 确认 `git_core` / `git_submodule` 模块是否提供 `Git` trait
-- [ ] 如有，评估替换 `src/git/` 的可行性
+
 - [ ] `cargo test` 全量通过
