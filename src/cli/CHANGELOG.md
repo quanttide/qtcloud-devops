@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## [0.9.3] - 2026-07-05
+
+### Added
+- 新增 `doctor` 命令，支持系统依赖检查、多语言开发工具检测（Python/Go/Flutter/Node/uv/dart/npx）及按项目语言过滤。
+- 新增 `status` 命令，聚合所有二级状态（contract status、release status、code status 等），按生命周期排序输出。
+- 新增 `contract` 模块，实现四维契约模型，支持自动推断 scope 及无文件时自动检测。
+- 新增 `release status` 命令，支持多语言配置文件版本检测、GitHub Release 检测和按 scope 分组展示。
+- 新增 `plan` 命令（status/clean/doctor）及 `contract status` 子命令。
+
+### Changed
+- 全面使用 `gix` 和 `git2` 库替代 CLI git 命令，提升性能和可靠性（包括 dirty/fetch/tag 操作等）。
+- 重构 `push` 操作保持 CLI（因 git2 不支持非 bare 仓库），`tag` 操作改用 git2，并重构 `test run` 容器逻辑剥离到独立脚本。
+- 重构 `doctor` 命令按工具链分组显示，提取共享测试工具消除重复，并采用 `writeln!` 提升可测试性。
+- 重构 `code` 模块，拆分 `sync_to_parent`、`run_code` 等函数，消除 MUST 代码坏味。
+- 版本检测和发布流程改进：`publish` 支持自动检测 prerelease、`--dry-run` 和 `--force` 自动清理已存在 tag/Release。
+
+### Fixed
+- 修复多语言项目识别（pyproject.toml + Cargo.toml 共存）和自动检测阈值引用问题。
+- 修复 `ensure_changelog` 写入后自动提交、`git add` 使用相对路径以及 `extract_notes` 跳过格式问题。
+- 修复 `push_tag` 和 `create_release` 的幂等性（远端已存在时跳过）。
+- 修复覆盖率按语言分发（Rust/Python/Go/Dart/TS）以及无覆盖率报告时的提示生成。
+- 修复 `gix::Tree::find_entry` 仅查单层 name 的问题，改用 `lookup_entry` 支持多级路径；修复 `dirty/fetch` 的 CLI 替代问题。
+
+### Removed
+- 移除 `test_support.rs`，用 git2 替代测试中的 CLI git 调用。
+- 移除冗余 ARG 代理参数和 `--build-arg` 传递。
+- 删除 `contract.yaml` 旧格式及 `default.md` 文档，清理旧格式解析代码。
+- 移除死代码并收紧可见性，清理临时文件和过时文档。
+
 ## [0.9.3-alpha.4] - 2026-07-05
 
 **Changed**
