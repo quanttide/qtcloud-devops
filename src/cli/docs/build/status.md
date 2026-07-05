@@ -93,7 +93,7 @@ contract.yaml → Contract
 
 ### scope 复用 contract 模块
 
-根 scope（无 `contract.yaml`）和命名 scope 都走同一套 `contract::version_status()` + `contract::scope_release()` 接口，不重复实现。
+根 scope（无 `contract.yaml`）和命名 scope 都走同一套 `contract::version_status()` 接口，不重复实现。
 
 ### 错误反馈
 
@@ -101,49 +101,18 @@ contract.yaml → Contract
 - 语法校验命令不存在：输出 `⚠ {tool} 未安装`，不阻断
 - scope 目录不存在：输出 `⚠ 目录不存在`，跳过该 scope
 
-## 实现步骤
-
-### 第一步：新建 `src/build.rs`
-
-从实验室 `examples/default/src/build.rs` 复制核心逻辑，核心函数签名：
+## 公共 API
 
 ```rust
 pub fn status(repo_path: &Path)
+pub fn status_to(writer: &mut impl Write, repo_path: &Path) -> io::Result<()>
+pub fn resolve_workflow(scope: &str, ci_workflow: Option<&str>) -> String
 ```
 
-内部流程：
-1. `contract::load(repo_path)` 加载契约
-2. 遍历 scopes（无 scope 时构造 root Scope）
-3. 对每个 scope：查 CI → 语法校验 → 版本一致性检查
-4. 查 CI 时优先用 `scope.ci_workflow`，无则按 `build-{scope}` 约定
-5. 显示工作区状态（`git status --porcelain`）
-
-### 第二步：注册模块
-
-```rust
-// src/lib.rs
-pub mod build;
-```
-
-### 第三步：注册 CLI 子命令
-
-```rust
-// src/main.rs
-enum Commands {
-    Build {
-        #[command(subcommand)]
-        action: BuildAction,
-    },
-}
-
-enum BuildAction {
-    Status,
-}
-```
+- `src/build.rs` 中的纯函数 `resolve_workflow` 处理 workflow 名称解析逻辑
+- `status_to` 接受任意 writer，方便测试
+- `status` 是 `status_to` 的 stdout 封装
 
 ## 参考
 
-- 实验室原型：`examples/default/src/build.rs`（3 测试，含多语言语法校验 + ci_workflow）
-- 设计文档：`examples/default/docs/build.md`
-- 蓝图来源：`data/roadmap/platform/build-command.md`
-- 依赖模块：`contract::{load, version_status, scope_release, resolve_language}`
+- 依赖模块：`contract::{load, version_status}`

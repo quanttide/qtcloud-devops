@@ -1,13 +1,15 @@
-# test status 命令设计
+# test 命令设计
 
 ## 定位
 
-按 scope 输出测试结果和覆盖率，检查是否达到阈值。对应 DevOps 生命周期中的 **Test** 阶段。
+运行测试、收集覆盖率，以及按 scope 输出测试结果。对应 DevOps 生命周期中的 **Test** 阶段。
 
 ## 命令
 
 ```
-qtcloud-devops test status       按 scope 查看测试状态
+qtcloud-devops test status       按 scope 查看测试状态（读缓存，不运行测试）
+qtcloud-devops test run          运行测试 + 覆盖率
+qtcloud-devops test clean        清理缓存的测试结果
 ```
 
 ## 与 contract 模块的关系
@@ -18,12 +20,9 @@ qtcloud-devops test status       按 scope 查看测试状态
 | `scope.test_threshold` | `Option<f64>` | scope 级阈值覆盖 |
 | `contract::scope_test_threshold()` | `f64` | scope 有值用 scope，无值用全局 |
 
-## 每 scope 两项检查
+## test status — 读取缓存的测试摘要
 
-| 检查项 | 实现 | 说明 |
-|--------|------|------|
-| 测试结果 | 运行 `cargo test` 并解析输出 | 解析 `test result: N passed; M failed; K ignored` 格式 |
-| 覆盖率 | 读取 `target/coverage/lcov.info` | 行命中率，与阈值比较 |
+`test status` 只读缓存文件 `.quanttide/devops/test-summary.json`，**不运行测试**。测试结果由 `test run` 生成并缓存。
 
 ### 输出示例
 
@@ -43,30 +42,67 @@ qtcloud-devops test status       按 scope 查看测试状态
     覆盖率:       未检测到覆盖率报告
 ```
 
-## 关键设计
+## test run — 运行测试 + 覆盖率
 
-### 阈值优先级
+### 执行逻辑
+
+1. 加载契约，确定 scope 列表
+2. 若处于 scope 子目录中，仅运行该 scope
+3. 对每个 scope：
+   - 先运行覆盖率命令（Rust 用 `cargo llvm-cov`，自带测试；Python 用 `coverage xml` + 单独 `python -m pytest`）
+   - 覆盖率命令失败时回退到仅运行测试
+4. 运行测试后解析输出生成 `TestSummary`，缓存到 `.quanttide/devops/test-summary.json`
+
+### 测试覆盖率命令
+
+| Language | 命令 | 是否包含测试 |
+|----------|------|------------|
+| `Rust` | `cargo llvm-cov --lcov --output-path target/coverage/lcov.info` | ✅ 是（`cargo llvm-cov` 自带测试运行） |
+| `Python` | `coverage xml` | ❌ 否，需先单独运行 `python -m pytest` |
+| `Go` | `go tool cover -html=coverage.out -o coverage.html` | ❌ 否 |
+| `Dart` | `flutter test --coverage` | ✅ 是 |
+| `TypeScript` | `npx nyc --reporter=lcov npm test` | ✅ 是 |
+| `Unknown` | 跳过覆盖率 | — |
+
+### 测试命令
+
+| Language | 命令 |
+|----------|------|
+| `Rust` | `cargo test` |
+| `Python` | `python -m pytest` |
+| `Go` | `go test ./...` |
+| `Dart` | `flutter test` |
+| `TypeScript` | `npm test` |
+| `Unknown` | 跳过 |
+
+### 输出示例
+
+```
+  运行测试...
+  生成覆盖率 (cargo)...
+  ✅ 覆盖率已更新
+  ✅ 测试通过
+```
+
+## test clean — 清理缓存
+
+删除 `.quanttide/devops/test-summary.json`，下次 `test status` 将显示缺省值。
+
+## 覆盖率阈值优先级
 
 ```
 scope.test_threshold? → Some → 使用 scope 级（如 90%）
                       → None → 使用 stages.test.threshold（全局默认 70%）
 ```
 
-### 覆盖率解析
+## 覆盖率解析
 
-按行命中率计算：
-
-```
-lcov.info 格式:
-  DA:1,1       ← 第 1 行被命中
-  DA:2,0       ← 第 2 行未被命中
-
-覆盖率 = 命中行数 / 总行数 × 100%
-```
+- Rust: 解析 `target/coverage/lcov.info`（DA 行记录 → 行命中率）
+- Python: 解析 coverage 生成的 `cobertura.xml`（`line-rate` 属性）
 
 足够做门禁检查，但不适合精确覆盖率分析（不按分支或函数统计）。
 
-### 测试结果解析
+## 测试结果解析
 
 解析 `cargo test` 的输出行：
 
@@ -76,52 +112,15 @@ test result: ok. 10 passed; 0 failed; 2 ignored; 0 measured; 12 filtered out
 
 按 `;` 分割后取每个片段末尾的 `(数字, kind)` 对。不依赖固定位置——容错性好，测试框架输出微调也不崩。
 
-## 不做的
-
-- 不运行测试覆盖工具（如 `tarpaulin` / `kcov`），覆盖率报告由 CI 生成
-- 不缓存测试结果，每次执行实时运行
-
-## 实现步骤
-
-### 第一步：新建 `src/test.rs`
-
-从实验室 `examples/default/src/test.rs` 复制核心逻辑。核心函数签名：
+## 公共 API
 
 ```rust
-pub fn status(repo_path: &Path, c: &contract::Contract)
-```
-
-内部流程：
-1. 从 `contract::load_scopes()` 获取 scope 列表
-2. 无 scope：检测语言，汇总测试，用全局 `c.stages.test.threshold`
-3. 有 scope：遍历 scopes，用 `contract::scope_test_threshold()` 获取各 scope 阈值
-4. 对每个 scope：运行测试 → 收集覆盖率 → 与阈值比较
-
-### 第二步：注册模块
-
-```rust
-// src/lib.rs
-pub mod test;
-```
-
-### 第三步：注册 CLI 子命令
-
-```rust
-// src/main.rs
-enum Commands {
-    Test {
-        #[command(subcommand)]
-        action: TestAction,
-    },
-}
-
-enum TestAction {
-    Status,
-}
+pub fn status(repo_path: &Path, c: &Contract)     // test status（读缓存）
+pub fn status_to(writer: &mut impl Write, repo_path: &Path, c: &Contract) -> io::Result<()>
+pub fn run(repo_path: &Path) -> Result<(), String> // test run（执行）
+pub fn clear_cache(dir: &Path)                     // test clean
 ```
 
 ## 参考
 
-- 实验室原型：`examples/default/src/test.rs`（6 测试）
-- 设计文档：`examples/default/docs/test.md`
-- 依赖模块：`contract::{load_scopes, scope_test_threshold, resolve_language, detect_by_files}`
+- 依赖模块：`contract::{load, detect_by_files, resolve_language}`
