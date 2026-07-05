@@ -31,22 +31,140 @@ pub fn status(repo_path: &Path, c: &contract::Contract) {
     let _ = status_to(&mut std::io::stdout(), repo_path, c);
 }
 
+/// 在 Docker 容器中运行测试和覆盖率。
+///
+/// 容器隔离编译环境，崩溃不影响宿主机。
+/// 覆盖率报告写入容器挂载目录，`test status` 可直接读取。
 /// 运行测试和覆盖率。
+///
+/// Docker 可用时在容器中运行，隔离编译环境，崩溃不影响宿主机。
+/// Docker 不可用时回退到直接执行。
 pub fn run(repo_path: &Path) -> Result<(), String> {
+    if docker_available() && is_within_source_tree(repo_path) {
+        run_in_container(repo_path)
+    } else {
+        println!("⚠ Docker 不可用，直接在宿主机运行测试");
+        run_direct(repo_path)
+    }
+}
+
+/// 检查 repo_path 是否在源码树内（避免测试临时目录走容器路径）。
+fn is_within_source_tree(repo_path: &Path) -> bool {
+    let source_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    repo_path
+        .canonicalize()
+        .ok()
+        .map(|p| p.starts_with(source_dir))
+        .unwrap_or(false)
+}
+
+/// 检查 Docker 是否可用（同时确认 Dockerfile 存在）。
+fn docker_available() -> bool {
+    let docker_ok = std::process::Command::new("docker")
+        .args(["info"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !docker_ok {
+        return false;
+    }
+    // 编译期嵌入 CARGO_MANIFEST_DIR，运行时直接可用
+    let source_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let candidates = [
+        source_dir.join("Dockerfile"),
+        source_dir.join("src/cli/Dockerfile"),
+    ];
+    candidates.iter().any(|p| p.exists())
+}
+
+/// 在 Docker 容器中运行测试 + 覆盖率。
+fn run_in_container(repo_path: &Path) -> Result<(), String> {
+    let dockerfile = find_dockerfile(repo_path);
+    let build_dir = dockerfile.parent().unwrap_or(repo_path);
+
+    println!("📦 构建测试容器镜像...");
+    let image_tag = "qtcloud-devops-runner";
+    let build = std::process::Command::new("docker")
+        .args([
+            "build",
+            "-f",
+            &dockerfile.to_string_lossy(),
+            "-t",
+            image_tag,
+            "-q",
+            &build_dir.to_string_lossy(),
+        ])
+        .status()
+        .map_err(|e| format!("构建镜像失败: {}", e))?;
+    if !build.success() {
+        return Err("Docker 镜像构建失败".into());
+    }
+    println!("✅ 镜像已就绪");
+
+    println!("🧪 运行测试（容器内）...");
+    let status = std::process::Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "-v",
+            &format!("{}:/app", repo_path.display()),
+            "-w",
+            "/app",
+            image_tag,
+            "sh",
+            "-c",
+            "cargo test 2>&1 && cargo llvm-cov --lcov --output-path target/coverage/lcov.info 2>&1",
+        ])
+        .status()
+        .map_err(|e| format!("容器运行失败: {}", e))?;
+
+    if !status.success() {
+        return Err("测试失败".into());
+    }
+
+    let summary = collect_test_summary(repo_path, &contract::Language::Rust);
+    save_test_summary(repo_path, &summary);
+    println!("✅ 测试全部通过，覆盖率已生成");
+    Ok(())
+}
+
+/// 直接在宿主机运行测试 + 覆盖率（Docker 不可用时的回退）。
+fn run_direct(repo_path: &Path) -> Result<(), String> {
     let c = crate::contract::load(repo_path);
     let cwd = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
-    let scopes: Vec<_> = c.scopes.iter().filter(|s| {
-        let scope_abs = repo_path.join(&s.dir);
-        // 只保留当前工作目录所在 scope，避免越级扫全仓库
-        cwd.starts_with(&scope_abs) || scope_abs.starts_with(&cwd)
-    }).collect();
+    let scopes: Vec<_> = c
+        .scopes
+        .iter()
+        .filter(|s| {
+            let scope_abs = repo_path.join(&s.dir);
+            cwd.starts_with(&scope_abs) || scope_abs.starts_with(&cwd)
+        })
+        .collect();
+
+    let run_scoped = |dir: &Path, lang: &contract::Language| -> Result<(), String> {
+        match run_coverage_for_lang(dir, lang) {
+            Ok(true) => Ok(()),
+            // 覆盖率失败但测试可能已通过，回退到只跑测试
+            Ok(false) => {
+                let summary = collect_test_summary_from_run(dir, lang)?;
+                save_test_summary(dir, &summary);
+                Ok(())
+            }
+            Err(e) => {
+                // cargo llvm-cov 可能测试通过但覆盖率生成失败
+                let summary = collect_test_summary_from_run(dir, lang).unwrap_or_default();
+                if summary.failed == 0 && summary.total > 0 {
+                    save_test_summary(dir, &summary);
+                    return Ok(());
+                }
+                Err(e)
+            }
+        }
+    };
 
     if scopes.is_empty() {
         let lang = crate::contract::detect_by_files(repo_path);
-        if !run_coverage_for_lang(repo_path, &lang)? {
-            let summary = collect_test_summary_from_run(repo_path, &lang)?;
-            save_test_summary(repo_path, &summary);
-        }
+        run_scoped(repo_path, &lang)?;
     } else {
         for scope in &scopes {
             let scope_dir = repo_path.join(&scope.dir);
@@ -56,13 +174,27 @@ pub fn run(repo_path: &Path) -> Result<(), String> {
             }
             let lang = c.resolve_language(scope, &scope_dir);
             println!("  [{}] 运行测试...", scope.name);
-            if !run_coverage_for_lang(&scope_dir, &lang)? {
-                let summary = collect_test_summary_from_run(&scope_dir, &lang)?;
-                save_test_summary(&scope_dir, &summary);
-            }
+            run_scoped(&scope_dir, &lang)?;
         }
     }
+    println!("  ✅ 测试通过");
     Ok(())
+}
+
+/// 在 repo 树中向上查找 Dockerfile。
+fn find_dockerfile(_start: &Path) -> std::path::PathBuf {
+    // 使用编译期嵌入的源码路径，而非运行时 repo_path
+    let source_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let candidates = [
+        source_dir.join("Dockerfile"),
+        source_dir.join("src/cli/Dockerfile"),
+    ];
+    for p in &candidates {
+        if p.exists() {
+            return p.clone();
+        }
+    }
+    source_dir.join("Dockerfile")
 }
 
 #[allow(dead_code)]
@@ -168,9 +300,7 @@ fn run_coverage_for_lang(dir: &Path, lang: &contract::Language) -> Result<bool, 
             println!("  ✅ 覆盖率已更新");
             Ok(handles_tests)
         }
-        Ok(_) if handles_tests => {
-            Err(format!("{} 测试失败", cmd))
-        }
+        Ok(_) if handles_tests => Err(format!("{} 测试失败", cmd)),
         Ok(_) => {
             println!("  ⚠ 覆盖率生成失败（可忽略）");
             Ok(false)
@@ -189,10 +319,14 @@ pub fn status_to(
     c: &contract::Contract,
 ) -> std::io::Result<()> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
-    let scopes: Vec<_> = c.scopes.iter().filter(|s| {
-        let scope_abs = repo_path.join(&s.dir);
-        cwd.starts_with(&scope_abs) || scope_abs.starts_with(&cwd)
-    }).collect();
+    let scopes: Vec<_> = c
+        .scopes
+        .iter()
+        .filter(|s| {
+            let scope_abs = repo_path.join(&s.dir);
+            cwd.starts_with(&scope_abs) || scope_abs.starts_with(&cwd)
+        })
+        .collect();
 
     writeln!(writer, "测试状态")?;
     writeln!(writer, "{}", "-".repeat(50))?;
@@ -315,7 +449,10 @@ fn collect_test_summary(dir: &Path, _lang: &contract::Language) -> TestSummary {
 }
 
 /// 运行测试并收集结果。
-fn collect_test_summary_from_run(dir: &Path, lang: &contract::Language) -> Result<TestSummary, String> {
+fn collect_test_summary_from_run(
+    dir: &Path,
+    lang: &contract::Language,
+) -> Result<TestSummary, String> {
     let (cmd, args) = match test_command(lang) {
         Some(x) => x,
         None => return Ok(TestSummary::default()),
@@ -753,7 +890,10 @@ mod tests {
     #[test]
     fn test_cache_path_absolute() {
         let p = cache_path(Path::new("/tmp/myproject"));
-        assert_eq!(p, Path::new("/tmp/myproject/.quanttide/devops/test-summary.json"));
+        assert_eq!(
+            p,
+            Path::new("/tmp/myproject/.quanttide/devops/test-summary.json")
+        );
     }
 
     // ── save / collect / clear cache ─────────────────────────
@@ -786,7 +926,13 @@ mod tests {
     #[test]
     fn test_clear_cache_removes_file() {
         let d = tempfile::tempdir().unwrap();
-        save_test_summary(d.path(), &TestSummary { total: 5, ..Default::default() });
+        save_test_summary(
+            d.path(),
+            &TestSummary {
+                total: 5,
+                ..Default::default()
+            },
+        );
         assert!(cache_path(d.path()).exists());
         clear_cache(d.path());
         assert!(!cache_path(d.path()).exists());
@@ -850,7 +996,11 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let cov_dir = d.path().join("target/coverage");
         std::fs::create_dir_all(&cov_dir).unwrap();
-        std::fs::write(cov_dir.join("lcov.info"), "SF:src/lib.rs\nDA:1,1\nDA:2,0\nDA:3,1\nend_of_record\n").unwrap();
+        std::fs::write(
+            cov_dir.join("lcov.info"),
+            "SF:src/lib.rs\nDA:1,1\nDA:2,0\nDA:3,1\nend_of_record\n",
+        )
+        .unwrap();
         let cov = collect_coverage(d.path(), &contract::Language::Rust, 70.0);
         assert!((cov.percentage - 66.666).abs() < 0.01);
         assert!(!cov.met());
@@ -859,7 +1009,11 @@ mod tests {
     #[test]
     fn test_collect_coverage_python_with_cobertura() {
         let d = tempfile::tempdir().unwrap();
-        std::fs::write(d.path().join("coverage.xml"), r#"<coverage line-rate="0.92"></coverage>"#).unwrap();
+        std::fs::write(
+            d.path().join("coverage.xml"),
+            r#"<coverage line-rate="0.92"></coverage>"#,
+        )
+        .unwrap();
         let cov = collect_coverage(d.path(), &contract::Language::Python, 80.0);
         assert!((cov.percentage - 92.0).abs() < 0.01);
         assert!(cov.met());
@@ -869,7 +1023,12 @@ mod tests {
 
     #[test]
     fn test_test_summary_serde_roundtrip() {
-        let s = TestSummary { total: 100, passed: 90, failed: 5, skipped: 5 };
+        let s = TestSummary {
+            total: 100,
+            passed: 90,
+            failed: 5,
+            skipped: 5,
+        };
         let json = serde_json::to_string(&s).unwrap();
         let back: TestSummary = serde_json::from_str(&json).unwrap();
         assert_eq!(back.total, 100);
@@ -890,13 +1049,19 @@ mod tests {
 
     #[test]
     fn test_coverage_met_exact() {
-        let c = Coverage { percentage: 70.0, threshold: 70.0 };
+        let c = Coverage {
+            percentage: 70.0,
+            threshold: 70.0,
+        };
         assert!(c.met());
     }
 
     #[test]
     fn test_coverage_met_zero_threshold() {
-        let c = Coverage { percentage: 0.0, threshold: 0.0 };
+        let c = Coverage {
+            percentage: 0.0,
+            threshold: 0.0,
+        };
         assert!(c.met());
     }
 
@@ -907,8 +1072,16 @@ mod tests {
     #[test]
     fn test_print_scope_all_passed_no_coverage() {
         let mut buf = Vec::new();
-        let s = TestSummary { total: 5, passed: 5, failed: 0, skipped: 0 };
-        let c = Coverage { percentage: 0.0, threshold: 70.0 };
+        let s = TestSummary {
+            total: 5,
+            passed: 5,
+            failed: 0,
+            skipped: 0,
+        };
+        let c = Coverage {
+            percentage: 0.0,
+            threshold: 70.0,
+        };
         print_scope(&mut buf, "core", &s, &c).unwrap();
         let out = String::from_utf8_lossy(&buf);
         assert!(out.contains("✅"), "全部通过应有 ✅");
@@ -918,8 +1091,16 @@ mod tests {
     #[test]
     fn test_print_scope_with_coverage_met() {
         let mut buf = Vec::new();
-        let s = TestSummary { total: 10, passed: 10, failed: 0, skipped: 0 };
-        let c = Coverage { percentage: 85.0, threshold: 70.0 };
+        let s = TestSummary {
+            total: 10,
+            passed: 10,
+            failed: 0,
+            skipped: 0,
+        };
+        let c = Coverage {
+            percentage: 85.0,
+            threshold: 70.0,
+        };
         print_scope(&mut buf, "lib", &s, &c).unwrap();
         let out = String::from_utf8_lossy(&buf);
         assert!(out.contains("✅"), "满足阈值应有 ✅");
@@ -929,7 +1110,12 @@ mod tests {
     #[test]
     fn test_print_scope_all_failed() {
         let mut buf = Vec::new();
-        let s = TestSummary { total: 3, passed: 0, failed: 3, skipped: 0 };
+        let s = TestSummary {
+            total: 3,
+            passed: 0,
+            failed: 3,
+            skipped: 0,
+        };
         let c = Coverage::default();
         print_scope(&mut buf, "test", &s, &c).unwrap();
         let out = String::from_utf8_lossy(&buf);
@@ -940,8 +1126,16 @@ mod tests {
     #[test]
     fn test_print_scope_coverage_below_threshold() {
         let mut buf = Vec::new();
-        let s = TestSummary { total: 1, passed: 1, failed: 0, skipped: 0 };
-        let c = Coverage { percentage: 30.0, threshold: 70.0 };
+        let s = TestSummary {
+            total: 1,
+            passed: 1,
+            failed: 0,
+            skipped: 0,
+        };
+        let c = Coverage {
+            percentage: 30.0,
+            threshold: 70.0,
+        };
         print_scope(&mut buf, "lib", &s, &c).unwrap();
         let out = String::from_utf8_lossy(&buf);
         assert!(out.contains("⚠"), "低于阈值应有 ⚠");
@@ -952,7 +1146,8 @@ mod tests {
 
     #[test]
     fn test_parse_test_summary_filtered_out() {
-        let s = parse_test_summary("test result: ok. 5 passed; 0 failed; 0 ignored; 50 filtered out");
+        let s =
+            parse_test_summary("test result: ok. 5 passed; 0 failed; 0 ignored; 50 filtered out");
         assert_eq!(s.total, 5);
         assert_eq!(s.passed, 5);
     }
@@ -1030,7 +1225,12 @@ mod tests {
 
     #[test]
     fn test_test_summary_serde_all_zero() {
-        let s = TestSummary { total: 0, passed: 0, failed: 0, skipped: 0 };
+        let s = TestSummary {
+            total: 0,
+            passed: 0,
+            failed: 0,
+            skipped: 0,
+        };
         let json = serde_json::to_string(&s).unwrap();
         let back: TestSummary = serde_json::from_str(&json).unwrap();
         assert_eq!(back.total, 0);
@@ -1069,10 +1269,13 @@ mod tests {
             ci_workflow: None,
         });
         let start = Instant::now();
-        let filtered: Vec<_> = scopes.iter().filter(|s| {
-            let scope_abs = repo_path.join(&s.dir);
-            cwd.starts_with(&scope_abs) || scope_abs.starts_with(&cwd)
-        }).collect();
+        let filtered: Vec<_> = scopes
+            .iter()
+            .filter(|s| {
+                let scope_abs = repo_path.join(&s.dir);
+                cwd.starts_with(&scope_abs) || scope_abs.starts_with(&cwd)
+            })
+            .collect();
         let elapsed = start.elapsed();
         assert_eq!(filtered.len(), 1, "应只匹配一个");
         assert_eq!(filtered[0].name, "cli");
