@@ -17,7 +17,6 @@ name = "qtcloud-devops"
 path = "src/main.rs"
 
 [dependencies]
-git2 = { version = "0.19", features = ["vendored-libgit2"] }
 clap = { version = "4", features = ["derive"] }
 quanttide-devops = "0.1"
 serde = { version = "1", features = ["derive"] }

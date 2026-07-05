@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::git::submodule::GitSubmoduleEditor;
+use crate::git::GitSubmoduleEditor;
 
 pub fn sync(root: PathBuf, name: &str) -> Result<(), String> {
     let editor = GitSubmoduleEditor::new(root);

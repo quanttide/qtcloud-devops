@@ -1,6 +1,24 @@
 use std::path::Path;
 use std::process::Command;
 
+/// 在 repo_path 下执行 git 命令，返回 stdout（去尾空白）。
+fn git_output(args: &[&str], repo_path: &Path) -> Result<String, String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("git 无法执行: {}", e))?;
+    if !out.status.success() {
+        let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if msg.is_empty() {
+            "git 命令失败".into()
+        } else {
+            msg
+        });
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum PublishTarget {
     PyPI,
@@ -85,27 +103,23 @@ pub fn confirm_release(version: &str, yes: bool) -> bool {
     input.trim().to_lowercase() == "y" || input.trim().to_lowercase() == "yes"
 }
 
-/// 用 git2 创建轻量 tag（等价于 `git tag <version>`）。
+/// 创建轻量 tag（`git tag <version>`）。已存在则跳过（幂等）。
 pub fn create_tag(version: &str, repo_path: &Path) -> bool {
-    let repo = match git2::Repository::open(repo_path) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("打开仓库失败: {}", e);
-            return false;
-        }
-    };
-    let refname = format!("refs/tags/{}", version);
-    // 已存在则视为成功（幂等）
-    if repo.find_reference(&refname).is_ok() {
+    // 先检查是否已存在
+    if git_output(&["rev-parse", &format!("refs/tags/{}", version)], repo_path).is_ok() {
         return true;
     }
-    let target = match repo.head().ok().and_then(|h| h.target()) {
-        Some(t) => t,
-        None => return false,
-    };
-    let result = repo.reference(&refname, target, false, "");
-    match result {
-        Ok(_) => true,
+    match Command::new("git")
+        .args(["tag", version])
+        .current_dir(repo_path)
+        .output()
+    {
+        Ok(s) if s.status.success() => true,
+        Ok(s) => {
+            let msg = String::from_utf8_lossy(&s.stderr).trim().to_string();
+            eprintln!("创建标签失败: {}", msg);
+            false
+        }
         Err(e) => {
             eprintln!("创建标签失败: {}", e);
             false
@@ -113,16 +127,11 @@ pub fn create_tag(version: &str, repo_path: &Path) -> bool {
     }
 }
 
-/// 推送 tag 到远程（保持 CLI，需要网络）。
+/// 推送 tag 到远程（需要网络）。
 pub fn push_tag(version: &str, repo_path: &Path) -> bool {
     let out = Command::new("git")
-        .args([
-            "-C",
-            &repo_path.to_string_lossy(),
-            "push",
-            "origin",
-            version,
-        ])
+        .args(["push", "origin", version])
+        .current_dir(repo_path)
         .output();
     match out {
         Ok(out) if out.status.success() => true,
@@ -146,10 +155,8 @@ pub fn push_tag(version: &str, repo_path: &Path) -> bool {
 
 /// 查询 remote origin 的 GitHub 仓库标识。
 pub fn get_remote_repo(repo_path: &Path) -> Option<String> {
-    let repo = git2::Repository::open(repo_path).ok()?;
-    let remote = repo.find_remote("origin").ok()?;
-    let url = remote.url()?;
-    parse_github_repo(url)
+    let url = git_output(&["remote", "get-url", "origin"], repo_path).ok()?;
+    parse_github_repo(&url)
 }
 
 pub fn parse_github_repo(url: &str) -> Option<String> {
@@ -181,7 +188,7 @@ pub fn create_release(version: &str, notes: &str, repo: &str) -> bool {
     }
 }
 
-/// 回滚 tag：本地删除用 git2，远程删除用 CLI。
+/// 回滚 tag：删除本地和远端 tag。
 pub fn rollback_tag(version: &str, repo_path: &Path) {
     let local_ok = delete_local_tag(version, repo_path);
     let remote_ok = delete_remote_tag(version, repo_path);
@@ -190,20 +197,14 @@ pub fn rollback_tag(version: &str, repo_path: &Path) {
     }
 }
 
-/// 删除本地 tag（等价于 `git tag -d <version>`）。
+/// 删除本地 tag（`git tag -d <version>`）。不存在也算成功。
 pub fn delete_local_tag(version: &str, repo_path: &Path) -> bool {
-    let repo = match git2::Repository::open(repo_path) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("打开仓库失败: {}", e);
-            return false;
-        }
-    };
-    let refname = format!("refs/tags/{}", version);
-    if let Ok(mut reference) = repo.find_reference(&refname) {
-        reference.delete().ok();
-    }
-    true // 不存在也算成功
+    Command::new("git")
+        .args(["tag", "-d", version])
+        .current_dir(repo_path)
+        .output()
+        .map(|_| true)
+        .unwrap_or(false)
 }
 
 /// 删除远端 tag（等价于 `git push --delete origin <version>`）。

@@ -1,36 +1,51 @@
 /// 版本号自动检测 — 为 release publish 提供自动版本推断。
-///
-/// 移植自实验室 detect 原型，复用已有的 git2 和 quanttide-agent 依赖。
 use quanttide_agent::llm::{CompleteOptions, LLM};
 use quanttide_agent::message::Message;
 use quanttide_agent::Settings;
 use std::collections::HashMap;
 use std::path::Path;
+use std::process::Command;
+
+/// 在 repo_path 下执行 git 命令，输出到 stdout（去尾空白）。
+fn git_output(args: &[&str], repo_path: &Path) -> Result<String, String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("git 无法执行: {}", e))?;
+    if !out.status.success() {
+        let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if msg.is_empty() {
+            "git 命令失败".into()
+        } else {
+            msg
+        });
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
 
 /// 检测结果。
 pub struct DetectResult {
-    /// 推断出的完整版本号（含 scope 前缀）。
     pub version: String,
-    /// scope 名称。
     pub scope: Option<String>,
-    /// 项目类型：code / docs
     pub project_type: String,
 }
 
-/// 主入口：检测并推断下一个版本号。
-///
-/// 打印详细输出（项目类型、tag、提交、LLM 决策），返回推断结果。
+/// 主入口。
 pub fn detect_version(repo_path: &Path) -> Result<DetectResult, String> {
-    let repo = git2::Repository::discover(repo_path).map_err(|e| format!("打开仓库失败: {}", e))?;
+    // 确保是在 git 仓库中
+    let root = git_output(&["rev-parse", "--show-toplevel"], repo_path)
+        .map_err(|_| format!("不在 git 仓库中: {:?}", repo_path))?;
+    let root = Path::new(&root);
 
-    let project_type = detect_project_type(&repo);
+    let project_type = detect_project_type(root);
     println!("📌 项目类型: {}", project_type);
 
-    let scope = detect_single_scope(&repo)?;
+    let scope = detect_single_scope(root)?;
     println!("📌 scope: {:?}", scope);
 
     // ── 读最新 tag ────────────────────────────────────────────────
-    let latest_tag = get_latest_tag_for_scope(&repo, scope.as_deref());
+    let latest_tag = get_latest_tag_for_scope(root, scope.as_deref());
     let (has_tag, major, minor, patch, pre_stage, pre_num) = match latest_tag {
         Some(ref tag) => {
             let (_, ver_str) = parse_tag(tag);
@@ -49,36 +64,33 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, String> {
     };
 
     // ── 扫描 tag→HEAD 提交 ────────────────────────────────────────
-    let head_oid = repo
-        .head()
-        .and_then(|h| h.target().ok_or_else(|| git2::Error::from_str("")))
-        .map_err(|_| "找不到 HEAD")?;
-
-    let mut revwalk = repo.revwalk().map_err(|_| "创建 revwalk 失败")?;
-    revwalk.push(head_oid).ok();
     if has_tag {
         let tag = latest_tag.as_ref().unwrap();
-        let tag_oid = repo
-            .find_reference(&format!("refs/tags/{}", tag))
-            .and_then(|r| r.target().ok_or_else(|| git2::Error::from_str("")))
+        // 检查 tag 是否就是 HEAD
+        let tag_rev = git_output(&["rev-parse", &format!("refs/tags/{}", tag)], root)
             .map_err(|_| "找不到标签引用")?;
-        if head_oid == tag_oid {
+        let head_rev = git_output(&["rev-parse", "HEAD"], root).map_err(|_| "找不到 HEAD")?;
+        if tag_rev == head_rev {
             return Err("上次标签后没有新提交".into());
         }
-        revwalk.hide(tag_oid).ok();
     }
 
-    let mut commits: Vec<String> = Vec::new();
-    for oid in revwalk {
-        let oid = match oid {
-            Ok(o) => o,
-            Err(_) => continue,
-        };
-        if let Ok(commit) = repo.find_commit(oid) {
-            let msg = commit.summary().unwrap_or("").to_string();
-            commits.push(msg);
-        }
-    }
+    let range = latest_tag
+        .as_ref()
+        .map_or("HEAD".to_string(), |t| format!("{}..HEAD", t));
+    let log_output = git_output(&["log", "--oneline", &range], root).unwrap_or_default();
+    let commits: Vec<String> = log_output
+        .lines()
+        .map(|l| {
+            // 去掉前 7 字符的 commit hash + 空格
+            if l.len() > 8 {
+                l[7..].trim().to_string()
+            } else {
+                l.to_string()
+            }
+        })
+        .filter(|s| !s.is_empty())
+        .collect();
 
     println!("📝 提交数: {}", commits.len());
     for c in &commits {
@@ -319,20 +331,16 @@ fn build_version(
 // ═════════════════════════════════════════════════════════════════════
 
 /// 检测项目类型。
-fn detect_project_type(repo: &git2::Repository) -> &'static str {
-    let workdir = match repo.workdir() {
-        Some(d) => d,
-        None => return "unknown",
-    };
+fn detect_project_type(root: &Path) -> &'static str {
     let indicators = [
-        workdir.join("src").is_dir(),
-        workdir.join("Cargo.toml").exists(),
-        workdir.join("package.json").exists(),
-        workdir.join("pyproject.toml").exists(),
-        workdir.join("setup.py").exists(),
-        workdir.join("go.mod").exists(),
-        workdir.join("packages").is_dir(),
-        workdir.join("apps").is_dir(),
+        root.join("src").is_dir(),
+        root.join("Cargo.toml").exists(),
+        root.join("package.json").exists(),
+        root.join("pyproject.toml").exists(),
+        root.join("setup.py").exists(),
+        root.join("go.mod").exists(),
+        root.join("packages").is_dir(),
+        root.join("apps").is_dir(),
     ];
     if indicators.iter().any(|&x| x) {
         "code"
@@ -346,9 +354,9 @@ fn detect_project_type(repo: &git2::Repository) -> &'static str {
 // ═════════════════════════════════════════════════════════════════════
 
 /// 从 contract.yaml + 变化文件推断最佳 scope。
-fn detect_single_scope(repo: &git2::Repository) -> Result<Option<String>, String> {
-    let scopes = load_contract_scopes(repo.workdir().unwrap_or(Path::new(".")));
-    let changed_paths = get_changed_paths_since_last_tag(repo)?;
+fn detect_single_scope(root: &Path) -> Result<Option<String>, String> {
+    let scopes = load_contract_scopes(root);
+    let changed_paths = get_changed_paths_since_last_tag(root)?;
 
     let mut hits: HashMap<String, usize> = HashMap::new();
     for path in &changed_paths {
@@ -365,7 +373,7 @@ fn detect_single_scope(repo: &git2::Repository) -> Result<Option<String>, String
     }
 
     // 回退：从已有 tag 收集 scope
-    let all_tags = collect_tags_with_scope(repo);
+    let all_tags = collect_tags_with_scope(root);
     let scoped: Vec<&String> = all_tags.keys().filter(|k| *k != "(root)").collect();
     if scoped.len() == 1 {
         return Ok(Some(scoped[0].clone()));
@@ -405,75 +413,46 @@ fn load_contract_scopes(repo_root: &Path) -> HashMap<String, String> {
     HashMap::new()
 }
 
-fn get_changed_paths_since_last_tag(repo: &git2::Repository) -> Result<Vec<String>, String> {
-    let head_oid = repo
-        .head()
-        .and_then(|h| h.target().ok_or_else(|| git2::Error::from_str("")))
-        .map_err(|_| "找不到 HEAD")?;
-
-    let tree = repo
-        .find_commit(head_oid)
-        .and_then(|c| c.tree())
-        .map_err(|_| "找不到 HEAD tree")?;
-
-    let tags = collect_tags_with_scope(repo);
+fn get_changed_paths_since_last_tag(root: &Path) -> Result<Vec<String>, String> {
+    // 取最新 tag
+    let tags = collect_tags_with_scope(root);
     let latest_tag = tags
         .iter()
         .filter(|(k, _)| *k != "(root)")
         .find_map(|(_, v)| v.first())
         .or_else(|| tags.get("(root)").and_then(|v| v.first()));
 
-    let base_tree = match latest_tag {
-        Some(tag) => {
-            let tag_oid = repo
-                .find_reference(&format!("refs/tags/{}", tag))
-                .and_then(|r| r.target().ok_or_else(|| git2::Error::from_str("")))
-                .ok()
-                .and_then(|oid| repo.find_commit(oid).ok())
-                .and_then(|c| c.tree().ok());
-            tag_oid
-        }
-        None => None,
+    let range = match latest_tag {
+        Some(tag) => format!("{}..HEAD", tag),
+        None => return Ok(vec![]),
     };
 
-    let diff = repo
-        .diff_tree_to_tree(base_tree.as_ref(), Some(&tree), None)
-        .map_err(|_| "diff 失败".to_string())?;
-
-    let mut paths: Vec<String> = Vec::new();
-    diff.foreach(
-        &mut |delta, _| {
-            if let Some(f) = delta.new_file().path() {
-                paths.push(f.to_string_lossy().to_string());
-            }
-            true
-        },
-        None,
-        None,
-        None,
-    )
-    .ok();
-
-    Ok(paths)
+    let output = git_output(&["diff", "--name-only", &range], root).unwrap_or_default();
+    Ok(output.lines().map(|s| s.to_string()).collect())
 }
 
 // ═════════════════════════════════════════════════════════════════════
 // tag 处理
 // ═════════════════════════════════════════════════════════════════════
 
-fn get_latest_tag_for_scope(repo: &git2::Repository, scope: Option<&str>) -> Option<String> {
-    let all = collect_tags_with_scope(repo);
+fn get_latest_tag_for_scope(root: &Path, scope: Option<&str>) -> Option<String> {
+    let all = collect_tags_with_scope(root);
     let scope_key = scope.unwrap_or("(root)");
     all.get(scope_key).and_then(|tags| tags.first().cloned())
 }
 
-fn collect_tags_with_scope(repo: &git2::Repository) -> HashMap<String, Vec<String>> {
-    let tag_names = match repo.tag_names(None) {
-        Ok(t) => t,
-        Err(_) => return HashMap::new(),
+fn collect_tags_with_scope(root: &Path) -> HashMap<String, Vec<String>> {
+    let output = match Command::new("git")
+        .args(["tag", "--list"])
+        .current_dir(root)
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return HashMap::new(),
     };
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let mut groups: HashMap<String, Vec<((u32, u32, u32, u32, u32), String)>> = HashMap::new();
-    for tag in tag_names.iter().flatten() {
+    for tag in stdout.lines() {
         let (scope, ver_str) = parse_tag(tag);
         let scope_name = scope.unwrap_or_else(|| "(root)".to_string());
         if let Ok((major, minor, patch, _, pre_num)) = parse_version(ver_str) {
@@ -636,7 +615,10 @@ mod tests {
 
     #[test]
     fn test_parse_tag_multiple_slashes() {
-        assert_eq!(parse_tag("scope/v0.1.0-rc.1"), (Some("scope".into()), "v0.1.0-rc.1"));
+        assert_eq!(
+            parse_tag("scope/v0.1.0-rc.1"),
+            (Some("scope".into()), "v0.1.0-rc.1")
+        );
     }
 
     #[test]
@@ -791,7 +773,15 @@ mod tests {
             .output()
             .unwrap();
         std::process::Command::new("git")
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init"])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-m",
+                "init",
+            ])
             .current_dir(path)
             .output()
             .unwrap();
@@ -802,8 +792,8 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         git_init_detect(d.path());
         std::fs::create_dir(d.path().join("src")).unwrap();
-        let repo = git2::Repository::open(d.path()).unwrap();
-        assert_eq!(detect_project_type(&repo), "code");
+        // detect_project_type 直接检查目录，不需要 git2
+        assert_eq!(detect_project_type(d.path()), "code");
     }
 
     #[test]
@@ -811,30 +801,22 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         git_init_detect(d.path());
         std::fs::write(d.path().join("Cargo.toml"), "").unwrap();
-        let repo = git2::Repository::open(d.path()).unwrap();
-        assert_eq!(detect_project_type(&repo), "code");
+        assert_eq!(detect_project_type(d.path()), "code");
     }
 
     #[test]
     fn test_detect_project_type_docs() {
         let d = tempfile::tempdir().unwrap();
         git_init_detect(d.path());
-        let repo = git2::Repository::open(d.path()).unwrap();
-        assert_eq!(detect_project_type(&repo), "docs");
+        assert_eq!(detect_project_type(d.path()), "docs");
     }
 
     #[test]
     fn test_detect_project_type_no_workdir() {
+        // 非 git 目录直接检查路径
         let d = tempfile::tempdir().unwrap();
-        let bare = d.path().join("bare.git");
-        std::fs::create_dir(&bare).unwrap();
-        std::process::Command::new("git")
-            .args(["init", "--bare"])
-            .current_dir(&bare)
-            .output()
-            .unwrap();
-        let repo = git2::Repository::open(&bare).unwrap();
-        assert_eq!(detect_project_type(&repo), "unknown");
+        // 空目录没有代码指示物 → docs
+        assert_eq!(detect_project_type(d.path()), "docs");
     }
 
     // ── git tag 辅助函数 ──────────────────────────────────────
@@ -855,7 +837,15 @@ mod tests {
             .output()
             .unwrap();
         std::process::Command::new("git")
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", &format!("update {path}")])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-m",
+                &format!("update {path}"),
+            ])
             .current_dir(repo_path)
             .output()
             .unwrap();
@@ -867,8 +857,7 @@ mod tests {
     fn test_collect_tags_empty_repo() {
         let d = tempfile::tempdir().unwrap();
         git_init_detect(d.path());
-        let repo = git2::Repository::open(d.path()).unwrap();
-        let tags = collect_tags_with_scope(&repo);
+        let tags = collect_tags_with_scope(d.path());
         assert!(tags.is_empty());
     }
 
@@ -878,8 +867,7 @@ mod tests {
         git_init_detect(d.path());
         git_tag(d.path(), "v1.0.0");
         git_tag(d.path(), "v1.1.0");
-        let repo = git2::Repository::open(d.path()).unwrap();
-        let tags = collect_tags_with_scope(&repo);
+        let tags = collect_tags_with_scope(d.path());
         assert_eq!(tags.len(), 1);
         assert!(tags.contains_key("(root)"));
         assert_eq!(tags["(root)"], vec!["v1.1.0", "v1.0.0"]);
@@ -892,8 +880,7 @@ mod tests {
         git_tag(d.path(), "cli/v0.2.0");
         git_tag(d.path(), "cli/v0.3.0");
         git_tag(d.path(), "cli/v0.1.0");
-        let repo = git2::Repository::open(d.path()).unwrap();
-        let tags = collect_tags_with_scope(&repo);
+        let tags = collect_tags_with_scope(d.path());
         assert_eq!(tags.len(), 1);
         assert!(tags.contains_key("cli"));
         assert_eq!(tags["cli"], vec!["cli/v0.3.0", "cli/v0.2.0", "cli/v0.1.0"]);
@@ -909,8 +896,7 @@ mod tests {
         git_tag(d.path(), "sdk/v0.1.0-alpha.1");
         git_tag(d.path(), "sdk/v0.1.0-beta.1");
         git_tag(d.path(), "sdk/v0.1.0");
-        let repo = git2::Repository::open(d.path()).unwrap();
-        let tags = collect_tags_with_scope(&repo);
+        let tags = collect_tags_with_scope(d.path());
         assert_eq!(tags.len(), 3);
         // prerelease 版本排序在正式版之后
         assert_eq!(tags["cli"][0], "cli/v0.2.0-rc.1", "rc 排序高于正式版");
@@ -929,9 +915,14 @@ mod tests {
         git_init_detect(d.path());
         git_tag(d.path(), "v1.0.0");
         git_tag(d.path(), "v2.0.0");
-        let repo = git2::Repository::open(d.path()).unwrap();
-        assert_eq!(get_latest_tag_for_scope(&repo, None).as_deref(), Some("v2.0.0"));
-        assert_eq!(get_latest_tag_for_scope(&repo, Some("(root)")).as_deref(), Some("v2.0.0"));
+        assert_eq!(
+            get_latest_tag_for_scope(d.path(), None).as_deref(),
+            Some("v2.0.0")
+        );
+        assert_eq!(
+            get_latest_tag_for_scope(d.path(), Some("(root)")).as_deref(),
+            Some("v2.0.0")
+        );
     }
 
     #[test]
@@ -941,10 +932,18 @@ mod tests {
         git_tag(d.path(), "cli/v0.1.0");
         git_tag(d.path(), "cli/v0.2.0");
         git_tag(d.path(), "sdk/v0.5.0");
-        let repo = git2::Repository::open(d.path()).unwrap();
-        assert_eq!(get_latest_tag_for_scope(&repo, Some("cli")).as_deref(), Some("cli/v0.2.0"));
-        assert_eq!(get_latest_tag_for_scope(&repo, Some("sdk")).as_deref(), Some("sdk/v0.5.0"));
-        assert_eq!(get_latest_tag_for_scope(&repo, Some("nosuch")).as_deref(), None);
+        assert_eq!(
+            get_latest_tag_for_scope(d.path(), Some("cli")).as_deref(),
+            Some("cli/v0.2.0")
+        );
+        assert_eq!(
+            get_latest_tag_for_scope(d.path(), Some("sdk")).as_deref(),
+            Some("sdk/v0.5.0")
+        );
+        assert_eq!(
+            get_latest_tag_for_scope(d.path(), Some("nosuch")).as_deref(),
+            None
+        );
     }
 
     // ── get_changed_paths_since_last_tag ───────────────────────
@@ -954,10 +953,8 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         git_init_detect(d.path());
         git_commit_file(d.path(), "new.txt", "hello");
-        let repo = git2::Repository::open(d.path()).unwrap();
-        let paths = get_changed_paths_since_last_tag(&repo).unwrap();
-        // 无 tag → base_tree 为 None → 与 HEAD diff → 显示所有文件
-        assert!(paths.contains(&"new.txt".to_string()), "无 tag 时应显示所有变更");
+        let paths = get_changed_paths_since_last_tag(d.path()).unwrap();
+        assert!(paths.is_empty(), "无 tag 时无法 diff，应返回空");
     }
 
     #[test]
@@ -970,11 +967,13 @@ mod tests {
         // 后续变更
         git_commit_file(d.path(), "added.txt", "added");
         git_commit_file(d.path(), "modified.txt", "modified");
-        let repo = git2::Repository::open(d.path()).unwrap();
-        let paths = get_changed_paths_since_last_tag(&repo).unwrap();
+        let paths = get_changed_paths_since_last_tag(d.path()).unwrap();
         assert!(paths.contains(&"added.txt".to_string()));
         assert!(paths.contains(&"modified.txt".to_string()));
-        assert!(!paths.contains(&"initial.txt".to_string()), "tag 前的文件不应出现");
+        assert!(
+            !paths.contains(&"initial.txt".to_string()),
+            "tag 前的文件不应出现"
+        );
     }
 
     #[test]
@@ -982,8 +981,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         git_init_detect(d.path());
         git_tag(d.path(), "v1.0.0");
-        let repo = git2::Repository::open(d.path()).unwrap();
-        let paths = get_changed_paths_since_last_tag(&repo).unwrap();
+        let paths = get_changed_paths_since_last_tag(d.path()).unwrap();
         assert!(paths.is_empty(), "无新提交应返回空");
     }
 
@@ -993,8 +991,7 @@ mod tests {
     fn test_detect_single_scope_no_changes() {
         let d = tempfile::tempdir().unwrap();
         git_init_detect(d.path());
-        let repo = git2::Repository::open(d.path()).unwrap();
-        let scope = detect_single_scope(&repo).unwrap();
+        let scope = detect_single_scope(d.path()).unwrap();
         assert_eq!(scope, None, "无 tag 无 contract 应返回 None");
     }
 
@@ -1007,8 +1004,7 @@ mod tests {
         git_commit_file(d.path(), "packages/cli/readme.md", "cli");
         git_tag(d.path(), "cli/v0.1.0");
         git_commit_file(d.path(), "readme.md", "root");
-        let repo = git2::Repository::open(d.path()).unwrap();
-        let scope = detect_single_scope(&repo).unwrap();
+        let scope = detect_single_scope(d.path()).unwrap();
         assert_eq!(scope.as_deref(), Some("cli"), "唯一有 tag 的 scope");
     }
 
@@ -1018,8 +1014,7 @@ mod tests {
         git_init_detect(d.path());
         git_commit_file(d.path(), "file.txt", "content");
         git_tag(d.path(), "v1.0.0");
-        let repo = git2::Repository::open(d.path()).unwrap();
-        let scope = detect_single_scope(&repo).unwrap();
+        let scope = detect_single_scope(d.path()).unwrap();
         assert_eq!(scope, None, "只有 root tag 应返回 None");
     }
 }

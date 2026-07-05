@@ -702,7 +702,6 @@ name = "qtcloud-devops-cli"
 version = "0.9.3-alpha.2"
 dependencies = [
  "clap",
- "git2",
  "pyo3",
  "quanttide-agent",
  "quanttide-devops",

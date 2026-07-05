@@ -265,11 +265,12 @@ fn check_syntax(lang: &contract::Language, dir: &Path) -> String {
 }
 
 fn is_working_tree_dirty(repo_path: &Path) -> bool {
-    let repo = match git2::Repository::open(repo_path) {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
-    repo.statuses(None).map_or(false, |s| !s.is_empty())
+    std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(repo_path)
+        .output()
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false)
 }
 
 /// 检查 scope 目录下的 Cargo.toml 是否有 path 或 git 依赖。

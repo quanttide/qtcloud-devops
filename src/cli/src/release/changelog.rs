@@ -1,54 +1,47 @@
 use std::path::Path;
+use std::process::Command;
 
 use quanttide_agent::{llm::CompleteOptions, Message, Settings, LLM};
 
 /// 收集上个 tag 到当前 HEAD 之间的 git 提交记录。
 pub fn collect_git_log(repo_path: &Path) -> Result<String, String> {
-    let repo = git2::Repository::open(repo_path).map_err(|e| format!("打开仓库失败: {}", e))?;
-    let head_oid = repo
-        .head()
-        .and_then(|h| {
-            h.target()
-                .ok_or_else(|| git2::Error::from_str("HEAD 无目标"))
-        })
-        .map_err(|_| "无法获取 HEAD".to_string())?;
-
-    let mut revwalk = repo
-        .revwalk()
-        .map_err(|e| format!("创建 revwalk 失败: {}", e))?;
-    revwalk.push(head_oid).ok();
-
-    // 有 tag 时隐藏 tag 之前的提交，无 tag 时步行所有（等价 --all）
-    if let Some(tag) = get_latest_tag(repo_path) {
-        if let Ok(r) = repo.find_reference(&format!("refs/tags/{}", tag)) {
-            if let Some(oid) = r.target() {
-                revwalk.hide(oid).ok();
-            }
-        }
+    let tag = get_latest_tag(repo_path);
+    let range = match tag {
+        Some(ref t) => format!("{}..HEAD", t),
+        None => "HEAD".to_string(),
+    };
+    let out = Command::new("git")
+        .args(["log", "--oneline", &range])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("git log 失败: {}", e))?;
+    if !out.status.success() {
+        let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if msg.is_empty() {
+            "git log 失败".into()
+        } else {
+            msg
+        });
     }
-
-    let mut log_lines: Vec<String> = Vec::new();
-    for oid in revwalk {
-        let oid = oid.map_err(|_| "revwalk 迭代失败".to_string())?;
-        let commit = repo
-            .find_commit(oid)
-            .map_err(|_| "找不到 commit".to_string())?;
-        let short = &oid.to_string()[..7];
-        let summary = commit.summary().unwrap_or("").to_string();
-        log_lines.push(format!("{} {}", short, summary));
-    }
-
-    if log_lines.is_empty() {
+    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if stdout.is_empty() {
         return Err("没有新的提交记录".into());
     }
-    Ok(log_lines.join("\n"))
+    Ok(stdout)
 }
 
 /// 获取仓库中最新版本 tag（按版本排序取第一个）。
 fn get_latest_tag(repo_path: &Path) -> Option<String> {
-    let repo = git2::Repository::open(repo_path).ok()?;
-    let tag_names = repo.tag_names(None).ok()?;
-    let mut tags: Vec<&str> = tag_names.iter().flatten().collect();
+    let out = Command::new("git")
+        .args(["tag", "--list"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut tags: Vec<&str> = stdout.lines().collect();
     tags.sort_by(|a, b| b.cmp(a));
     tags.first().map(|s| s.to_string())
 }

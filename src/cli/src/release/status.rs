@@ -145,15 +145,19 @@ fn load_scopes_map(repo_path: &Path) -> HashMap<String, String> {
 }
 
 fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
-    let repo = match git2::Repository::open(repo_path) {
-        Ok(r) => r,
-        Err(_) => return vec![],
+    let out = match std::process::Command::new("git")
+        .args(["tag", "--list"])
+        .current_dir(repo_path)
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return vec![],
     };
-    let tag_names = match repo.tag_names(None) {
-        Ok(t) => t,
-        Err(_) => return vec![],
-    };
-    let mut tags: Vec<&str> = tag_names.iter().flatten().collect();
+    if !out.status.success() {
+        return vec![];
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut tags: Vec<&str> = stdout.lines().collect();
     tags.sort_by(|a, b| b.cmp(a));
     collect_latest_tags(&tags)
 }
@@ -174,53 +178,32 @@ pub fn collect_latest_tags(tags: &[&str]) -> Vec<(String, String)> {
 }
 
 fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usize {
-    // 如果 scope_dir 本身是 git 仓库（子模组），在子模组内计数
     if is_git_repo(scope_dir) {
         return count_unreleased_in_submodule(scope_dir, tag);
     }
-    let repo = match git2::Repository::open(repo_path) {
-        Ok(r) => r,
-        Err(_) => return 0,
-    };
-    let tag_ref = format!("refs/tags/{}", tag);
-    let tag_oid = match repo.find_reference(&tag_ref).ok().and_then(|r| r.target()) {
-        Some(t) => t,
-        None => return 0,
-    };
-    let head_oid = match repo.head().ok().and_then(|h| h.target()) {
-        Some(t) => t,
-        None => return 0,
-    };
-    let mut revwalk = match repo.revwalk() {
-        Ok(w) => w,
-        Err(_) => return 0,
-    };
-    if revwalk.push(head_oid).is_err() || revwalk.hide(tag_oid).is_err() {
-        return 0;
-    }
-    if scope_dir == repo_path {
-        return revwalk.count();
-    }
     let rel = scope_dir.strip_prefix(repo_path).unwrap_or(scope_dir);
     let rel_str = rel.to_string_lossy().trim_start_matches('/').to_string();
-    revwalk
-        .filter_map(|oid| oid.ok())
-        .filter(|oid| {
-            if let Ok(commit) = repo.find_commit(*oid) {
-                if let Ok(tree) = commit.tree() {
-                    tree.iter().any(|entry| {
-                        entry.name().map_or(false, |n| {
-                            n == &rel_str || n.starts_with(&format!("{}/", rel_str))
-                        })
-                    })
-                } else {
-                    false
-                }
+    let range = format!("{}..HEAD", tag);
+    let mut args = vec!["rev-list", "--count", &range];
+    if !rel_str.is_empty() && rel_str != "." {
+        args.push("--");
+        args.push(rel_str.as_str());
+    }
+    let out = std::process::Command::new("git")
+        .args(&args)
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                s.parse::<usize>().ok()
             } else {
-                false
+                None
             }
         })
-        .count()
+        .unwrap_or(0);
+    out
 }
 
 /// 检测路径是否为 git 仓库
@@ -231,35 +214,34 @@ fn is_git_repo(path: &Path) -> bool {
 
 /// 在子模组内统计未发布提交数（子模组自己的 tag 和 HEAD）
 fn count_unreleased_in_submodule(submodule_path: &Path, tag: &str) -> usize {
-    let repo = match git2::Repository::open(submodule_path) {
-        Ok(r) => r,
-        Err(_) => return 0,
-    };
-    let tag_ref = format!("refs/tags/{}", tag);
-    let tag_oid = match repo.find_reference(&tag_ref).ok().and_then(|r| r.target()) {
-        Some(t) => t,
-        None => return 0,
-    };
-    let head_oid = match repo.head().ok().and_then(|h| h.target()) {
-        Some(t) => t,
-        None => return 0,
-    };
-    let mut revwalk = match repo.revwalk() {
-        Ok(w) => w,
-        Err(_) => return 0,
-    };
-    if revwalk.push(head_oid).is_err() || revwalk.hide(tag_oid).is_err() {
-        return 0;
-    }
-    revwalk.count()
+    std::process::Command::new("git")
+        .args(["rev-list", "--count", &format!("{}..HEAD", tag)])
+        .current_dir(submodule_path)
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                s.parse::<usize>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0)
 }
 
 fn get_github_repo(repo_path: &Path) -> Option<String> {
-    let repo = git2::Repository::open(repo_path).ok()?;
-    let remote = repo.find_remote("origin").ok()?;
-    let url = remote.url()?;
+    let out = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let url = std::str::from_utf8(&out.stdout).ok()?.trim().to_string();
     let re = regex::Regex::new(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?$").ok()?;
-    let caps = re.captures(url)?;
+    let caps = re.captures(&url)?;
     Some(caps.get(1)?.as_str().to_string())
 }
 
@@ -441,11 +423,12 @@ fn check_changelog(repo_path: &Path, version: &str) -> bool {
 }
 
 fn is_dirty(repo_path: &Path) -> bool {
-    let repo = match git2::Repository::open(repo_path) {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
-    repo.statuses(None).map_or(false, |s| !s.is_empty())
+    std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(repo_path)
+        .output()
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -869,8 +852,12 @@ mod tests {
         use std::time::Instant;
         let mut tags: Vec<&str> = Vec::with_capacity(10000);
         for i in 0..5000 {
-            tags.push(Box::leak(format!("cli/v0.{}.{}", i / 100, i % 100).into_boxed_str()));
-            tags.push(Box::leak(format!("sdk/v0.{}.{}", i / 100, i % 100).into_boxed_str()));
+            tags.push(Box::leak(
+                format!("cli/v0.{}.{}", i / 100, i % 100).into_boxed_str(),
+            ));
+            tags.push(Box::leak(
+                format!("sdk/v0.{}.{}", i / 100, i % 100).into_boxed_str(),
+            ));
         }
         tags.sort_by(|a, b| b.cmp(a));
         let start = Instant::now();
