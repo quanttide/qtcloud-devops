@@ -7,7 +7,7 @@
 ```
 quanttide-devops（主仓库）
 ├── apps/qtcloud-devops          → qtcloud-devops 应用
-├── packages/toolkit               → devops 工具包
+├── packages/quanttide-devops-toolkit               → devops 工具包
 └── examples/default             → 参考示例
 ```
 
