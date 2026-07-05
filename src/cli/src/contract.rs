@@ -135,7 +135,7 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
         }
     }
 
-    let mut langs = detect_all_languages(repo_path);
+    let langs = detect_all_languages(repo_path);
     if !langs.is_empty() {
         writeln!(writer)?;
         writeln!(writer, "  语言:      {}", langs.join(", "))?;
