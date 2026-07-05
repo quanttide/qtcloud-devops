@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [0.9.3-alpha.3] - 2026-07-05
+
+**Fixed**
+- `DetectResult` 移除未使用的 `scope` 和 `project_type` 字段，消除 dead_code warning
+- `with_mock_env` 加全局锁串行化，消除 mock 测试 flaky 失败
+
 ## [0.9.3-alpha.2] - 2026-07-05
 
 **Added**
