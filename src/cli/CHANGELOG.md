@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.10.0-alpha.2] - 2026-07-06
+
+- Changed
+  - 升级 quanttide-devops 0.2.1 → 0.2.2（`detect_languages` 替换手写多语言检测）
+  - 显示层重构：`writeln!` → `push_str` + 多行字符串，消除 25 个 writer 调用
+- Removed
+  - 删除 `detect_all_languages`、`detect_by_files` 手写包装，委托给 toolkit
+
 ## [0.10.0-alpha.1] - 2026-07-06
 
 - Added

@@ -2755,7 +2755,7 @@ dependencies = [
 
 [[package]]
 name = "qtcloud-devops-cli"
-version = "0.10.0-alpha.1"
+version = "0.10.0-alpha.2"
 dependencies = [
  "clap",
  "git2",
@@ -2786,6 +2786,8 @@ dependencies = [
 [[package]]
 name = "quanttide-devops"
 version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed1ce3d26b839695de574a3e1986de51bb904b3cbda404f76ee1feb72deb0e78"
 dependencies = [
  "git2",
  "gix 0.69.1",
