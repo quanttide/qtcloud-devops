@@ -26,11 +26,11 @@
 - [ ] `release/detect.rs`: `load_contract_scopes` 与 `contract::load` 重复，确认后删除
 - [ ] `code/sync.rs` + `code/status.rs`: 确认 `pub` 是否必要
 
-## 5. 错误信息中英统一
+## 5. 错误信息统一为中文
 
-- [ ] `release/changelog.rs`: 中文 → 英文
-- [ ] `release/detect.rs`: 中文 → 英文
-- [ ] `code/*.rs`: `format!("扫描失败: {}")`、`format!("同步失败: {}")` → 英文
-- [ ] `git/editor.rs`: `format!("子模块 push 失败: {}")` 等 → 英文
-- [ ] `plan.rs`: `format!("读取 {} 失败")` → 英文
-- [ ] `main.rs`: `format!("git add 失败: {}")` 等 → 英文
+- [ ] `release/changelog.rs`: 混杂英文错误（`LLM 调用失败` + `git log 失败`）→ 统一中文
+- [ ] `release/detect.rs`: 混杂 → 统一中文
+- [ ] `code/*.rs`: `format!("扫描失败: {}")`、`format!("同步失败: {}")` — 已中文，确认统一
+- [ ] `git/editor.rs`: `format!("子模块 push 失败: {}")` 等 — 已中文，确认统一
+- [ ] `plan.rs`: `format!("读取 {} 失败")` — 已中文，确认统一
+- [ ] `main.rs`: `format!("git add 失败: {}")` 等 — 已中文，确认统一
