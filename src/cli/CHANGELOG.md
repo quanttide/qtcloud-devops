@@ -1,5 +1,32 @@
 # CHANGELOG
 
+## [0.10.0-alpha.1] - 2026-07-06
+
+- Added
+  - 新增 contract 模块，实现四维契约模型，支持自动推断 scope、版本检测和状态命令
+  - 新增 plan 命令（status/clean/doctor），支持 ROADMAP 状态诊断、自动清理和工具链检查
+  - 新增 release status / build status / test status 命令，支持多语言版本检测、覆盖率展示和 CI 状态
+  - 新增 code sync 支持 rebase 双向同步，以及 test run 的 Docker 容器执行
+  - 新增 release publish 的 --force 自动清理、--dry-run 和自动版本检测功能
+- Changed
+  - 重构底层 Git 操作，使用 gix 和 git2 替代大量 CLI git 调用，提升性能和可测试性
+  - 重构命令结构，将 release、code、plan 等拆分为独立子命令模块，消除冗余代码
+  - 升级依赖 quanttide-devops 至 0.2.1，委托部分逻辑至 toolkit，清理手写实现
+  - 重构测试基础设施，提取共享测试工具，消除重复的 git_init/git_commit 样板代码
+  - 改进输出格式，println 改为 writeln 提升可测试性，优化模块文档和注释
+- Fixed
+  - 修复多语言项目识别（pyproject.toml + Cargo.toml 共存）和配置文件版本检测逻辑
+  - 修复 plan clean 自动提交、doctor 非标准格式诊断、gix::Tree 多级路径查找等行为
+  - 修复 publish/release 相关幂等性问题（push_tag、create_release、create_tag 跳过重复）
+  - 修复 ensure_changelog 写入后自动提交、相对路径和版本格式匹配问题
+  - 修复并行测试竞争、缺失导入（如 RepoState）、ROADMAP 文件污染等编译和运行时错误
+- Removed
+  - 删除旧的 detect_all_languages、auto_detect_contract 等手写代码，改用 scope.language 和 toolkit
+  - 删除 test_support.rs 和部分测试辅助函数，改用 git2 模拟替代 CLI git
+  - 删除冗余文档（default.md、contract.yaml 等）和过期配置（如旧版 contract.yaml 格式）
+  - 删除 cancel 命令（v0.4.0 起移除）和 prerelease tag 检查相关代码
+  - 删除死代码、不再需要的依赖（如 git2 在某次重构中被完全替换）和自动生成的 API 引用
+
 ## [0.9.3] - 2026-07-05
 
 ### Added
