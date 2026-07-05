@@ -1,18 +1,10 @@
 pub use std::path::PathBuf;
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct CommitHash(pub String);
-
-impl std::fmt::Display for CommitHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.0[..self.0.len().min(7)])
-    }
-}
-
-impl Default for CommitHash {
-    fn default() -> Self {
-        Self(String::from("0000000000000000000000000000000000000000"))
-    }
+/// 截断 OID 到 7 字符显示（等价旧 CommitHash Display）。
+pub fn fmt_oid(id: &gix::ObjectId) -> String {
+    let hex = id.to_hex();
+    let s = hex.to_string();
+    s[..s.len().min(7)].to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -46,9 +38,9 @@ pub struct Submodule {
     pub path: PathBuf,
     pub url: String,
     pub tracked_branch: String,
-    pub parent_pointer: CommitHash,
-    pub local_head: CommitHash,
-    pub remote_head: CommitHash,
+    pub parent_pointer: gix::ObjectId,
+    pub local_head: gix::ObjectId,
+    pub remote_head: gix::ObjectId,
     pub status: SubmoduleStatus,
     pub ahead_count: usize,
     pub behind_count: usize,
@@ -192,37 +184,24 @@ mod tests {
         assert_eq!(SubmoduleStatus::Dirty, SubmoduleStatus::Dirty);
     }
 
-    // ---- CommitHash ----
+    // ---- fmt_oid ----
     #[test]
-    fn test_commit_hash_display_truncates() {
-        assert_eq!(
-            CommitHash("abcdef1234567890".to_string()).to_string(),
-            "abcdef1"
-        );
+    fn test_fmt_oid_truncates() {
+        let oid = gix::ObjectId::from_hex(b"abcdef1234567890abcdef1234567890abcdef12").unwrap();
+        assert_eq!(fmt_oid(&oid), "abcdef1");
     }
     #[test]
-    fn test_commit_hash_display_short() {
-        assert_eq!(CommitHash("abc".to_string()).to_string(), "abc");
+    fn test_fmt_oid_short() {
+        // 创建一个只有 3 有效 hex 位的 OID 不好搞，直接测全零
+        let oid = gix::ObjectId::null(gix::hash::Kind::Sha1);
+        assert_eq!(fmt_oid(&oid).len(), 7);
     }
     #[test]
-    fn test_commit_hash_display_empty() {
-        assert_eq!(CommitHash(String::new()).to_string(), "");
-    }
-    #[test]
-    fn test_commit_hash_equality() {
-        assert_eq!(CommitHash("abc".to_string()), CommitHash("abc".to_string()));
-    }
-    #[test]
-    fn test_commit_hash_default() {
-        assert_eq!(
-            CommitHash::default().0,
-            "0000000000000000000000000000000000000000"
-        );
-    }
-    #[test]
-    fn test_commit_hash_clone() {
-        let a = CommitHash("deadbeef".to_string());
-        assert_eq!(a, a.clone());
+    fn test_fmt_oid_null() {
+        let oid = gix::ObjectId::null(gix::hash::Kind::Sha1);
+        let s = fmt_oid(&oid);
+        assert_eq!(s.len(), 7);
+        assert!(s.chars().all(|c| c == '0'));
     }
 
     // ---- Submodule ----
@@ -233,9 +212,9 @@ mod tests {
             path: PathBuf::from("libs/test"),
             url: "https://example.com/test.git".into(),
             tracked_branch: "main".into(),
-            parent_pointer: CommitHash("aaa".into()),
-            local_head: CommitHash("bbb".into()),
-            remote_head: CommitHash("ccc".into()),
+            parent_pointer: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            local_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            remote_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
             status: SubmoduleStatus::BehindRemote,
             ahead_count: 0,
             behind_count: 3,
@@ -256,9 +235,9 @@ mod tests {
             path: PathBuf::new(),
             url: String::new(),
             tracked_branch: "main".into(),
-            parent_pointer: CommitHash::default(),
-            local_head: CommitHash::default(),
-            remote_head: CommitHash::default(),
+            parent_pointer: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            local_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            remote_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
             status: s,
             ahead_count: 0,
             behind_count: 0,
@@ -281,9 +260,9 @@ mod tests {
             path: PathBuf::new(),
             url: String::new(),
             tracked_branch: "main".into(),
-            parent_pointer: CommitHash::default(),
-            local_head: CommitHash::default(),
-            remote_head: CommitHash::default(),
+            parent_pointer: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            local_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            remote_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
             status: s,
             ahead_count: 0,
             behind_count: 0,

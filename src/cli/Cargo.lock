@@ -123,6 +123,9 @@ name = "bitflags"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "bstr"
@@ -509,6 +512,7 @@ dependencies = [
  "gix-path",
  "gix-pathspec",
  "gix-prompt",
+ "gix-protocol",
  "gix-ref",
  "gix-refspec",
  "gix-revision",
@@ -518,6 +522,7 @@ dependencies = [
  "gix-submodule",
  "gix-tempfile",
  "gix-trace",
+ "gix-transport",
  "gix-traverse",
  "gix-url",
  "gix-utils",
@@ -528,6 +533,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "regex",
+ "serde",
  "signal-hook",
  "smallvec",
  "thiserror 1.0.69",
@@ -543,6 +549,7 @@ dependencies = [
  "gix-date",
  "gix-utils",
  "itoa",
+ "serde",
  "thiserror 1.0.69",
  "winnow",
 ]
@@ -573,6 +580,7 @@ dependencies = [
  "gix-quote",
  "gix-trace",
  "kstring",
+ "serde",
  "smallvec",
  "thiserror 1.0.69",
  "unicode-bom",
@@ -619,6 +627,7 @@ dependencies = [
  "gix-features",
  "gix-hash",
  "memmap2",
+ "serde",
  "thiserror 1.0.69",
 ]
 
@@ -670,6 +679,7 @@ dependencies = [
  "gix-sec",
  "gix-trace",
  "gix-url",
+ "serde",
  "thiserror 1.0.69",
 ]
 
@@ -682,6 +692,7 @@ dependencies = [
  "bstr",
  "itoa",
  "jiff 0.2.31",
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -806,6 +817,7 @@ dependencies = [
  "bstr",
  "gix-features",
  "gix-path",
+ "serde",
 ]
 
 [[package]]
@@ -815,6 +827,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f93d7df7366121b5018f947a04d37f034717e113dcf9ccd85c34b58e57a74d5e"
 dependencies = [
  "faster-hex",
+ "serde",
  "thiserror 1.0.69",
 ]
 
@@ -839,6 +852,7 @@ dependencies = [
  "gix-glob",
  "gix-path",
  "gix-trace",
+ "serde",
  "unicode-bom",
 ]
 
@@ -866,6 +880,7 @@ dependencies = [
  "libc",
  "memmap2",
  "rustix 0.38.44",
+ "serde",
  "smallvec",
  "thiserror 1.0.69",
 ]
@@ -890,6 +905,7 @@ dependencies = [
  "bstr",
  "gix-actor",
  "gix-date",
+ "serde",
  "thiserror 1.0.69",
 ]
 
@@ -923,6 +939,7 @@ dependencies = [
  "gix-utils",
  "gix-validate 0.9.4",
  "itoa",
+ "serde",
  "smallvec",
  "thiserror 1.0.69",
  "winnow",
@@ -944,6 +961,7 @@ dependencies = [
  "gix-path",
  "gix-quote",
  "parking_lot",
+ "serde",
  "tempfile",
  "thiserror 1.0.69",
 ]
@@ -962,9 +980,22 @@ dependencies = [
  "gix-object",
  "gix-path",
  "memmap2",
+ "serde",
  "smallvec",
  "thiserror 1.0.69",
  "uluru",
+]
+
+[[package]]
+name = "gix-packetline"
+version = "0.17.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c43ef4d5fe2fa222c606731c8bdbf4481413ee4ef46d61340ec39e4df4c5e49"
+dependencies = [
+ "bstr",
+ "faster-hex",
+ "gix-trace",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -1020,6 +1051,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "gix-protocol"
+version = "0.45.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc43a1006f01b5efee22a003928c9eb83dde2f52779ded9d4c0732ad93164e3e"
+dependencies = [
+ "bstr",
+ "gix-credentials",
+ "gix-date",
+ "gix-features",
+ "gix-hash",
+ "gix-transport",
+ "gix-utils",
+ "maybe-async",
+ "serde",
+ "thiserror 1.0.69",
+ "winnow",
+]
+
+[[package]]
 name = "gix-quote"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1047,6 +1097,7 @@ dependencies = [
  "gix-utils",
  "gix-validate 0.9.4",
  "memmap2",
+ "serde",
  "thiserror 1.0.69",
  "winnow",
 ]
@@ -1078,6 +1129,7 @@ dependencies = [
  "gix-object",
  "gix-revwalk",
  "gix-trace",
+ "serde",
  "thiserror 1.0.69",
 ]
 
@@ -1105,6 +1157,7 @@ dependencies = [
  "bitflags 2.13.0",
  "gix-path",
  "libc",
+ "serde",
  "windows-sys 0.52.0",
 ]
 
@@ -1169,6 +1222,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44dc45eae785c0eb14173e0f152e6e224dcf4d45b6a6999a3aed22af541ad678"
 
 [[package]]
+name = "gix-transport"
+version = "0.42.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "421dcccab01b41a15d97b226ad97a8f9262295044e34fbd37b10e493b0a6481f"
+dependencies = [
+ "bstr",
+ "gix-command",
+ "gix-features",
+ "gix-packetline",
+ "gix-quote",
+ "gix-sec",
+ "gix-url",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "gix-traverse"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1195,6 +1265,7 @@ dependencies = [
  "gix-features",
  "gix-path",
  "home",
+ "serde",
  "thiserror 1.0.69",
  "url",
 ]
@@ -1247,6 +1318,7 @@ dependencies = [
  "gix-object",
  "gix-path",
  "gix-validate 0.9.4",
+ "serde",
 ]
 
 [[package]]
@@ -1578,6 +1650,7 @@ version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "558bf9508a558512042d3095138b1f7b8fe90c5467d94f9f1da28b3731c5dbd1"
 dependencies = [
+ "serde",
  "static_assertions",
 ]
 
@@ -1659,6 +1732,17 @@ name = "log"
 version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
+
+[[package]]
+name = "maybe-async"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "746873a384ad60adc5db74471dfaba74bd278afbdcfd81db93fafcdfc8b5ca0c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "memchr"
@@ -2195,6 +2279,9 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "stable_deref_trait"

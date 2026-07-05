@@ -1,19 +1,6 @@
 use crate::git::types::*;
 use std::path::Path;
 
-/// 执行 git 命令，返回 stdout（去尾空白）。
-pub fn git_output(args: &[&str], repo_path: &Path) -> Result<String, String> {
-    let out = std::process::Command::new("git")
-        .args(args)
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| format!("git 无法执行: {}", e))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
 /// 从 .gitmodules 解析子模块列表：name, path, url, branch
 pub fn parse_gitmodules(root: &Path) -> Vec<(String, PathBuf, String, String)> {
     let cfg_path = root.join(".gitmodules");
@@ -63,74 +50,38 @@ pub fn parse_gitmodules(root: &Path) -> Vec<(String, PathBuf, String, String)> {
     entries
 }
 
-/// 用 gix 打开仓库，若失败则返回 None。
-fn open_gix(path: &Path) -> Option<gix::Repository> {
-    gix::open(path).ok()
-}
-
-/// 用 gix 获取 HEAD commit 的 hex hash。
-fn gix_head_id(repo: &gix::Repository) -> Option<String> {
-    let commit = repo.head_commit().ok()?;
-    Some(commit.id().to_string())
-}
-
-/// 用 gix 判断 HEAD 是否为 detached。
-fn gix_is_detached(repo: &gix::Repository) -> bool {
-    repo.head().ok().is_some_and(|h| h.is_detached())
-}
-
-/// 用 gix 读取 HEAD 引用的名字（branch name），detached 时返回空。
-#[allow(dead_code)]
-fn gix_branch_name(repo: &gix::Repository) -> Option<String> {
-    let head = repo.head().ok()?;
-    if head.is_detached() {
-        return None;
-    }
-    let name = head.name().as_bstr().to_string();
-    Some(
-        name.strip_prefix("refs/heads/")
-            .unwrap_or(&name)
-            .to_string(),
-    )
-}
-
-/// 用 gix 获取远程跟踪分支的 commit hex hash。
-fn gix_ref_id(repo: &gix::Repository, refname: &str) -> Option<String> {
-    let r = repo.find_reference(refname).ok()?;
-    match r.target() {
-        gix::refs::TargetRef::Symbolic(full_name) => {
-            let name = full_name.as_bstr().to_string();
-            repo.find_reference(&name)
-                .ok()
-                .and_then(|r2| Some(r2.target().id().to_string()))
-        }
-        _ => Some(r.target().id().to_string()),
-    }
-}
-
 /// 用 gix 统计两个 commit 之间的提交数（等价于 `git rev-list --count from..to`）。
-fn gix_count_between(repo: &gix::Repository, from: &gix::ObjectId, to: &gix::ObjectId) -> usize {
-    // 逐 parent 遍历，避免 gix revwalk Platform 的复杂 API
+fn gix_count_between(repo: &gix::Repository, from: gix::ObjectId, to: gix::ObjectId) -> usize {
+    // ponytail: 逐 parent 遍历而非 revwalk Platform，避免 API 兼容问题
     let mut count = 0;
-    let mut current = *to;
+    let mut current = to;
     loop {
-        if current == *from {
+        if current == from {
             break;
         }
         if count > 10000 {
             break;
         }
-        let parent_id = match repo.find_commit(current) {
-            Ok(commit) => match commit.parent_ids().next() {
-                Some(id) => id,
-                None => break,
-            },
+        let commit = match repo.find_commit(current) {
+            Ok(c) => c,
             Err(_) => break,
         };
-        current = parent_id.into();
+        let mut parents = commit.parent_ids();
+        match parents.next() {
+            Some(id) => current = id.into(),
+            None => break,
+        }
         count += 1;
     }
     count
+}
+
+/// 用 gix 读取 HEAD:path tree entry 的 OID。
+fn gix_tree_entry_id(repo: &gix::Repository, path: &Path) -> Option<gix::ObjectId> {
+    let commit = repo.head_commit().ok()?;
+    let tree = commit.tree().ok()?;
+    tree.find_entry(path.to_string_lossy().as_bytes())
+        .map(|e| gix::ObjectId::from(e.id()))
 }
 
 impl RepoState {
@@ -144,19 +95,47 @@ impl RepoState {
 
     fn scan_with_options(root: &Path, offline: bool) -> Result<Self, Box<dyn std::error::Error>> {
         // 确认是 git 仓库
-        if git_output(&["rev-parse", "--git-dir"], root).is_err() {
+        if !std::process::Command::new("git")
+            .args(["rev-parse", "--git-dir"])
+            .current_dir(root)
+            .output()
+            .ok()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
             return Err(format!("不在 git 仓库中: {:?}", root).into());
         }
 
         let raw_entries = parse_gitmodules(root);
         let mut submodules: Vec<Submodule> = Vec::with_capacity(raw_entries.len());
 
-        // 打开父仓库（gix），用于 get_parent_pointer
-        let parent_repo = open_gix(root);
+        // gix 打开父仓库，用于 tree 查询 parent pointer
+        let parent_repo = gix::open(root).ok();
 
         for (name, sm_path, url, branch) in &raw_entries {
             let full_sm_path = root.join(sm_path);
-            let parent_pointer = Self::get_parent_pointer(root, sm_path, parent_repo.as_ref());
+
+            let parent_pointer = parent_repo
+                .as_ref()
+                .and_then(|r| gix_tree_entry_id(r, sm_path))
+                .or_else(|| {
+                    // gix tree 查询失败时 CLI 回退
+                    std::process::Command::new("git")
+                        .args(["rev-parse", &format!("HEAD:{}", sm_path.display())])
+                        .current_dir(root)
+                        .output()
+                        .ok()
+                        .and_then(|o| {
+                            if o.status.success() {
+                                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                                gix::ObjectId::from_hex(s.as_bytes()).ok()
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1));
+
             let (
                 local_head,
                 remote_head,
@@ -217,41 +196,16 @@ impl RepoState {
         })
     }
 
-    /// 从父仓库读取子模块的 parent pointer（`.gitmodules` 记录的 commit）。
-    /// 优先用 gix 做 tree 查询，回退到 CLI git。
-    fn get_parent_pointer(
-        root: &Path,
-        sm_path: &Path,
-        parent_repo: Option<&gix::Repository>,
-    ) -> CommitHash {
-        // 尝试用 gix tree 查询 HEAD:path
-        if let Some(repo) = parent_repo {
-            if let Some(hash) = (|| -> Option<String> {
-                let commit = repo.head_commit().ok()?;
-                let tree = commit.tree().ok()?;
-                let entry = tree.find_entry(sm_path.to_string_lossy().as_bytes())?;
-                Some(entry.id().to_string())
-            })() {
-                return CommitHash(hash);
-            }
-        }
-        // 回退：CLI git rev-parse HEAD:path
-        git_output(&["rev-parse", &format!("HEAD:{}", sm_path.display())], root)
-            .ok()
-            .map(CommitHash)
-            .unwrap_or_default()
-    }
-
-    /// 扫描单个子模块的远程状态，使用 gix 替代 CLI git 读操作。
+    /// 扫描单个子模块的远程状态，使用 gix + git2。
     #[allow(clippy::too_many_arguments)]
     fn scan_single_submodule(
         full_sm_path: &Path,
         branch: &str,
-        parent_pointer: &CommitHash,
+        parent_pointer: &gix::ObjectId,
         offline: bool,
     ) -> (
-        CommitHash,
-        CommitHash,
+        gix::ObjectId,
+        gix::ObjectId,
         bool,
         usize,
         usize,
@@ -263,8 +217,8 @@ impl RepoState {
         // 子模块目录不存在 → 未初始化
         if !full_sm_path.exists() {
             return (
-                CommitHash::default(),
-                CommitHash::default(),
+                gix::ObjectId::null(gix::hash::Kind::Sha1),
+                gix::ObjectId::null(gix::hash::Kind::Sha1),
                 false,
                 0,
                 0,
@@ -274,12 +228,11 @@ impl RepoState {
                 false,
             );
         }
-        // 不是 git 仓库（检查 .git 文件/目录是否存在）
-        let git_dir = full_sm_path.join(".git");
-        if !git_dir.exists() {
+        // 不是 git 仓库
+        if !full_sm_path.join(".git").exists() {
             return (
-                CommitHash::default(),
-                CommitHash::default(),
+                gix::ObjectId::null(gix::hash::Kind::Sha1),
+                gix::ObjectId::null(gix::hash::Kind::Sha1),
                 false,
                 0,
                 0,
@@ -291,31 +244,19 @@ impl RepoState {
         }
 
         // 用 gix 打开子模块仓库
-        let sm_repo = open_gix(full_sm_path);
+        let sm_repo = gix::open(full_sm_path).ok();
 
-        // 本地 HEAD — 用 gix
-        let local_head = sm_repo
+        // 本地 HEAD
+        let local_head: gix::ObjectId = sm_repo
             .as_ref()
-            .and_then(|r| gix_head_id(r))
-            .map(CommitHash)
-            .unwrap_or_else(|| {
-                // 回退 CLI
-                git_output(&["rev-parse", "HEAD"], full_sm_path)
-                    .ok()
-                    .map(CommitHash)
-                    .unwrap_or_default()
-            });
+            .and_then(|r| r.head_commit().ok().map(|c| c.id().into()))
+            .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1));
 
-        // 是否游离 HEAD — 用 gix
+        // 是否游离 HEAD
         let is_detached = sm_repo
             .as_ref()
-            .map(|r| gix_is_detached(r))
-            .unwrap_or_else(|| {
-                git_output(&["rev-parse", "--abbrev-ref", "HEAD"], full_sm_path)
-                    .ok()
-                    .map(|b| b == "HEAD")
-                    .unwrap_or(false)
-            });
+            .map(|r| r.head().ok().map(|h| h.is_detached()).unwrap_or(false))
+            .unwrap_or(false);
 
         // 是否 dirty — 用 git2
         let is_dirty = git2::Repository::open(full_sm_path)
@@ -339,51 +280,39 @@ impl RepoState {
         let remote_ref = format!("refs/remotes/origin/{}", branch);
         let (remote_head, remote_unreachable) = sm_repo
             .as_ref()
-            .and_then(|r| gix_ref_id(r, &remote_ref))
-            .map(|h| (CommitHash(h), false))
-            .or_else(|| {
-                // 回退 CLI
-                git_output(&["rev-parse", &remote_ref], full_sm_path)
-                    .ok()
-                    .map(|h| (CommitHash(h), false))
+            .and_then(|r| r.find_reference(&remote_ref).ok())
+            .map(|r| {
+                let target = r.target();
+                let oid = target.id();
+                let id: gix::ObjectId = (*oid).into();
+                if id.is_null() {
+                    (gix::ObjectId::null(gix::hash::Kind::Sha1), true)
+                } else {
+                    (id, false)
+                }
             })
-            .unwrap_or((CommitHash::default(), true));
+            .unwrap_or((gix::ObjectId::null(gix::hash::Kind::Sha1), true));
 
         // ahead / behind — 用 gix revwalk
         let ahead = sm_repo
             .as_ref()
-            .and_then(|r| {
-                let from = gix::ObjectId::from_hex(parent_pointer.0.as_bytes()).ok()?;
-                let to = gix::ObjectId::from_hex(local_head.0.as_bytes()).ok()?;
-                Some(gix_count_between(r, &from, &to))
-            })
-            .unwrap_or_else(|| {
-                // 回退 CLI
-                count_between(full_sm_path, &parent_pointer.0, &local_head.0)
-            });
+            .map(|r| gix_count_between(r, *parent_pointer, local_head))
+            .unwrap_or(0);
 
         let behind = if remote_unreachable {
             0
         } else {
             sm_repo
                 .as_ref()
-                .and_then(|r| {
-                    let from = gix::ObjectId::from_hex(local_head.0.as_bytes()).ok()?;
-                    let to = gix::ObjectId::from_hex(remote_head.0.as_bytes()).ok()?;
-                    Some(gix_count_between(r, &from, &to))
-                })
-                .unwrap_or_else(|| count_between(full_sm_path, &local_head.0, &remote_head.0))
+                .map(|r| gix_count_between(r, local_head, remote_head))
+                .unwrap_or(0)
         };
 
-        // orphaned：父指针和远程无法 merge-base
-        let is_orphaned = if !remote_unreachable
-            && remote_head != CommitHash::default()
+        // orphaned：父指针和远程不同
+        let is_orphaned = !remote_unreachable
+            && remote_head != gix::ObjectId::null(gix::hash::Kind::Sha1)
             && parent_pointer != &remote_head
-        {
-            parent_pointer.0 != remote_head.0
-        } else {
-            false
-        };
+            && *parent_pointer != remote_head;
 
         (
             local_head,
@@ -406,8 +335,8 @@ impl RepoState {
         remote_unreachable: bool,
         ahead_count: usize,
         behind_count: usize,
-        local_head: &CommitHash,
-        parent_pointer: &CommitHash,
+        local_head: &gix::ObjectId,
+        parent_pointer: &gix::ObjectId,
     ) -> SubmoduleStatus {
         if is_uninitialized {
             return SubmoduleStatus::Uninitialized;
@@ -439,27 +368,6 @@ impl RepoState {
         let agg = AggregateStatus::from_submodules(&state.submodules);
         Ok((state.submodules, agg))
     }
-}
-
-/// CLI 回退：统计两个 commit 之间的提交数。
-fn count_between(repo_path: &Path, from: &str, to: &str) -> usize {
-    if from.is_empty() || to.is_empty() || from == to {
-        return 0;
-    }
-    std::process::Command::new("git")
-        .args(["rev-list", "--count", &format!("{}..{}", from, to)])
-        .current_dir(repo_path)
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                s.parse::<usize>().ok()
-            } else {
-                None
-            }
-        })
-        .unwrap_or(0)
 }
 #[cfg(test)]
 mod tests {
@@ -520,11 +428,14 @@ mod tests {
         parent
     }
 
-    fn dh() -> CommitHash {
-        CommitHash::default()
+    fn dh() -> gix::ObjectId {
+        gix::ObjectId::null(gix::hash::Kind::Sha1)
     }
-    fn h(s: &str) -> CommitHash {
-        CommitHash(s.to_string())
+    fn h(s: &str) -> gix::ObjectId {
+        // pad to 40 hex chars for gix::ObjectId::from_hex
+        let padded = format!("{:0>40}", s);
+        gix::ObjectId::from_hex(padded.as_bytes())
+            .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1))
     }
 
     // ---- determine_submodule_status ----
@@ -690,33 +601,30 @@ mod tests {
         );
     }
 
-    // ---- count_between ----
+    // ---- gix_count_between ----
     #[test]
     fn test_count_between_commits() {
         let t = tempfile::tempdir().unwrap();
         git_init(t.path());
         git_commit(t.path(), "c1");
-        assert_eq!(
-            count_between(t.path(), "HEAD", "HEAD"),
-            0,
-            "same commit = 0"
-        );
-        assert_eq!(count_between(t.path(), "", "HEAD"), 0, "empty from = 0");
-        assert_eq!(count_between(t.path(), "HEAD", ""), 0, "empty to = 0");
+        let repo = gix::open(t.path()).unwrap();
+        let head: gix::ObjectId = repo.head_commit().unwrap().id().into();
+        // HEAD..HEAD = 0
+        assert_eq!(gix_count_between(&repo, head, head), 0);
+        git_commit(t.path(), "c2");
+        let head2: gix::ObjectId = repo.head_commit().unwrap().id().into();
+        assert_eq!(gix_count_between(&repo, head, head2), 1);
     }
     #[test]
     fn test_count_between_one_commit() {
         let t = tempfile::tempdir().unwrap();
         git_init(t.path());
         git_commit(t.path(), "c1");
-        let c1_hash = Command::new("git")
-            .args(["rev-parse", "HEAD"])
-            .current_dir(t.path())
-            .output()
-            .unwrap();
-        let c1 = String::from_utf8_lossy(&c1_hash.stdout).trim().to_string();
+        let repo = gix::open(t.path()).unwrap();
+        let c1: gix::ObjectId = repo.head_commit().unwrap().id().into();
         git_commit(t.path(), "c2");
-        assert_eq!(count_between(t.path(), &c1, "HEAD"), 1, "c1..HEAD = 1");
+        let head: gix::ObjectId = repo.head_commit().unwrap().id().into();
+        assert_eq!(gix_count_between(&repo, c1, head), 1);
     }
 
     // ---- scan tests ----
@@ -853,7 +761,7 @@ mod tests {
         }
         assert_eq!(
             RepoState::scan(&parent).unwrap().submodules[0].local_head,
-            CommitHash::default()
+            gix::ObjectId::null(gix::hash::Kind::Sha1)
         );
     }
 
