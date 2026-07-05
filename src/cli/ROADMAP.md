@@ -1,12 +1,3 @@
-您的 ROADMAP.md 已完全符合规范要求，无需修改。
-
-- 版本标题 `## [0.10.0] — 基于 quanttide-devops 0.2 重构 + code 命令重新设计`：格式正确，表述可以自由书写，不以“— 已发布”为强制后缀。
-- 分类标题 `### Added / Changed / Fixed / Removed`：均在规范允许列表内，且与内容匹配。
-- [ ] 内容`，符合预期。
-
-以下为原内容（无改动）：
-
-```markdown
 # ROADMAP — qtcloud-devops-cli
 
 ## [0.10.0] — 基于 quanttide-devops 0.2 重构 + code 命令重新设计
@@ -30,4 +21,3 @@
 ### Removed
 - [ ] 删除 `src/git/` 模块，全部委托给 `quanttide-devops::git_core` 和 `quanttide-devops::git_submodule`
 - [ ] 删除 `git2` crate 依赖
-```
