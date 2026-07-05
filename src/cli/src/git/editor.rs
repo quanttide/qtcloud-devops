@@ -23,7 +23,11 @@ impl GitSubmoduleEditor {
 
     /// 检测是否有远端。优先用 gix，回退到 CLI。
     fn has_remote(path: &Path) -> bool {
-        git_output(&["remote", "get-url", "origin"], path).is_ok()
+        if let Ok(repo) = git2::Repository::open(path) {
+            repo.find_remote("origin").is_ok()
+        } else {
+            false
+        }
     }
 
     /// 获取当前 branch 名。
@@ -48,15 +52,19 @@ impl GitSubmoduleEditor {
     }
 
     pub fn fetch_submodule(path: &Path) -> Result<(), ()> {
-        if !Self::has_remote(path) {
-            return Ok(());
-        }
-        std::process::Command::new("git")
-            .args(["fetch", "origin"])
-            .current_dir(path)
-            .output()
-            .map(|o| if o.status.success() { Ok(()) } else { Err(()) })
-            .unwrap_or(Err(()))
+        let repo = match git2::Repository::open(path) {
+            Ok(r) => r,
+            Err(_) => return Ok(()),
+        };
+        let mut remote = match repo.find_remote("origin") {
+            Ok(r) => r,
+            Err(_) => return Ok(()),
+        };
+        remote
+            .fetch(&[] as &[&str], None, None)
+            .map_err(|_| ())
+            .ok();
+        Ok(())
     }
 
     pub fn rebase_submodule(path: &Path) -> Result<(), String> {

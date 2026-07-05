@@ -317,22 +317,21 @@ impl RepoState {
                     .unwrap_or(false)
             });
 
-        // 是否 dirty — gix status API 较复杂，保留 CLI
-        let is_dirty = std::process::Command::new("git")
-            .args(["status", "--porcelain"])
-            .current_dir(full_sm_path)
-            .output()
-            .map(|o| !o.stdout.is_empty())
+        // 是否 dirty — 用 git2
+        let is_dirty = git2::Repository::open(full_sm_path)
+            .map(|r| {
+                r.statuses(Some(git2::StatusOptions::new().include_untracked(true)))
+                    .map(|s| s.len() > 0)
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
 
-        // fetch（非 offline 模式）
+        // fetch（非 offline 模式）— 用 git2
         if !offline {
-            let has_remote = git_output(&["remote", "get-url", "origin"], full_sm_path).is_ok();
-            if has_remote {
-                let _ = std::process::Command::new("git")
-                    .args(["fetch", "origin"])
-                    .current_dir(full_sm_path)
-                    .output();
+            if let Ok(repo) = git2::Repository::open(full_sm_path) {
+                if let Ok(mut remote) = repo.find_remote("origin") {
+                    let _ = remote.fetch(&[] as &[&str], None, None);
+                }
             }
         }
 
