@@ -9,6 +9,3 @@ pub mod test;
 
 #[cfg(feature = "python")]
 pub mod python;
-
-#[cfg(test)]
-pub mod test_support;

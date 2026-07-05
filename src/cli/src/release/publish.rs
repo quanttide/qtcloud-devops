@@ -222,8 +222,28 @@ fn update_version_in_content(content: &str, new_ver: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    fn git_init(path: &std::path::Path) {
+        let repo = git2::Repository::init(path).unwrap();
+        let mut cfg = repo.config().unwrap();
+        cfg.set_str("user.email", "t@t").unwrap();
+        cfg.set_str("user.name", "t").unwrap();
+    }
+
+    fn git_commit(path: &std::path::Path, msg: &str) {
+        std::fs::write(path.join("f"), msg).unwrap();
+        let repo = git2::Repository::open(path).unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("f")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = repo.signature().unwrap();
+        let parent = repo.head().and_then(|h| h.peel_to_commit()).ok();
+        let parents: Vec<&git2::Commit> = parent.iter().collect();
+        repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents).unwrap();
+    }
+
     use super::*;
-    use crate::test_support::{git_init, git_commit};
     use std::path::Path;
 
 
