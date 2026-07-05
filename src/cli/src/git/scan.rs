@@ -83,14 +83,7 @@ impl RepoState {
 
     fn scan_with_options(root: &Path, offline: bool) -> Result<Self, Box<dyn std::error::Error>> {
         // 确认是 git 仓库
-        if !std::process::Command::new("git")
-            .args(["rev-parse", "--git-dir"])
-            .current_dir(root)
-            .output()
-            .ok()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
+        if gix::open(root).is_err() {
             return Err(format!("不在 git 仓库中: {:?}", root).into());
         }
 
@@ -344,10 +337,8 @@ impl RepoState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{git_init, git_commit};
+    use crate::test_support::{git_commit, git_init};
     use std::process::Command;
-
-
 
     fn setup_repo_with_submodule(tmp: &Path) -> PathBuf {
         let parent = tmp.join("parent");

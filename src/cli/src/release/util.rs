@@ -1,24 +1,6 @@
 use std::path::Path;
 use std::process::Command;
 
-/// 在 repo_path 下执行 git 命令，返回 stdout（去尾空白）。
-fn git_output(args: &[&str], repo_path: &Path) -> Result<String, String> {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| format!("git 无法执行: {}", e))?;
-    if !out.status.success() {
-        let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(if msg.is_empty() {
-            "git 命令失败".into()
-        } else {
-            msg
-        });
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum PublishTarget {
     PyPI,
@@ -105,9 +87,14 @@ pub fn confirm_release(version: &str, yes: bool) -> bool {
 
 /// 创建轻量 tag（`git tag <version>`）。已存在则跳过（幂等）。
 pub fn create_tag(version: &str, repo_path: &Path) -> bool {
-    // 先检查是否已存在
-    if git_output(&["rev-parse", &format!("refs/tags/{}", version)], repo_path).is_ok() {
-        return true;
+    // 先检查是否已存在（用 gix 查 ref）
+    if let Ok(repo) = gix::open(repo_path) {
+        if repo
+            .find_reference(&format!("refs/tags/{}", version))
+            .is_ok()
+        {
+            return true;
+        }
     }
     match Command::new("git")
         .args(["tag", version])
@@ -155,8 +142,10 @@ pub fn push_tag(version: &str, repo_path: &Path) -> bool {
 
 /// 查询 remote origin 的 GitHub 仓库标识。
 pub fn get_remote_repo(repo_path: &Path) -> Option<String> {
-    let url = git_output(&["remote", "get-url", "origin"], repo_path).ok()?;
-    parse_github_repo(&url)
+    let repo = gix::open(repo_path).ok()?;
+    let remote = repo.find_remote("origin").ok()?;
+    let url = remote.url(gix::remote::Direction::Fetch)?;
+    parse_github_repo(url.to_string().as_str())
 }
 
 pub fn parse_github_repo(url: &str) -> Option<String> {
@@ -267,10 +256,8 @@ pub fn delete_release(version: &str, repo: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{git_init, git_commit};
+    use crate::test_support::{git_commit, git_init};
     use std::path::Path;
-
-
 
     #[test]
     fn test_parse_github_repo_https() {
