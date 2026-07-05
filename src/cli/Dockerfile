@@ -1,13 +1,5 @@
 FROM rust:slim
 
-# Accept proxy build args
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG http_proxy
-ARG https_proxy
-ARG NO_PROXY
-ARG no_proxy
-
 # System dependencies for native crate builds
 RUN apt-get update && apt-get install -y \
     libssl-dev \
