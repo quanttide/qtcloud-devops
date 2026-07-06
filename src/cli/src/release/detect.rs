@@ -442,37 +442,19 @@ fn get_changed_paths_since_last_tag(root: &Path) -> Result<Vec<String>, DetectEr
 // ═════════════════════════════════════════════════════════════════════
 
 fn get_latest_tag_for_scope(root: &Path, scope: Option<&str>) -> Option<String> {
-    use semver::Version;
-    use quanttide_devops::source::git_tag::{GixTagSource, TagSource};
-    let source = GixTagSource::new(root);
-    let all = source.all_tags().ok()?;
     let scope_name = scope.unwrap_or("");
-    let extract = |t: &str| -> Option<Version> {
-        let v = t.split('/').last().unwrap_or(t).strip_prefix('v').unwrap_or(t);
-        Version::parse(v).ok()
-    };
-    if scope_name.is_empty() || scope_name == "(root)" {
-        all.iter().filter(|t| !t.contains('/')).max_by(|a, b| extract(a).cmp(&extract(b))).cloned()
-    } else {
-        let prefix = format!("{}/", scope_name);
-        all.iter().filter(|t| t.starts_with(&prefix)).max_by(|a, b| extract(a).cmp(&extract(b))).cloned()
-    }
+    quanttide_devops::source::git_tag::latest_tag(root, scope_name).ok().flatten()
 }
 
 fn collect_tags_with_scope(root: &Path) -> HashMap<String, Vec<String>> {
-    use semver::Version;
-    use quanttide_devops::source::git_tag::{GixTagSource, TagSource};
+    use quanttide_devops::source::git_tag::{GixTagSource, TagSource, parse_semver_tag};
     let source = GixTagSource::new(root);
     let all = match source.all_tags() { Ok(t) => t, Err(_) => return HashMap::new() };
-    let mut groups: HashMap<String, Vec<(Option<Version>, String)>> = HashMap::new();
-    let parse = |t: &str| -> Option<Version> {
-        let v = t.split('/').last().unwrap_or(t).strip_prefix('v').unwrap_or(t);
-        Version::parse(v).ok()
-    };
+    let mut groups: HashMap<String, Vec<(Option<semver::Version>, String)>> = HashMap::new();
     for tag in &all {
         let (scope, _) = tag.split_once('/').unwrap_or(("", tag));
         let scope_name = if scope.is_empty() { "(root)".to_string() } else { scope.to_string() };
-        groups.entry(scope_name).or_default().push((parse(tag), tag.clone()));
+        groups.entry(scope_name).or_default().push((parse_semver_tag(tag), tag.clone()));
     }
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
     for (scope, mut entries) in groups {

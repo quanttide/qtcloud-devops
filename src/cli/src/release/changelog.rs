@@ -36,15 +36,12 @@ fn collect_git_log(repo_path: &Path) -> Result<String, ChangelogError> {
 }
 
 fn get_latest_tag(repo_path: &Path) -> Option<String> {
+    // 尝试所有 scope，取最新 tag（raw）
     use quanttide_devops::source::git_tag::{GixTagSource, TagSource};
-    use semver::Version;
     let source = GixTagSource::new(repo_path);
     let all = source.all_tags().ok()?;
-    let extract_ver = |t: &str| -> Option<Version> {
-        let v = t.split('/').last().unwrap_or(t).strip_prefix('v').unwrap_or(t);
-        Version::parse(v).ok()
-    };
-    all.iter().max_by(|a, b| extract_ver(a).cmp(&extract_ver(b))).cloned()
+    let by_semver = |t: &str| quanttide_devops::source::git_tag::parse_semver_tag(t);
+    all.iter().max_by(|a, b| by_semver(a).cmp(&by_semver(b))).cloned()
 }
 
 fn llm_changelog(git_log: &str, version: &str) -> Result<String, ChangelogError> {
