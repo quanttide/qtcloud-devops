@@ -44,7 +44,7 @@ const IO_FN_PATTERNS: &[&str] = &[
     "git_output", "llm_decide", "llm_changelog", "doctor_llm",
     "detect_version", "detect_single_scope", "detect_project_type",
     "resolve_roadmap_path",
-    "print_status", "print_status_to", "print_scope_review",
+    "print_status", "print_status_to", "print_scope_audit",
     "collect_git_log", "collect_tags_with_scope", "collect_test_summary_from_run",
     "load_contract_scopes", "load_scopes_map",
     "apply_rule_fixes",
@@ -61,9 +61,9 @@ fn is_io_fn(name: &str) -> bool {
     })
 }
 
-/// 质量审查结果。
+/// 质量审计结果。
 #[derive(Debug, Default)]
-pub struct ReviewReport {
+pub struct AuditReport {
     pub total_tests: usize,
     pub total_pub_fns: usize,
     pub pure_pub_fns: usize,
@@ -77,8 +77,8 @@ pub struct ReviewReport {
     pub gates_met: bool,
 }
 
-/// 质量审查：扫描测试质量并对照门禁评估。
-pub fn review(repo_path: &Path, c: &contract::Contract, all: bool, verbose: bool) -> Result<(), String> {
+/// 质量审计：扫描测试质量并对照门禁评估。
+pub fn audit(repo_path: &Path, c: &contract::Contract, all: bool, verbose: bool) -> Result<(), String> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
 
     // 收集所有 scope 目录
@@ -97,12 +97,12 @@ pub fn review(repo_path: &Path, c: &contract::Contract, all: bool, verbose: bool
         vec![current]
     };
 
-    println!("测试质量审查\n{}", "-".repeat(50));
+    println!("测试质量审计\n{}", "-".repeat(50));
     let mut all_met = true;
     let mut total_tests = 0u32;
     for (name, dir) in &scope_dirs {
         let report = scan_scope(dir, c, name)?;
-        print_scope_review(name, &report, verbose);
+        print_scope_audit(name, &report, verbose);
         total_tests += report.total_tests as u32;
         if !report.gates_met {
             all_met = false;
@@ -122,8 +122,8 @@ pub fn review(repo_path: &Path, c: &contract::Contract, all: bool, verbose: bool
 }
 
 /// 扫描单个 scope 的测试质量。
-fn scan_scope(dir: &Path, c: &contract::Contract, scope_name: &str) -> Result<ReviewReport, String> {
-    let mut report = ReviewReport::default();
+fn scan_scope(dir: &Path, c: &contract::Contract, scope_name: &str) -> Result<AuditReport, String> {
+    let mut report = AuditReport::default();
 
     // 收集所有 .rs 文件（排除 target/）
     let mut rs_files = Vec::new();
@@ -332,7 +332,7 @@ fn collect_error_variants(content: &str, enums: &mut Vec<(String, Vec<String>)>)
 }
 
 /// 输出单个 scope 的审查报告。
-fn print_scope_review(name: &str, report: &ReviewReport, verbose: bool) {
+fn print_scope_audit(name: &str, report: &AuditReport, verbose: bool) {
     println!("\n  [{}]", name);
     println!("    测试函数:     {}", report.total_tests);
     if report.total_pub_fns > 0 {

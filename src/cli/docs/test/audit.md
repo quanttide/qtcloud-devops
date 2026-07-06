@@ -1,10 +1,10 @@
-# test review — 质量审查
+# test audit — 质量审计
 
 ## 定位
 
-扫描源码和测试，评估测试质量。这不是跑测试，而是**对测试的测试**——回答"我们的测试够好吗？"
+扫描源码和测试，按契约门禁评估测试质量。这不是跑测试，而是**对测试的审计**——回答"我们的测试够好吗？"
 
-自举：本工具的质量审查由 `test review` 自身定义和执行，门禁配置在 `contract.yaml`。
+自举：本工具的质量审计由 `test audit` 自身定义和执行，门禁配置在 `contract.yaml`。
 
 ## 扫描维度
 
@@ -32,14 +32,14 @@ stages:
       pure_fn_coverage: 0.3       # 纯函数至少 30% 有测
 ```
 
-门禁不达标时 `test review` 退出码非零（可被 CI 捕获）。
+门禁不达标时 `test audit` 退出码非零（可被 CI 捕获）。
 
 ## 命令
 
 ```
-qtcloud-devops test review              审查当前 scope
-qtcloud-devops test review --all        审查所有 scope
-qtcloud-devops test review --verbose    展示每个未覆盖函数
+qtcloud-devops test audit              审计当前 scope
+qtcloud-devops test audit --all        审计所有 scope
+qtcloud-devops test audit --verbose    展示每个未覆盖函数
 ```
 
 ## 输出示例
@@ -64,7 +64,7 @@ qtcloud-devops test review --verbose    展示每个未覆盖函数
 
 ## 与 `test status` 的区别
 
-| | `test status` | `test review` |
+| | `test status` | `test audit` |
 |--|--------------|---------------|
 | 是否运行测试 | ❌ 读缓存 | ❌ 纯静态扫描 |
 | 是否解析覆盖率 | ✅ | ✅（复用缓存） |

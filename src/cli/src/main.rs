@@ -70,9 +70,9 @@ enum TestAction {
     Run,
     /// 清理缓存的测试结果
     Clean,
-    /// 质量审查：扫描测试覆盖率、错误变体覆盖、门禁达标情况
-    Review {
-        /// 审查所有 scope（默认仅当前 scope）
+    /// 质量审计：扫描测试覆盖率、错误变体覆盖、门禁达标情况
+    Audit {
+        /// 审计所有 scope（默认仅当前 scope）
         #[arg(long)]
         all: bool,
         /// 展示每个未覆盖函数详情
@@ -218,9 +218,9 @@ fn main() {
                 qtcloud_devops_cli::test::clear_cache(&repo_path());
                 Ok(())
             }
-            TestAction::Review { all, verbose } => {
+            TestAction::Audit { all, verbose } => {
                 let c = qtcloud_devops_cli::contract::load(&repo_path());
-                qtcloud_devops_cli::test::review(&repo_path(), &c, all, verbose)
+                qtcloud_devops_cli::test::audit(&repo_path(), &c, all, verbose)
                     .map_err(|e| format!("{}", e))
             }
         },
