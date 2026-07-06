@@ -1,5 +1,11 @@
 # CHANGELOG
 
+
+## [0.10.0-beta.3] - 2026-07-06
+
+### Changed
+
+- 整合 Git 模块与 release/util 相关工具，并扩展代码审计功能。
 ## [0.10.0-beta.2] - 2026-07-06
 
 ### Fixed
