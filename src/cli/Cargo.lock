@@ -2786,12 +2786,13 @@ dependencies = [
 
 [[package]]
 name = "quanttide-devops"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed1ce3d26b839695de574a3e1986de51bb904b3cbda404f76ee1feb72deb0e78"
+checksum = "5059d9c0b47c3a4fecc38a1f782ba297faed239307f7ad75134d92f9bc0a9515"
 dependencies = [
  "git2",
  "gix 0.69.1",
+ "jiff 0.2.31",
  "parse-changelog",
  "semver",
  "serde",
