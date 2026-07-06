@@ -200,7 +200,7 @@ fn try_print_plan_file(
         });
         if has_unknown_headers {
             let settings = quanttide_agent::Settings::from_env();
-            if !settings.llm_api_key.is_empty() && cfg!(not(test)) {
+        if !settings.llm_api_key.is_empty() && !settings.llm_base_url.is_empty() && !settings.llm_model.is_empty() && cfg!(not(test)) {
                 writeln!(writer, "  🔄 检测到非标准格式，调用 LLM 转换...").ok();
                 if let Ok(llm_result) = edit_llm(&content, scope_label, &settings, path) {
                     if llm_result.is_some() {
@@ -373,7 +373,7 @@ pub fn edit_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, PlanError> {
 
     // Phase 1: LLM 先判断并修复（LLM 已配置且非测试环境时）
     let settings = quanttide_agent::Settings::from_env();
-    if !settings.llm_api_key.is_empty() && cfg!(not(test)) {
+    if !settings.llm_api_key.is_empty() && !settings.llm_base_url.is_empty() && cfg!(not(test)) {
         if let Some(llm_issues) = edit_llm(&content, scope, &settings, path)? {
             issues.extend(llm_issues);
         }

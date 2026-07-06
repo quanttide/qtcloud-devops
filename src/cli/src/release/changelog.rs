@@ -47,7 +47,7 @@ fn get_latest_tag(repo_path: &Path) -> Option<String> {
 fn llm_changelog(git_log: &str, version: &str) -> Result<String, ChangelogError> {
     let hint = lib_changelog::build_changelog_prompt(git_log, version);
     let settings = Settings::from_env();
-    if settings.llm_api_key.is_empty() {
+    if settings.llm_api_key.is_empty() || settings.llm_base_url.is_empty() {
         return Err(ChangelogError::Llm(format!(
             "LLM 未配置（LLM_API_KEY 未设置）。请将以下文本发送给 AI 生成 CHANGELOG：\n\n{hint}"
         )));

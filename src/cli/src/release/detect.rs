@@ -198,7 +198,7 @@ fn llm_decide(
     scope: &str,
 ) -> Result<LlmDecision, DetectError> {
     let settings = Settings::from_env();
-    if settings.llm_api_key.is_empty() {
+    if settings.llm_api_key.is_empty() || settings.llm_base_url.is_empty() {
         return Ok(fallback_heuristic(commits));
     }
 
