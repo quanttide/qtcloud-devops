@@ -46,6 +46,22 @@ release publish 创建 tag + 推送 + GitHub Release
 
 输出：执行结果。
 
+## 格栅：scopes × stages
+
+命令按 stage（行）和操作（列）组织：
+
+| stage | status | audit | action |
+|-------|--------|-------|--------|
+| **code** | `code status` | — | `code sync` |
+| **build** | `build status` | — | — |
+| **test** | `test status` | `test audit` | `test run` |
+| **release** | `release status` | `release audit` | `release publish` |
+| *跨 stage* | `contract status` | — | — |
+| *跨 stage* | `doctor status` | — | — |
+
+每个 `(scope, stage)` 格子的输出由 contract.yaml 中的 scope 定义控制。
+空单元格表示尚未实现。
+
 ## 不变量
 
 1. **status 不加 audit** — `release status` 曾混入 ✅/❌ 判定，已清理（-606 行）
