@@ -83,21 +83,6 @@ fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
     result
 }
 
-pub fn collect_latest_tags(tags: &[&str]) -> Vec<(String, String)> {
-    let mut scopes: Vec<(String, String)> = Vec::new();
-    for t in tags {
-        let scope = if t.contains('/') {
-            t.split('/').next().unwrap_or("").to_string()
-        } else {
-            "(root)".to_string()
-        };
-        if !scopes.iter().any(|(s, _)| s == &scope) {
-            scopes.push((scope, t.to_string()));
-        }
-    }
-    scopes
-}
-
 fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usize {
     if is_git_repo(scope_dir) {
         return count_unreleased_in_submodule(scope_dir, tag);
@@ -153,27 +138,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_collect_tags_empty() {
-        assert!(collect_latest_tags(&[]).is_empty());
-    }
-
-    #[test]
-    fn test_collect_tags_root_only() {
-        let tags = collect_latest_tags(&["v2.0.0", "v1.0.0"]);
-        assert_eq!(tags.len(), 1);
-        assert_eq!(tags[0].0, "(root)");
-        assert_eq!(tags[0].1, "v2.0.0");
-    }
-
-    #[test]
-    fn test_collect_tags_scoped() {
-        let tags = collect_latest_tags(&["cli/v0.1.0", "web/v0.2.0"]);
-        assert_eq!(tags.len(), 2);
-        assert_eq!(tags[0].0, "cli");
-        assert_eq!(tags[1].0, "web");
-    }
-
-    #[test]
     fn test_get_latest_tags_semver_v10_greater_than_v9() {
         let d = tempfile::tempdir().unwrap();
         std::process::Command::new("git")
@@ -217,20 +181,6 @@ mod tests {
         assert_eq!(tags[0].1, "v10.0.0", "v10.0.0 应在 v9.0.0 之前");
     }
 
-    #[test]
-    fn test_collect_tags_prerelease_is_kept() {
-        let tags = collect_latest_tags(&["cli/v0.2.0-rc.1", "cli/v0.1.0"]);
-        assert_eq!(tags.len(), 1);
-        assert_eq!(tags[0].1, "cli/v0.2.0-rc.1");
-    }
-
-    #[test]
-    fn test_collect_tags_prerelease_as_fallback() {
-        let tags = collect_latest_tags(&["cli/v0.1.0-rc.2", "cli/v0.1.0-rc.1"]);
-        assert_eq!(tags.len(), 1);
-        assert_eq!(tags[0].1, "cli/v0.1.0-rc.2");
-    }
-
     // ── 测试辅助 ────────────────────────────────────────────────
 
     fn git_init_test(path: &Path) {
@@ -269,16 +219,6 @@ mod tests {
             .unwrap();
     }
 
-    #[test]
-    fn test_collect_tags_mixed_root_and_scoped() {
-        let tags = collect_latest_tags(&["v1.0.0", "cli/v0.2.0", "cli/v0.1.0"]);
-        assert_eq!(tags.len(), 2);
-        let root = tags.iter().find(|(s, _)| s == "(root)").unwrap();
-        assert_eq!(root.1, "v1.0.0");
-        let cli = tags.iter().find(|(s, _)| s == "cli").unwrap();
-        assert_eq!(cli.1, "cli/v0.2.0");
-    }
-
     // ── is_git_repo ───────────────────────────────────────────
 
     #[test]
@@ -299,32 +239,6 @@ mod tests {
     fn test_is_git_repo_false() {
         let d = tempfile::tempdir().unwrap();
         assert!(!is_git_repo(d.path()));
-    }
-
-    // ── collect_latest_tags 性能 ────────────────────────────
-
-    #[test]
-    fn test_collect_latest_tags_large_input() {
-        use std::time::Instant;
-        let mut tags: Vec<&str> = Vec::with_capacity(10000);
-        for i in 0..5000 {
-            tags.push(Box::leak(
-                format!("cli/v0.{}.{}", i / 100, i % 100).into_boxed_str(),
-            ));
-            tags.push(Box::leak(
-                format!("sdk/v0.{}.{}", i / 100, i % 100).into_boxed_str(),
-            ));
-        }
-        tags.sort_by(|a, b| b.cmp(a));
-        let start = Instant::now();
-        let result = collect_latest_tags(&tags);
-        let elapsed = start.elapsed();
-        assert_eq!(result.len(), 2, "两个 scope 各有最新 tag");
-        assert!(
-            elapsed.as_micros() < 10_000,
-            "10000 tag 排序应 < 10ms，实际: {}μs",
-            elapsed.as_micros()
-        );
     }
 
     #[test]

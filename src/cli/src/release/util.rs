@@ -134,14 +134,6 @@ pub fn resolve_scope_dir(version: &str, repo_path: &Path) -> std::path::PathBuf 
     if d.is_dir() { d } else { repo_path.to_path_buf() }
 }
 
-/// 将 git tag 解析为 semver::Version（用于语义化版本比较）。
-/// 支持 "vX.Y.Z"、"scope/vX.Y.Z"、"X.Y.Z-pre.N" 等格式。
-pub fn parse_tag_semver(tag: &str) -> semver::Version {
-    let ver_str = tag.split('/').last().unwrap_or(tag);
-    let ver_str = ver_str.strip_prefix('v').unwrap_or(ver_str);
-    semver::Version::parse(ver_str).unwrap_or_else(|_| semver::Version::new(0, 0, 0))
-}
-
 /// 查询 remote origin 的 GitHub 仓库标识。
 pub fn get_remote_repo(repo_path: &Path) -> Option<String> {
     let repo = gix::open(repo_path).ok()?;
