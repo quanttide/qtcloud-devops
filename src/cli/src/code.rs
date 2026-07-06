@@ -93,7 +93,7 @@ pub fn audit(repo_path: &Path) {
     let c = contract::load(repo_path);
     println!("代码审计\n{}", "-".repeat(50));
     let mut passed = 0u32;
-    let total = 6u32;
+    let total = 5u32;
 
     let all_ok = c.scopes.iter().all(|s| {
         let dir = repo_path.join(&s.dir);
@@ -110,7 +110,6 @@ pub fn audit(repo_path: &Path) {
 
     let mut total_markers = 0usize;
     let mut total_lines = 0usize;
-    let mut total_unwraps = 0usize;
     let mut total_imports = 0usize;
     let mut long_files = Vec::new();
     let mut high_import_files = Vec::new();
@@ -119,7 +118,6 @@ pub fn audit(repo_path: &Path) {
             &repo_path.join(&s.dir),
             &mut total_markers,
             &mut total_lines,
-            &mut total_unwraps,
             &mut total_imports,
             &mut long_files,
             &mut high_import_files,
@@ -141,25 +139,6 @@ pub fn audit(repo_path: &Path) {
         }
     } else {
         println!("  ⚠ TODO/FIXME: 无可扫描源码");
-        passed += 1;
-    }
-
-    if total_lines > 0 {
-        let unwrap_density = total_unwraps as f64 / total_lines as f64 * 1000.0;
-        if unwrap_density < 10.0 {
-            println!(
-                "  ✅ unwrap/expect: {} 处, 密度 {:.1}‰",
-                total_unwraps, unwrap_density
-            );
-            passed += 1;
-        } else {
-            println!(
-                "  ❌ unwrap/expect: {} 处, 密度 {:.1}‰（阈值 10‰）",
-                total_unwraps, unwrap_density
-            );
-        }
-    } else {
-        println!("  ⚠ unwrap/expect: 无可扫描源码");
         passed += 1;
     }
 
@@ -207,13 +186,12 @@ fn count_markers(
     dir: &Path,
     markers: &mut usize,
     lines: &mut usize,
-    unwraps: &mut usize,
     imports: &mut usize,
     long_files: &mut Vec<(PathBuf, usize)>,
     high_import_files: &mut Vec<(PathBuf, usize)>,
 ) {
     const SRC_EXTENSIONS: &[&str] = &["rs", "py", "go", "ts", "tsx", "dart", "js", "jsx"];
-    // ponytail: 跳过 codegen 文件（freezed/gRPC/protobuf/json-serializable 等），它们过长或含大量 unwrap 是常态
+    // ponytail: 跳过 codegen 文件（freezed/gRPC/protobuf/json-serializable 等），它们过长是常态
     const GENERATED_SUFFIXES: &[&str] = &[
         ".freezed.dart",
         ".g.dart",
@@ -237,7 +215,6 @@ fn count_markers(
                     &path,
                     markers,
                     lines,
-                    unwraps,
                     imports,
                     long_files,
                     high_import_files,
@@ -262,9 +239,6 @@ fn count_markers(
                         t.contains("todo") || t.contains("fixme") || t.contains("hack")
                     })
                     .count();
-                for l in content.lines() {
-                    *unwraps += l.matches(".unwrap()").count() + l.matches(".expect(").count();
-                }
                 let import_count = content
                     .lines()
                     .filter(|l| {
