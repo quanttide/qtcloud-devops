@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::contract;
@@ -93,7 +94,7 @@ pub fn audit(repo_path: &Path) {
     let c = contract::load(repo_path);
     println!("代码审计\n{}", "-".repeat(50));
     let mut passed = 0u32;
-    let total = 5u32;
+    let total = 7u32;
 
     let all_ok = c.scopes.iter().all(|s| {
         let dir = repo_path.join(&s.dir);
@@ -111,29 +112,27 @@ pub fn audit(repo_path: &Path) {
     let mut total_markers = 0usize;
     let mut total_lines = 0usize;
     let mut total_unwraps = 0usize;
+    let mut total_imports = 0usize;
     let mut long_files = Vec::new();
+    let mut high_import_files = Vec::new();
     for s in &c.scopes {
         count_markers(
             &repo_path.join(&s.dir),
             &mut total_markers,
             &mut total_lines,
             &mut total_unwraps,
+            &mut total_imports,
             &mut long_files,
+            &mut high_import_files,
         );
     }
     if total_lines > 0 {
         let density = total_markers as f64 / total_lines as f64 * 1000.0;
         if density < 5.0 {
-            println!(
-                "  ✅ TODO/FIXME: {} 处, 密度 {:.1}‰",
-                total_markers, density
-            );
+            println!("  ✅ TODO/FIXME: {} 处, 密度 {:.1}‰", total_markers, density);
             passed += 1;
         } else {
-            println!(
-                "  ❌ TODO/FIXME: {} 处, 密度 {:.1}‰（阈值 5‰）",
-                total_markers, density
-            );
+            println!("  ❌ TODO/FIXME: {} 处, 密度 {:.1}‰（阈值 5‰）", total_markers, density);
         }
     } else {
         println!("  ⚠ TODO/FIXME: 无可扫描源码");
@@ -143,20 +142,24 @@ pub fn audit(repo_path: &Path) {
     if total_lines > 0 {
         let unwrap_density = total_unwraps as f64 / total_lines as f64 * 1000.0;
         if unwrap_density < 10.0 {
-            println!(
-                "  ✅ unwrap/expect: {} 处, 密度 {:.1}‰",
-                total_unwraps, unwrap_density
-            );
+            println!("  ✅ unwrap/expect: {} 处, 密度 {:.1}‰", total_unwraps, unwrap_density);
             passed += 1;
         } else {
-            println!(
-                "  ❌ unwrap/expect: {} 处, 密度 {:.1}‰（阈值 10‰）",
-                total_unwraps, unwrap_density
-            );
+            println!("  ❌ unwrap/expect: {} 处, 密度 {:.1}‰（阈值 10‰）", total_unwraps, unwrap_density);
         }
     } else {
         println!("  ⚠ unwrap/expect: 无可扫描源码");
         passed += 1;
+    }
+
+    if high_import_files.is_empty() {
+        println!("  ✅ 导入数: 全部文件 ≤ 30 个 import");
+        passed += 1;
+    } else {
+        println!("  ❌ 导入数（≤30）:");
+        for (path, count) in &high_import_files {
+            println!("     {} ({} 个 import)", path.display(), count);
+        }
     }
 
     if long_files.is_empty() {
@@ -169,16 +172,21 @@ pub fn audit(repo_path: &Path) {
         }
     }
 
+    let hotspots = scan_hotspots(repo_path, 20);
+    if hotspots.is_empty() {
+        println!("  ✅ 修改热度: 无异常频繁文件");
+        passed += 1;
+    } else {
+        println!("  ❌ 修改热度（≥20 commits）:");
+        for (path, count) in &hotspots {
+            println!("     {} ({} commits)", path, count);
+        }
+    }
+
     match check_lint_for_langs(repo_path) {
-        Some(true) => {
-            println!("  ✅ 语法检查: 通过");
-            passed += 1;
-        }
+        Some(true) => { println!("  ✅ 语法检查: 通过"); passed += 1; }
         Some(false) => println!("  ❌ 语法检查: 存在错误"),
-        None => {
-            println!("  ⚠ 语法检查: 跳过（不支持的语言）");
-            passed += 1;
-        }
+        None => { println!("  ⚠ 语法检查: 跳过（不支持的语言）"); passed += 1; }
     }
 
     println!("\n{}", "-".repeat(50));
@@ -194,7 +202,9 @@ fn count_markers(
     markers: &mut usize,
     lines: &mut usize,
     unwraps: &mut usize,
+    imports: &mut usize,
     long_files: &mut Vec<(PathBuf, usize)>,
+    high_import_files: &mut Vec<(PathBuf, usize)>,
 ) {
     const SRC_EXTENSIONS: &[&str] = &["rs", "py", "go", "ts", "tsx", "dart", "js", "jsx"];
     // ponytail: 跳过 codegen 文件（freezed/gRPC/protobuf/json-serializable 等），它们过长或含大量 unwrap 是常态
@@ -217,7 +227,7 @@ fn count_markers(
         if path.is_dir() {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if name != "target" && !name.starts_with('.') && name != "node_modules" {
-                count_markers(&path, markers, lines, unwraps, long_files);
+                count_markers(&path, markers, lines, unwraps, imports, long_files, high_import_files);
             }
         } else if path
             .extension()
@@ -241,12 +251,48 @@ fn count_markers(
                 for l in content.lines() {
                     *unwraps += l.matches(".unwrap()").count() + l.matches(".expect(").count();
                 }
+                let import_count = content
+                    .lines()
+                    .filter(|l| {
+                        let t = l.trim();
+                        t.starts_with("use ") || t.starts_with("import ")
+                    })
+                    .count();
+                *imports += import_count;
+                if import_count > 30 {
+                    high_import_files.push((path.clone(), import_count));
+                }
                 if file_lines > 500 {
                     long_files.push((path, file_lines));
                 }
             }
         }
     }
+}
+
+fn scan_hotspots(repo_path: &Path, threshold: usize) -> Vec<(String, usize)> {
+    let output = match std::process::Command::new("git")
+        .args(["log", "--format=", "--name-only"])
+        .current_dir(repo_path)
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return vec![],
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for line in stdout.lines() {
+        let t = line.trim();
+        if !t.is_empty() {
+            *counts.entry(t.to_string()).or_default() += 1;
+        }
+    }
+    let mut result: Vec<_> = counts.into_iter()
+        .filter(|(_, c)| *c > threshold)
+        .collect();
+    result.sort_by(|a, b| b.1.cmp(&a.1));
+    result.truncate(10);
+    result
 }
 
 fn check_lint_for_langs(repo_path: &Path) -> Option<bool> {
