@@ -48,19 +48,32 @@ release publish 创建 tag + 推送 + GitHub Release
 
 ## 格栅：scopes × stages
 
-命令按 stage（行）和操作（列）组织：
+scope 由 `contract.yaml` 定义（如 `cli`、`studio`、`provider`），stage 是 DevOps 生命周期阶段。每个 `(scope, stage)` 格子的命令参数由 scope 的路径决定。
 
-| stage | status | audit | action |
-|-------|--------|-------|--------|
-| **code** | `code status` | — | `code sync` |
-| **build** | `build status` | — | — |
-| **test** | `test status` | `test audit` | `test run` |
-| **release** | `release status` | `release audit` | `release publish` |
-| *跨 stage* | `contract status` | — | — |
-| *跨 stage* | `doctor status` | — | — |
+```
+            cli              studio           provider
+            ──────────────────────────────────────────────
+build       build status     build status     build status
 
-每个 `(scope, stage)` 格子的输出由 contract.yaml 中的 scope 定义控制。
-空单元格表示尚未实现。
+test        test status      test status      test status
+            test audit       test audit       test audit
+            test run         test run         test run
+
+release     release status   release status   release status
+            release audit    release audit    release audit
+            release publish  release publish  release publish
+```
+
+其他命令不属于生命周期 stage：
+
+| 命令 | 定位 |
+|------|------|
+| `code status / sync` | 子模块管理（跨 stage 的代码协作） |
+| `contract status` | 契约配置浏览 |
+| `doctor status` | 系统依赖诊断 |
+| `plan status / clean / doctor` | ROADMAP 规划管理 |
+
+每个命令的 scope 由 `contract.yaml` 和当前工作目录决定。例如 `test audit` 扫描 `cli` 还是 `studio`，取决于你在哪个目录。
 
 ## 不变量
 
