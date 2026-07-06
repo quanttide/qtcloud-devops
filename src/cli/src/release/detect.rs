@@ -442,42 +442,37 @@ fn get_changed_paths_since_last_tag(root: &Path) -> Result<Vec<String>, DetectEr
 // ═════════════════════════════════════════════════════════════════════
 
 fn get_latest_tag_for_scope(root: &Path, scope: Option<&str>) -> Option<String> {
-    let all = collect_tags_with_scope(root);
-    let scope_key = scope.unwrap_or("(root)");
-    all.get(scope_key).and_then(|tags| tags.first().cloned())
+    use semver::Version;
+    use quanttide_devops::source::git_tag::{GixTagSource, TagSource};
+    let source = GixTagSource::new(root);
+    let all = source.all_tags().ok()?;
+    let scope_name = scope.unwrap_or("");
+    let extract = |t: &str| -> Option<Version> {
+        let v = t.split('/').last().unwrap_or(t).strip_prefix('v').unwrap_or(t);
+        Version::parse(v).ok()
+    };
+    if scope_name.is_empty() || scope_name == "(root)" {
+        all.iter().filter(|t| !t.contains('/')).max_by(|a, b| extract(a).cmp(&extract(b))).cloned()
+    } else {
+        let prefix = format!("{}/", scope_name);
+        all.iter().filter(|t| t.starts_with(&prefix)).max_by(|a, b| extract(a).cmp(&extract(b))).cloned()
+    }
 }
 
 fn collect_tags_with_scope(root: &Path) -> HashMap<String, Vec<String>> {
-    let output = match Command::new("git")
-        .args(["tag", "--list"])
-        .current_dir(root)
-        .output()
-    {
-        Ok(o) if o.status.success() => o,
-        _ => return HashMap::new(),
+    use semver::Version;
+    use quanttide_devops::source::git_tag::{GixTagSource, TagSource};
+    let source = GixTagSource::new(root);
+    let all = match source.all_tags() { Ok(t) => t, Err(_) => return HashMap::new() };
+    let mut groups: HashMap<String, Vec<(Option<Version>, String)>> = HashMap::new();
+    let parse = |t: &str| -> Option<Version> {
+        let v = t.split('/').last().unwrap_or(t).strip_prefix('v').unwrap_or(t);
+        Version::parse(v).ok()
     };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut groups: HashMap<String, Vec<((u32, u32, u32, u32, u32), String)>> = HashMap::new();
-    for tag in stdout.lines() {
-        let (scope, ver_str) = parse_tag(tag);
-        let scope_name = scope.unwrap_or_else(|| "(root)".to_string());
-        if let Ok((major, minor, patch, _, pre_num)) = parse_version(ver_str) {
-            let pre_ord = pre_num.unwrap_or(0);
-            let stage_ord = if ver_str.contains("-alpha") {
-                1
-            } else if ver_str.contains("-beta") {
-                2
-            } else if ver_str.contains("-rc") {
-                3
-            } else {
-                0
-            };
-            let ord = (major, minor, patch, stage_ord, pre_ord);
-            groups
-                .entry(scope_name)
-                .or_default()
-                .push((ord, tag.to_string()));
-        }
+    for tag in &all {
+        let (scope, _) = tag.split_once('/').unwrap_or(("", tag));
+        let scope_name = if scope.is_empty() { "(root)".to_string() } else { scope.to_string() };
+        groups.entry(scope_name).or_default().push((parse(tag), tag.clone()));
     }
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
     for (scope, mut entries) in groups {
@@ -970,12 +965,13 @@ mod tests {
         git_tag(d.path(), "sdk/v0.1.0");
         let tags = collect_tags_with_scope(d.path());
         assert_eq!(tags.len(), 3);
-        // prerelease 版本排序在正式版之后
-        assert_eq!(tags["cli"][0], "cli/v0.2.0-rc.1", "rc 排序高于正式版");
-        assert_eq!(tags["cli"][1], "cli/v0.2.0");
-        // sdk: 降序排列: beta > alpha > 正式
-        assert!(tags["sdk"][0].contains("beta"), "beta 应排第一");
-        assert!(tags["sdk"][1].contains("alpha"), "alpha 应在 beta 之后");
+        // semver 排序: 正式版 > rc > beta > alpha
+        assert_eq!(tags["cli"][0], "cli/v0.2.0", "正式版应排首位");
+        assert_eq!(tags["cli"][1], "cli/v0.2.0-rc.1");
+        // sdk: 降序排列: 正式 > beta > alpha
+        assert!(tags["sdk"][0].contains("v0.1.0"), "正式版应排首位");
+        assert!(tags["sdk"][1].contains("beta"), "beta 应在 alpha 之前");
+        assert!(tags["sdk"][2].contains("alpha"), "alpha 应排最后");
         assert_eq!(tags["(root)"][0], "v0.5.0");
     }
 

@@ -59,25 +59,28 @@ fn load_scopes_map(repo_path: &Path) -> HashMap<String, String> {
 }
 
 fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
-    let out = match std::process::Command::new("git")
-        .args(["tag", "--list"])
-        .current_dir(repo_path)
-        .output()
-    {
-        Ok(o) if o.status.success() => o,
-        _ => return vec![],
+    use semver::Version;
+    use quanttide_devops::source::git_tag::{GixTagSource, TagSource};
+    let source = GixTagSource::new(repo_path);
+    let all = match source.all_tags() { Ok(t) => t, Err(_) => return vec![] };
+    let extract = |t: &str| -> Option<Version> {
+        let v = t.split('/').last().unwrap_or(t).strip_prefix('v').unwrap_or(t);
+        Version::parse(v).ok()
     };
-    if !out.status.success() {
-        return vec![];
+    let mut result: Vec<(String, String)> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    for tag in &all {
+        let scope = if let Some(slash) = tag.find('/') { tag[..slash].to_string() } else { "(root)".to_string() };
+        if seen.contains(&scope) { continue; }
+        seen.push(scope.clone());
+        let latest = all.iter().filter(|t| {
+            if scope == "(root)" { !t.contains('/') } else { t.starts_with(&format!("{}/", scope)) }
+        }).max_by(|a, b| extract(a).cmp(&extract(b)));
+        if let Some(t) = latest {
+            result.push((scope, t.clone()));
+        }
     }
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let mut tags: Vec<&str> = stdout.lines().collect();
-    tags.sort_by(|a, b| {
-        let a_ver = crate::release::util::parse_tag_semver(a);
-        let b_ver = crate::release::util::parse_tag_semver(b);
-        b_ver.cmp(&a_ver)
-    });
-    collect_latest_tags(&tags)
+    result
 }
 
 pub fn collect_latest_tags(tags: &[&str]) -> Vec<(String, String)> {
