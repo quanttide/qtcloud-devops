@@ -49,6 +49,8 @@ enum Commands {
     },
     /// 概览状态：聚合 build / test / release / contract / plan 状态
     Status,
+    /// 概览审计：聚合 build / test / release 审计
+    Audit,
     /// 环境诊断：检查外部依赖命令状态
     Source {
         #[command(subcommand)]
@@ -313,6 +315,17 @@ fn main() {
             qtcloud_devops_cli::test::status(&rp, &c);
             println!();
             qtcloud_devops_cli::release::status(&rp);
+            Ok(())
+        }
+        Commands::Audit => {
+            let rp = repo_path();
+            let c = qtcloud_devops_cli::contract::load(&rp);
+            println!("概览审计\n{}", "-".repeat(50));
+            qtcloud_devops_cli::build::audit(&rp);
+            println!();
+            qtcloud_devops_cli::test::audit(&rp, &c, true, false).ok();
+            println!();
+            qtcloud_devops_cli::release::audit(None, &rp).ok();
             Ok(())
         }
         Commands::Source { action } => match action {
