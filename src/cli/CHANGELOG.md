@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## [0.10.0-beta.2] - 2026-07-06
+
+### Fixed
+- LLM 调用前检查 `llm_base_url` 和 `llm_model`，避免 API key 有值时默认 base URL 阻塞（涉及 plan edit、release changelog、release detect）
+
 ## [0.10.0-beta.1] - 2026-07-06
 
 ### Breaking
