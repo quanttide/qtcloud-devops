@@ -31,6 +31,262 @@ pub fn status(repo_path: &Path, c: &contract::Contract) {
     let _ = status_to(&mut std::io::stdout(), repo_path, c);
 }
 
+/// 质量审查结果。
+#[derive(Debug, Default)]
+pub struct ReviewReport {
+    pub total_tests: usize,
+    pub total_pub_fns: usize,
+    pub tested_pub_fns: usize,
+    pub error_variants: usize,
+    pub tested_variants: usize,
+    pub uncovered_fns: Vec<String>,
+    pub uncovered_variants: Vec<String>,
+    pub coverage_pct: f64,
+    pub coverage_threshold: f64,
+}
+
+/// 质量审查：扫描测试质量并对照门禁评估。
+pub fn review(repo_path: &Path, c: &contract::Contract, all: bool, verbose: bool) -> Result<(), String> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
+
+    // 收集所有 scope 目录
+    let scope_dirs: Vec<(String, PathBuf)> = if all {
+        if c.scopes.is_empty() {
+            vec![("(root)".into(), repo_path.to_path_buf())]
+        } else {
+            c.scopes.iter().map(|s| (s.name.clone(), repo_path.join(&s.dir))).collect()
+        }
+    } else {
+        // 仅当前目录所属 scope
+        let current = if let Some(s) = c.find_scope_by_path(&cwd) {
+            (s.name.clone(), repo_path.join(&s.dir))
+        } else {
+            ("(root)".into(), repo_path.to_path_buf())
+        };
+        vec![current]
+    };
+
+    println!("测试质量审查\n{}", "-".repeat(50));
+    let mut passed = 0u32;
+    let mut total_gates = 0u32;
+    for (name, dir) in &scope_dirs {
+        let report = scan_scope(dir, c, name)?;
+        print_scope_review(name, &report, verbose);
+        passed += report.total_tests as u32;
+        total_gates += 1;
+    }
+
+    println!("\n{}", "-".repeat(50));
+    if passed == 0 {
+        println!("  未检测到测试");
+    } else {
+        println!("  测试总数: {}", passed);
+    }
+    if total_gates > 0 {
+        println!("  门禁: {} 达标", passed);
+    }
+    Ok(())
+}
+
+/// 扫描单个 scope 的测试质量。
+fn scan_scope(dir: &Path, c: &contract::Contract, scope_name: &str) -> Result<ReviewReport, String> {
+    let mut report = ReviewReport::default();
+
+    // 收集所有 .rs 文件（排除 target/）
+    let mut rs_files = Vec::new();
+    collect_rs_files(dir, &mut rs_files);
+
+    // 分离测试文件（包含 #[cfg(test)]）和生产文件
+    let mut test_fns = Vec::new();
+    let mut pub_fns = Vec::new();
+    let mut error_enums: Vec<(String, Vec<String>)> = Vec::new();
+    let mut test_body = String::new();
+
+    for f in &rs_files {
+        let content = std::fs::read_to_string(f).unwrap_or_default();
+
+        // 收集当前文件中的测试函数
+        collect_test_fns(&content, &mut test_fns);
+        // 收集当前文件中的 pub fn
+        collect_pub_fns(&content, &mut pub_fns, f);
+        // 收集错误枚举变体
+        collect_error_variants(&content, &mut error_enums);
+        // 如果是测试模块，收集内容用于引用检查
+        if content.contains("#[cfg(test)]") {
+            test_body.push_str(&content);
+            test_body.push('\n');
+        }
+    }
+
+    report.total_tests = test_fns.len();
+    report.total_pub_fns = pub_fns.len();
+    report.tested_pub_fns = pub_fns.iter().filter(|(name, _)| {
+        test_fns.iter().any(|t| t == name) || test_body.contains(name)
+    }).count();
+
+    report.uncovered_fns = pub_fns.iter()
+        .filter(|(name, _)| {
+            !test_fns.iter().any(|t| t == name) && !test_body.contains(name)
+        })
+        .map(|(name, path)| format!("{}::{}", path, name))
+        .collect();
+
+    // 计算错误变体覆盖
+    report.error_variants = error_enums.iter().map(|(_, vs)| vs.len()).sum();
+    let all_variants: Vec<&str> = error_enums.iter().flat_map(|(_, vs)| vs.iter().map(|s| s.as_str())).collect();
+    report.tested_variants = all_variants.iter().filter(|v| test_body.contains(*v)).count();
+    report.uncovered_variants = all_variants.iter().filter(|v| !test_body.contains(*v)).map(|s| s.to_string()).collect();
+    report.uncovered_variants.sort();
+
+    // 读取覆盖率（沿用现有逻辑）
+    let threshold = c.scopes.iter().find(|s| s.name == scope_name).map(|s| c.scope_test_threshold(s)).unwrap_or(c.stages.test.threshold);
+    report.coverage_threshold = threshold;
+    let lang = contract::detect_languages(dir).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
+    let coverage = collect_coverage(dir, &lang, threshold);
+    report.coverage_pct = coverage.percentage;
+
+    Ok(report)
+}
+
+/// 收集目录下所有 .rs 文件（排除 target/）。
+fn collect_rs_files(dir: &Path, files: &mut Vec<PathBuf>) {
+    if !dir.exists() { return; }
+    let entries = match std::fs::read_dir(dir) { Ok(e) => e, Err(_) => return };
+    for entry in entries {
+        let entry = match entry { Ok(e) => e, Err(_) => continue };
+        let path = entry.path();
+        if path.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name != "target" && !name.starts_with('.') {
+                collect_rs_files(&path, files);
+            }
+        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            files.push(path);
+        }
+    }
+}
+
+/// 从源码中收集 #[test] 函数名。
+fn collect_test_fns(content: &str, fns: &mut Vec<String>) {
+    let lines: Vec<&str> = content.lines().collect();
+    for i in 0..lines.len().saturating_sub(1) {
+        let trimmed = lines[i].trim();
+        if trimmed == "#[test]" {
+            let next = lines[i + 1].trim();
+            if let Some(name) = next.strip_prefix("fn ") {
+                if let Some(end) = name.find('(') {
+                    fns.push(name[..end].to_string());
+                }
+            }
+        }
+    }
+}
+
+/// 从源码中收集 pub fn 名称。
+fn collect_pub_fns(content: &str, fns: &mut Vec<(String, String)>, path: &Path) {
+    let rel = path.to_string_lossy().to_string();
+    for line in content.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("pub fn ") {
+            if let Some(end) = rest.find('(') {
+                let name = rest[..end].trim().to_string();
+                if !name.is_empty() && !name.starts_with('_') {
+                    fns.push((name, rel.clone()));
+                }
+            }
+        }
+    }
+}
+
+/// 从源码中收集错误枚举变体。
+fn collect_error_variants(content: &str, enums: &mut Vec<(String, Vec<String>)>) {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut in_error_enum = false;
+    let mut enum_name = String::new();
+    let mut variants: Vec<String> = Vec::new();
+    for line in &lines {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("pub enum ") {
+            if rest.contains("Error") || rest.contains("error") {
+                enum_name = rest.split('{').next().unwrap_or("").trim().to_string();
+                if t.contains('{') {
+                    in_error_enum = true;
+                    variants.clear();
+                    // 同一行可能有变体
+                    if let Some(body) = t.split('{').nth(1) {
+                        if let Some(end) = body.find('}') {
+                            for v in body[..end].split(',') {
+                                let v = v.trim();
+                                if !v.is_empty() && !v.starts_with('#') {
+                                    variants.push(v.split('(').next().unwrap_or(v).split('{').next().unwrap_or("").trim().to_string());
+                                }
+                            }
+                            if !variants.is_empty() {
+                                enums.push((enum_name.clone(), variants.clone()));
+                            }
+                            in_error_enum = false;
+                        }
+                    }
+                } else {
+                    in_error_enum = true;
+                    variants.clear();
+                }
+                continue;
+            }
+        }
+        if in_error_enum {
+            if t == "}" || t.starts_with("//") {
+                continue;
+            }
+            if t.starts_with('}') {
+                if !variants.is_empty() {
+                    enums.push((enum_name.clone(), variants.clone()));
+                }
+                in_error_enum = false;
+                continue;
+            }
+            if t.starts_with('#') || t.is_empty() {
+                continue;
+            }
+            let v = t.split('(').next().unwrap_or(t).split('{').next().unwrap_or("").trim().to_string();
+            if !v.is_empty() && !v.starts_with('#') {
+                variants.push(v.trim_end_matches(',').to_string());
+            }
+        }
+    }
+    if in_error_enum && !variants.is_empty() {
+        enums.push((enum_name, variants));
+    }
+}
+
+/// 输出单个 scope 的审查报告。
+fn print_scope_review(name: &str, report: &ReviewReport, verbose: bool) {
+    println!("\n  [{}]", name);
+    println!("    测试函数:     {}", report.total_tests);
+    if report.total_pub_fns > 0 {
+        let pct = report.tested_pub_fns as f64 / report.total_pub_fns as f64 * 100.0;
+        let icon = if pct >= 70.0 { "✅" } else { "⚠" };
+        println!("    函数覆盖率:   {:.0}% ({}/{}) {}", pct, report.tested_pub_fns, report.total_pub_fns, icon);
+        if verbose && !report.uncovered_fns.is_empty() {
+            for f in &report.uncovered_fns {
+                println!("      未覆盖: {}", f);
+            }
+        }
+    }
+    if report.error_variants > 0 {
+        let pct = if report.error_variants > 0 { report.tested_variants as f64 / report.error_variants as f64 * 100.0 } else { 100.0 };
+        let icon = if pct >= 50.0 { "✅" } else { "⚠" };
+        println!("    错误变体覆盖: {:.0}% ({}/{}) {}", pct, report.tested_variants, report.error_variants, icon);
+        if verbose && !report.uncovered_variants.is_empty() {
+            println!("      未覆盖: {}", report.uncovered_variants.join(", "));
+        }
+    }
+    if report.coverage_pct > 0.0 {
+        let icon = if report.coverage_pct >= report.coverage_threshold { "✅" } else { "⚠" };
+        println!("    行覆盖率:     {:.1}% (阈值 {}%) {}", report.coverage_pct, report.coverage_threshold, icon);
+    }
+}
+
 /// 在 Docker 容器中运行测试和覆盖率。
 ///
 /// 容器隔离编译环境，崩溃不影响宿主机。
