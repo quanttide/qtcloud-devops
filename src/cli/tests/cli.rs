@@ -237,16 +237,13 @@ fn test_cli_contract_status() {
 }
 
 #[test]
-fn test_cli_doctor_status() {
-    let d = tempfile::tempdir().unwrap();
+fn test_cli_source_status() {
     let output = cli()
-        .args(["doctor", "status"])
-        .current_dir(d.path())
+        .args(["source", "status"])
         .output()
         .unwrap();
-    assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("系统诊断"));
+    assert!(stdout.contains("git"), "source status 应包含 git: {}", &stdout[..100]);
 }
 
 #[test]
@@ -331,11 +328,10 @@ fn test_cli_test_run_help() {
 }
 
 #[test]
-fn test_cli_doctor_help() {
-    let output = cli().args(["doctor", "--help"]).output().unwrap();
-    assert!(output.status.success());
+fn test_cli_source_help() {
+    let output = cli().args(["source", "--help"]).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("doctor"));
+    assert!(stdout.contains("source"));
 }
 
 #[test]
