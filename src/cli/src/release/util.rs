@@ -103,17 +103,30 @@ pub fn create_tag(version: &str, repo_path: &Path) -> bool {
     result.is_ok()
 }
 
+/// 构造 tag push 的 refspec。
+fn tag_push_refspec(version: &str) -> String {
+    format!("refs/tags/{}", version)
+}
+
 /// 推送 tag 到远程（需要网络）。
-pub fn push_tag(version: &str, repo_path: &Path) -> bool {
-    let repo = match git2::Repository::open(repo_path) {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
+pub fn push_tag(version: &str, repo_path: &Path) -> Result<(), String> {
+    let repo = git2::Repository::open(repo_path)
+        .map_err(|e| format!("打开仓库失败: {}", e))?;
     let mut remote = match repo.find_remote("origin") {
         Ok(r) => r,
-        Err(_) => return true, // 无 remote 视为成功
+        Err(_) => return Ok(()), // 无 remote 视为成功
     };
-    remote.push(&[version], None).is_ok()
+    let refspec = tag_push_refspec(version);
+    remote.push(&[&refspec], None)
+        .map_err(|e| format!("推送标签失败: {}", e))
+}
+
+/// 将 git tag 解析为 semver::Version（用于语义化版本比较）。
+/// 支持 "vX.Y.Z"、"scope/vX.Y.Z"、"X.Y.Z-pre.N" 等格式。
+pub fn parse_tag_semver(tag: &str) -> semver::Version {
+    let ver_str = tag.split('/').last().unwrap_or(tag);
+    let ver_str = ver_str.strip_prefix('v').unwrap_or(ver_str);
+    semver::Version::parse(ver_str).unwrap_or_else(|_| semver::Version::new(0, 0, 0))
 }
 
 /// 查询 remote origin 的 GitHub 仓库标识。
@@ -377,10 +390,10 @@ mod tests {
     }
     #[test]
     fn test_push_tag_in_non_git_dir() {
-        assert!(!push_tag(
+        assert!(push_tag(
             "v0.0.0-test",
             tempfile::tempdir().unwrap().path()
-        ));
+        ).is_err());
     }
     #[test]
     fn test_push_tag_fails_with_non_existent_remote() {
@@ -398,7 +411,7 @@ mod tests {
             .current_dir(d.path())
             .output()
             .unwrap();
-        assert!(!push_tag("v0.0.0-test-remote", d.path()));
+        assert!(push_tag("v0.0.0-test-remote", d.path()).is_err());
     }
     #[test]
     fn test_get_remote_repo_in_git_without_remote() {
@@ -410,6 +423,21 @@ mod tests {
             .unwrap();
         assert_eq!(get_remote_repo(d.path()), None);
     }
+    #[test]
+    fn test_tag_push_refspec_scoped() {
+        assert_eq!(tag_push_refspec("cli/v0.9.3"), "refs/tags/cli/v0.9.3");
+    }
+
+    #[test]
+    fn test_tag_push_refspec_simple() {
+        assert_eq!(tag_push_refspec("v0.9.3"), "refs/tags/v0.9.3");
+    }
+
+    #[test]
+    fn test_tag_push_refspec_root_tag() {
+        assert_eq!(tag_push_refspec("v0.1.0"), "refs/tags/v0.1.0");
+    }
+
     #[test]
     fn test_rollback_tag_removes_tag() {
         let d = tempfile::tempdir().unwrap();

@@ -158,7 +158,11 @@ fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
     }
     let stdout = String::from_utf8_lossy(&out.stdout);
     let mut tags: Vec<&str> = stdout.lines().collect();
-    tags.sort_by(|a, b| b.cmp(a));
+    tags.sort_by(|a, b| {
+        let a_ver = crate::release::util::parse_tag_semver(a);
+        let b_ver = crate::release::util::parse_tag_semver(b);
+        b_ver.cmp(&a_ver)
+    });
     collect_latest_tags(&tags)
 }
 
@@ -555,6 +559,51 @@ mod tests {
         assert_eq!(tags.len(), 2);
         assert_eq!(tags[0].0, "cli");
         assert_eq!(tags[1].0, "web");
+    }
+
+    #[test]
+    fn test_get_latest_tags_semver_v10_greater_than_v9() {
+        // 字符串排序 v9.0.0 > v10.0.0，语义化版本应有正确顺序
+        let d = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "t@t"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "t"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::fs::write(d.path().join("f"), "").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["tag", "v9.0.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["tag", "v10.0.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        let tags = get_latest_tags_by_scope(d.path());
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].1, "v10.0.0", "v10.0.0 应在 v9.0.0 之前");
     }
 
     #[test]

@@ -6,20 +6,38 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
+#[derive(Debug, thiserror::Error)]
+pub enum DetectError {
+    #[error("git 操作失败: {0}")]
+    Git(String),
+    #[error("LLM 调用失败: {0}")]
+    Llm(String),
+    #[error("版本号格式错误: {0}")]
+    Version(String),
+    #[error("{0}")]
+    Other(String),
+}
+
+impl From<String> for DetectError {
+    fn from(s: String) -> Self {
+        DetectError::Other(s)
+    }
+}
+
 /// 在 repo_path 下执行 git 命令，输出到 stdout（去尾空白）。
-fn git_output(args: &[&str], repo_path: &Path) -> Result<String, String> {
+fn git_output(args: &[&str], repo_path: &Path) -> Result<String, DetectError> {
     let out = Command::new("git")
         .args(args)
         .current_dir(repo_path)
         .output()
-        .map_err(|e| format!("git 无法执行: {}", e))?;
+        .map_err(|e| DetectError::Git(format!("git 无法执行: {}", e)))?;
     if !out.status.success() {
         let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(if msg.is_empty() {
+        return Err(DetectError::Git(if msg.is_empty() {
             "git 命令失败".into()
         } else {
             msg
-        });
+        }));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
@@ -30,10 +48,10 @@ pub struct DetectResult {
 }
 
 /// 主入口。
-pub fn detect_version(repo_path: &Path) -> Result<DetectResult, String> {
+pub fn detect_version(repo_path: &Path) -> Result<DetectResult, DetectError> {
     // 确保是在 git 仓库中
     let root = git_output(&["rev-parse", "--show-toplevel"], repo_path)
-        .map_err(|_| format!("不在 git 仓库中: {:?}", repo_path))?;
+        .map_err(|_| DetectError::Other(format!("不在 git 仓库中: {:?}", repo_path)))?;
     let root = Path::new(&root);
 
     let project_type = detect_project_type(root);
@@ -66,10 +84,10 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, String> {
         let tag = latest_tag.as_ref().unwrap();
         // 检查 tag 是否就是 HEAD
         let tag_rev = git_output(&["rev-parse", &format!("refs/tags/{}", tag)], root)
-            .map_err(|_| "找不到标签引用")?;
-        let head_rev = git_output(&["rev-parse", "HEAD"], root).map_err(|_| "找不到 HEAD")?;
+            .map_err(|_| DetectError::Other("找不到标签引用".into()))?;
+        let head_rev = git_output(&["rev-parse", "HEAD"], root).map_err(|_| DetectError::Other("找不到 HEAD".into()))?;
         if tag_rev == head_rev {
-            return Err("上次标签后没有新提交".into());
+            return Err(DetectError::Other("上次标签后没有新提交".into()));
         }
     }
 
@@ -77,18 +95,7 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, String> {
         .as_ref()
         .map_or("HEAD".to_string(), |t| format!("{}..HEAD", t));
     let log_output = git_output(&["log", "--oneline", &range], root).unwrap_or_default();
-    let commits: Vec<String> = log_output
-        .lines()
-        .map(|l| {
-            // 去掉前 7 字符的 commit hash + 空格
-            if l.len() > 8 {
-                l[7..].trim().to_string()
-            } else {
-                l.to_string()
-            }
-        })
-        .filter(|s| !s.is_empty())
-        .collect();
+    let commits = parse_commit_messages(&log_output);
 
     println!("📝 提交数: {}", commits.len());
     for c in &commits {
@@ -96,7 +103,7 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, String> {
     }
 
     if commits.is_empty() {
-        return Err("没有提交记录".into());
+        return Err(DetectError::Other("没有提交记录".into()));
     }
 
     // ── LLM 推断版本（回退到启发式规则）───────────────────────────
@@ -110,36 +117,68 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, String> {
 
     println!("🧠 LLM 决策: {}", decision.reason);
 
-    let new_version = if !has_tag {
-        // 新项目：首个版本固定为 v0.1.0，预发布阶段由 LLM 决定
-        match decision.prerelease.as_deref() {
-            Some(pr) => format!("v0.1.0-{}.1", pr),
-            None => "v0.1.0".to_string(),
-        }
-    } else if decision.action == "skip" {
-        return Err("无需发版".into());
-    } else if decision.action == "human" {
-        return Err(format!("需要人类判断: {}", decision.reason));
-    } else {
-        let increment = decision.increment.as_deref().unwrap_or("patch");
-        build_version(
-            major,
-            minor,
-            patch,
-            pre_stage.as_deref(),
-            pre_num,
-            increment,
-            decision.prerelease.as_deref(),
-        )
-    };
+    let new_version = build_version_from_decision(
+        has_tag,
+        major, minor, patch,
+        pre_stage.as_deref(), pre_num,
+        &decision,
+    )?;
 
-    let version = match scope {
-        Some(ref s) if !s.is_empty() && s != "(root)" => format!("{}/{}", s, new_version),
-        _ => new_version.clone(),
-    };
+    let version = apply_scope_prefix(scope.as_deref(), &new_version);
 
     println!("\n🔮 建议版本: {}", version);
     Ok(DetectResult { version })
+}
+
+/// 从 git log --oneline 输出解析提交消息列表。
+fn parse_commit_messages(log_output: &str) -> Vec<String> {
+    log_output
+        .lines()
+        .map(|l| {
+            if l.len() > 8 {
+                l[7..].trim().to_string()
+            } else {
+                l.to_string()
+            }
+        })
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// 根据 LLM 决策构建版本号（不含 scope 前缀）。
+fn build_version_from_decision(
+    has_tag: bool,
+    major: u32, minor: u32, patch: u32,
+    pre_stage: Option<&str>, pre_num: Option<u32>,
+    decision: &LlmDecision,
+) -> Result<String, DetectError> {
+    if !has_tag {
+        return match decision.prerelease.as_deref() {
+            Some(pr) => Ok(format!("v0.1.0-{}.1", pr)),
+            None => Ok("v0.1.0".to_string()),
+        };
+    }
+    if decision.action == "skip" {
+        return Err(DetectError::Other("无需发版".into()));
+    }
+    if decision.action == "human" {
+        return Err(DetectError::Other(format!("需要人类判断: {}", decision.reason)));
+    }
+    let increment = decision.increment.as_deref().unwrap_or("patch");
+    Ok(build_version(
+        major, minor, patch,
+        pre_stage, pre_num,
+        increment,
+        decision.prerelease.as_deref(),
+    ))
+}
+
+/// 给版本号添加 scope 前缀。
+fn apply_scope_prefix(scope: Option<&str>, version: &str) -> String {
+    match scope {
+        Some(s) if !s.is_empty() && s != "(root)" => format!("{}/{}", s, version),
+        _ => version.to_string(),
+    }
 }
 
 /// LLM 决策输出。
@@ -157,7 +196,7 @@ fn llm_decide(
     latest_tag: &str,
     project_type: &str,
     scope: &str,
-) -> Result<LlmDecision, String> {
+) -> Result<LlmDecision, DetectError> {
     let settings = Settings::from_env();
     if settings.llm_api_key.is_empty() {
         return Ok(fallback_heuristic(commits));
@@ -233,10 +272,10 @@ scope: {scope}
 
     let resp = llm
         .complete(&messages, options)
-        .map_err(|e| format!("LLM 调用失败: {}", e.0))?;
+        .map_err(|e| DetectError::Llm(format!("LLM 调用失败: {}", e.0)))?;
 
     let decision: LlmDecision = serde_json::from_str(&resp.content)
-        .map_err(|e| format!("LLM 输出解析失败: {} — 原始输出: {}", e, resp.content))?;
+        .map_err(|e| DetectError::Llm(format!("LLM 输出解析失败: {} — 原始输出: {}", e, resp.content)))?;
 
     Ok(decision)
 }
@@ -348,15 +387,15 @@ fn detect_project_type(root: &Path) -> &'static str {
 // ═════════════════════════════════════════════════════════════════════
 
 /// 从 contract.yaml + 变化文件推断最佳 scope。
-fn detect_single_scope(root: &Path) -> Result<Option<String>, String> {
-    let scopes = load_contract_scopes(root);
+fn detect_single_scope(root: &Path) -> Result<Option<String>, DetectError> {
+    let scopes = crate::contract::load_scopes(root);
     let changed_paths = get_changed_paths_since_last_tag(root)?;
 
     let mut hits: HashMap<String, usize> = HashMap::new();
     for path in &changed_paths {
-        for (name, dir) in &scopes {
-            if path.starts_with(dir.trim_start_matches('/')) || path.contains(dir) {
-                *hits.entry(name.clone()).or_insert(0) += 1;
+        for scope in &scopes {
+            if path.starts_with(scope.dir.trim_start_matches('/')) || path.contains(&scope.dir) {
+                *hits.entry(scope.name.clone()).or_insert(0) += 1;
             }
         }
     }
@@ -374,40 +413,13 @@ fn detect_single_scope(root: &Path) -> Result<Option<String>, String> {
     }
     if scoped.len() > 1 {
         let names: Vec<&str> = scoped.iter().map(|s| s.as_str()).collect();
-        return Err(format!("多个 scope 有变更: {:?}，请用 -v 指定", names));
+        return Err(DetectError::Other(format!("多个 scope 有变更: {:?}，请用 -v 指定", names)));
     }
 
     Ok(None) // (root)
 }
 
-fn load_contract_scopes(repo_root: &Path) -> HashMap<String, String> {
-    let paths = [
-        repo_root.join(".quanttide/devops/contract.yaml"),
-        repo_root.join("contract.yaml"),
-    ];
-    for path in &paths {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            if let Ok(cfg) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
-                if let Some(scopes) = cfg.get("scopes").and_then(|s| s.as_mapping()) {
-                    let mut map = HashMap::new();
-                    for (k, v) in scopes {
-                        let name = k.as_str().unwrap_or("").to_string();
-                        let dir = v
-                            .get("dir")
-                            .and_then(|d| d.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        map.insert(name, dir);
-                    }
-                    return map;
-                }
-            }
-        }
-    }
-    HashMap::new()
-}
-
-fn get_changed_paths_since_last_tag(root: &Path) -> Result<Vec<String>, String> {
+fn get_changed_paths_since_last_tag(root: &Path) -> Result<Vec<String>, DetectError> {
     // 取最新 tag
     let tags = collect_tags_with_scope(root);
     let latest_tag = tags
@@ -483,16 +495,16 @@ fn parse_tag(tag: &str) -> (Option<String>, &str) {
     }
 }
 
-fn parse_version(s: &str) -> Result<(u32, u32, u32, Option<String>, Option<u32>), String> {
+fn parse_version(s: &str) -> Result<(u32, u32, u32, Option<String>, Option<u32>), DetectError> {
     let s = s.strip_prefix('v').unwrap_or(s);
     let (ver_part, pre_part) = s.split_once('-').unwrap_or((s, ""));
     let parts: Vec<&str> = ver_part.split('.').collect();
     if parts.len() != 3 {
-        return Err(format!("版本号格式错误: {}，需要 X.Y.Z", s));
+        return Err(DetectError::Version(format!("版本号格式错误: {}，需要 X.Y.Z", s)));
     }
-    let major = parts[0].parse().map_err(|_| "major 不是数字".to_string())?;
-    let minor = parts[1].parse().map_err(|_| "minor 不是数字".to_string())?;
-    let patch: u32 = parts[2].parse().map_err(|_| "patch 不是数字".to_string())?;
+    let major = parts[0].parse().map_err(|_| DetectError::Version("major 不是数字".into()))?;
+    let minor = parts[1].parse().map_err(|_| DetectError::Version("minor 不是数字".into()))?;
+    let patch: u32 = parts[2].parse().map_err(|_| DetectError::Version("patch 不是数字".into()))?;
     let (pre_stage, pre_num) = if pre_part.is_empty() {
         (None, None)
     } else {
@@ -714,42 +726,108 @@ mod tests {
         assert_eq!(d.increment.as_deref(), Some("patch"));
     }
 
-    // ── load_contract_scopes ───────────────────────────────────
+    // ── parse_commit_messages ─────────────────────────────────
 
     #[test]
-    fn test_load_contract_scopes_from_file() {
-        let d = tempfile::tempdir().unwrap();
-        let contract_dir = d.path().join(".quanttide/devops");
-        std::fs::create_dir_all(&contract_dir).unwrap();
-        std::fs::write(
-            contract_dir.join("contract.yaml"),
-            "scopes:\n  cli:\n    dir: packages/cli\n    language: rust\n  sdk:\n    dir: packages/sdk\n    language: python\n",
-        )
-        .unwrap();
-        let scopes = load_contract_scopes(d.path());
-        assert_eq!(scopes.len(), 2);
-        assert_eq!(scopes.get("cli").map(|s| s.as_str()), Some("packages/cli"));
-        assert_eq!(scopes.get("sdk").map(|s| s.as_str()), Some("packages/sdk"));
+    fn test_parse_commit_messages_typical() {
+        let msgs = parse_commit_messages("abc1234 feat: add foo\ndef5678 fix: bar\n");
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0], "feat: add foo");
+        assert_eq!(msgs[1], "fix: bar");
     }
 
     #[test]
-    fn test_load_contract_scopes_nonexistent() {
-        let d = tempfile::tempdir().unwrap();
-        let scopes = load_contract_scopes(d.path());
-        assert!(scopes.is_empty());
+    fn test_parse_commit_messages_empty() {
+        assert!(parse_commit_messages("").is_empty());
     }
 
     #[test]
-    fn test_load_contract_scopes_root_contract_yaml() {
-        let d = tempfile::tempdir().unwrap();
-        std::fs::write(
-            d.path().join("contract.yaml"),
-            "scopes:\n  root:\n    dir: .\n    language: rust\n",
-        )
-        .unwrap();
-        let scopes = load_contract_scopes(d.path());
-        assert_eq!(scopes.len(), 1);
-        assert_eq!(scopes.get("root").map(|s| s.as_str()), Some("."));
+    fn test_parse_commit_messages_short_line() {
+        let msgs = parse_commit_messages("abc1234\n");
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0], "abc1234");
+    }
+
+    // ── build_version_from_decision ────────────────────────────
+
+    #[test]
+    fn test_build_version_from_decision_no_tag() {
+        let d = LlmDecision {
+            action: "release".into(),
+            increment: Some("minor".into()),
+            prerelease: None,
+            reason: "".into(),
+        };
+        let v = build_version_from_decision(false, 0, 0, 0, None, None, &d).unwrap();
+        assert_eq!(v, "v0.1.0");
+    }
+
+    #[test]
+    fn test_build_version_from_decision_no_tag_prerelease() {
+        let d = LlmDecision {
+            action: "release".into(),
+            increment: Some("minor".into()),
+            prerelease: Some("alpha".into()),
+            reason: "".into(),
+        };
+        let v = build_version_from_decision(false, 0, 0, 0, None, None, &d).unwrap();
+        assert_eq!(v, "v0.1.0-alpha.1");
+    }
+
+    #[test]
+    fn test_build_version_from_decision_skip() {
+        let d = LlmDecision {
+            action: "skip".into(),
+            increment: None,
+            prerelease: None,
+            reason: "".into(),
+        };
+        assert!(build_version_from_decision(true, 1, 0, 0, None, None, &d).is_err());
+    }
+
+    #[test]
+    fn test_build_version_from_decision_human() {
+        let d = LlmDecision {
+            action: "human".into(),
+            increment: None,
+            prerelease: None,
+            reason: "breaking change".into(),
+        };
+        assert!(build_version_from_decision(true, 1, 0, 0, None, None, &d).is_err());
+    }
+
+    #[test]
+    fn test_build_version_from_decision_patch() {
+        let d = LlmDecision {
+            action: "release".into(),
+            increment: Some("patch".into()),
+            prerelease: None,
+            reason: "".into(),
+        };
+        let v = build_version_from_decision(true, 0, 8, 4, None, None, &d).unwrap();
+        assert_eq!(v, "v0.8.5");
+    }
+
+    // ── apply_scope_prefix ────────────────────────────────────
+
+    #[test]
+    fn test_apply_scope_prefix_with_scope() {
+        assert_eq!(apply_scope_prefix(Some("cli"), "v0.1.0"), "cli/v0.1.0");
+    }
+
+    #[test]
+    fn test_apply_scope_prefix_root() {
+        assert_eq!(apply_scope_prefix(Some("(root)"), "v0.1.0"), "v0.1.0");
+    }
+
+    #[test]
+    fn test_apply_scope_prefix_none() {
+        assert_eq!(apply_scope_prefix(None, "v0.1.0"), "v0.1.0");
+    }
+
+    #[test]
+    fn test_apply_scope_prefix_empty() {
+        assert_eq!(apply_scope_prefix(Some(""), "v0.1.0"), "v0.1.0");
     }
 
     // ── detect_project_type ───────────────────────────────────

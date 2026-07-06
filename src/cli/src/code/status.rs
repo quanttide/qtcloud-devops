@@ -12,13 +12,12 @@ fn map_status(s: &SubmoduleStatus) -> SyncStatus {
     }
 }
 
-pub fn status(root: PathBuf, offline: bool) -> Result<StatusReport, String> {
+pub fn status(root: PathBuf, offline: bool) -> Result<StatusReport, Box<dyn std::error::Error>> {
     let state = if offline {
         RepoState::scan_offline(&root)
     } else {
         RepoState::scan(&root)
-    }
-    .map_err(|e| format!("扫描失败: {}", e))?;
+    }?;
 
     let mut components = Vec::with_capacity(state.submodules.len());
     for sm in &state.submodules {

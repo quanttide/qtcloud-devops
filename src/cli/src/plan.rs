@@ -8,6 +8,20 @@
 /// - `doctor` — 修复格式问题（规则修复 + LLM 修复）
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, thiserror::Error)]
+pub enum PlanError {
+    #[error("I/O 错误: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Other(String),
+}
+
+impl From<String> for PlanError {
+    fn from(s: String) -> Self {
+        PlanError::Other(s)
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // 模型
 // ═══════════════════════════════════════════════════════════════════════
@@ -78,9 +92,8 @@ pub fn resolve_roadmap_path(repo_path: &Path, scope: Option<&str>) -> PathBuf {
 // ═══════════════════════════════════════════════════════════════════════
 
 /// 解析 ROADMAP.md，返回各版本进度列表。
-pub fn parse_roadmap(path: &Path) -> Result<Vec<VersionProgress>, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("读取 {} 失败: {}", path.display(), e))?;
+pub fn parse_roadmap(path: &Path) -> Result<Vec<VersionProgress>, PlanError> {
+    let content = std::fs::read_to_string(path)?;
 
     let mut versions: Vec<VersionProgress> = Vec::new();
     let mut current_version: Option<String> = None;
@@ -124,7 +137,7 @@ pub fn parse_roadmap(path: &Path) -> Result<Vec<VersionProgress>, String> {
 }
 
 /// 格式化输出 scope 规划进度。
-pub fn print_status(repo_path: &Path, scope: Option<&str>) -> Result<(), String> {
+pub fn print_status(repo_path: &Path, scope: Option<&str>) -> Result<(), PlanError> {
     let mut stdout = std::io::stdout();
     print_status_to(&mut stdout, repo_path, scope)
 }
@@ -134,7 +147,7 @@ pub fn print_status_to(
     writer: &mut impl std::io::Write,
     repo_path: &Path,
     scope: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), PlanError> {
     let roadmap_path = resolve_roadmap_path(repo_path, scope);
     if !roadmap_path.exists() {
         writeln!(writer, "  未创建规划文件: {}", roadmap_path.display()).ok();
@@ -195,7 +208,7 @@ fn print_progress(
     writer: &mut impl std::io::Write,
     scope_label: &str,
     versions: &[VersionProgress],
-) -> Result<(), String> {
+) -> Result<(), PlanError> {
     writeln!(writer, "  [{}] 规划进度", scope_label).ok();
     writeln!(writer, "  {}", "-".repeat(40)).ok();
 
@@ -265,9 +278,8 @@ fn is_version_header(line: &str) -> bool {
 /// 删除 ROADMAP.md 中所有已完成条目。
 ///
 /// 只删 `- [x]` 行，级联清理空分类和空版本标题。
-pub fn clean_roadmap(path: &Path) -> Result<usize, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("读取 {} 失败: {}", path.display(), e))?;
+pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
+    let content = std::fs::read_to_string(path)?;
     let original_len = content.len();
 
     let mut lines: Vec<&str> = content.lines().collect();
@@ -324,7 +336,7 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, String> {
     }
 
     if lines.is_empty() {
-        std::fs::write(path, "").map_err(|e| format!("写入失败: {}", e))?;
+        std::fs::write(path, "")?;
         return Ok(original_len);
     }
 
@@ -333,7 +345,7 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, String> {
         output.push_str(line);
         output.push('\n');
     }
-    std::fs::write(path, &output).map_err(|e| format!("写入失败: {}", e))?;
+    std::fs::write(path, &output)?;
     Ok(original_len.saturating_sub(output.len()))
 }
 
@@ -345,9 +357,8 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, String> {
 ///
 /// 1. LLM 修复：理解非标准格式并转换为标准格式（LLM 已配置时）
 /// 2. 规则校验：v 前缀、分类大小写、checkbox 格式（双重保障）
-pub fn doctor_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("读取 {} 失败: {}", path.display(), e))?;
+pub fn doctor_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, PlanError> {
+    let content = std::fs::read_to_string(path)?;
 
     let mut issues: Vec<Issue> = Vec::new();
 
@@ -360,8 +371,7 @@ pub fn doctor_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, String> {
     }
 
     // Phase 2: 规则校验（对 LLM 修复后的内容或原内容做细节修复）
-    let content_after_llm =
-        std::fs::read_to_string(path).map_err(|e| format!("读取失败: {}", e))?;
+    let content_after_llm = std::fs::read_to_string(path)?;
     let rule_issues = apply_rule_fixes(path, &content_after_llm, scope)?;
     issues.extend(rule_issues);
 
@@ -369,7 +379,7 @@ pub fn doctor_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, String> {
 }
 
 /// 规则修复：v 前缀、分类大小写、checkbox 格式。
-fn apply_rule_fixes(path: &Path, content: &str, scope: &str) -> Result<Vec<Issue>, String> {
+fn apply_rule_fixes(path: &Path, content: &str, scope: &str) -> Result<Vec<Issue>, PlanError> {
     let mut issues: Vec<Issue> = Vec::new();
     let mut new_lines: Vec<String> = Vec::new();
 
@@ -478,7 +488,7 @@ fn apply_rule_fixes(path: &Path, content: &str, scope: &str) -> Result<Vec<Issue
             output.push_str(line);
             output.push('\n');
         }
-        std::fs::write(path, &output).map_err(|e| format!("写入失败: {}", e))?;
+        std::fs::write(path, &output)?;
     }
 
     Ok(issues)
@@ -490,7 +500,7 @@ fn doctor_llm(
     _scope: &str,
     settings: &quanttide_agent::Settings,
     path: &Path,
-) -> Result<Option<Vec<Issue>>, String> {
+) -> Result<Option<Vec<Issue>>, PlanError> {
     use quanttide_agent::{llm::CompleteOptions, Message, LLM};
 
     let format_spec = "ROADMAP.md 格式规范：
@@ -517,14 +527,14 @@ c) 条目格式：- [x] 内容 或 - [ ] 内容
     ];
     let response = llm
         .complete(&messages, CompleteOptions::default())
-        .map_err(|e| format!("LLM 调用失败: {}", e))?;
+        .map_err(|e| PlanError::Other(format!("LLM 调用失败: {}", e)))?;
 
     let fixed = response.content.trim().to_string();
     if fixed.is_empty() || fixed == content {
         return Ok(None);
     }
 
-    std::fs::write(path, &fixed).map_err(|e| format!("写入失败: {}", e))?;
+    std::fs::write(path, &fixed)?;
     println!("  📋 LLM 格式修复已应用");
 
     Ok(Some(vec![Issue {

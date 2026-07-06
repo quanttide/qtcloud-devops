@@ -116,11 +116,35 @@ pub fn publish(
     }
 
     // 自动生成 CHANGELOG（scope 子目录下，git 操作在 repo 根）
-    if let Err(e) = super::ensure_changelog(repo_path, &scope_dir, &version) {
-        eprintln!(
-            "⚠ CHANGELOG 生成失败: {}\n   发布将继续，但请确保 CHANGELOG.md 包含版本 {} 的记录。",
-            e, version
-        );
+    match super::ensure_changelog(repo_path, &scope_dir, &version) {
+        Ok(Some(rel)) => {
+            if std::process::Command::new("git")
+                .args(["add", &rel])
+                .current_dir(repo_path)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
+                let ver = super::util::normalize_version(&version);
+                std::process::Command::new("git")
+                    .args([
+                        "commit",
+                        "-m",
+                        &format!("chore: add CHANGELOG entry for {}", ver),
+                    ])
+                    .current_dir(repo_path)
+                    .output()
+                    .ok();
+                println!("✓ CHANGELOG 修改已提交");
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "⚠ CHANGELOG 生成失败: {}\n   发布将继续，但请确保 CHANGELOG.md 包含版本 {} 的记录。",
+                e, version
+            );
+        }
+        _ => {}
     }
 
     let changelog_path = scope_dir.join("CHANGELOG.md");
@@ -136,9 +160,9 @@ pub fn publish(
     if !util::create_tag(&version, repo_path) {
         return Err(format!("创建标签 {} 失败", version).into());
     }
-    if !util::push_tag(&version, repo_path) {
+    if let Err(e) = util::push_tag(&version, repo_path) {
         util::rollback_tag(&version, repo_path);
-        return Err(format!("推送标签 {} 失败", version).into());
+        return Err(format!("推送标签失败: {}", e).into());
     }
     println!("✓ 标签 {} 已创建并推送", version);
 

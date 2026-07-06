@@ -5,7 +5,7 @@ pub use quanttide_devops::contract::{
     Scope, SourceControl, Stage, StageBuild, StageRelease, StageTest, VersionState,
 };
 pub use quanttide_devops::source::config_file::{
-    detect_language, detect_languages, read_config_versions,
+    detect_languages, read_config_versions,
 };
 
 use std::path::Path;
@@ -20,7 +20,7 @@ pub fn load_scopes(repo_path: &Path) -> Vec<Scope> {
 }
 
 pub fn detect_by_files(dir: &Path) -> Language {
-    detect_language(dir)
+    detect_languages(dir).into_iter().next().unwrap_or(Language::Unknown(String::new()))
 }
 
 /// 检查 scope 版本一致性。失败时返回空状态。

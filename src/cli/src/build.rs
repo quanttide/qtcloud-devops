@@ -22,7 +22,7 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
     let mut o = format!("构建状态\n{}\n", "-".repeat(50));
 
     if c.scopes.is_empty() {
-        let lang = contract::detect_language(repo_path);
+        let lang = contract::detect_languages(repo_path).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
         let root_scope = contract::Scope {
             name: "(root)".into(),
             dir: ".".into(),

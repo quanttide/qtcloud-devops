@@ -203,7 +203,8 @@ fn main() {
                 qtcloud_devops_cli::test::status(&repo_path(), &c);
                 Ok(())
             }
-            TestAction::Run => qtcloud_devops_cli::test::run(&repo_path()),
+            TestAction::Run => qtcloud_devops_cli::test::run(&repo_path())
+                .map_err(|e| format!("{}", e)),
             TestAction::Clean => {
                 qtcloud_devops_cli::test::clear_cache(&repo_path());
                 Ok(())
@@ -231,9 +232,8 @@ fn main() {
             }
         },
         Commands::Plan { action } => match action {
-            PlanAction::Status { scope } => {
-                qtcloud_devops_cli::plan::print_status(&repo_path(), scope.as_deref())
-            }
+            PlanAction::Status { scope } => qtcloud_devops_cli::plan::print_status(&repo_path(), scope.as_deref())
+                .map_err(|e| format!("{}", e)),
             PlanAction::Clean { scope } => run_plan_clean(scope),
             PlanAction::Doctor { scope } => run_plan_doctor(scope),
         },
@@ -296,7 +296,7 @@ fn run_code(action: CodeAction) -> Result<(), String> {
 
 fn run_code_status(path: PathBuf, offline: bool) -> Result<(), String> {
     let root = resolve_path(&path)?;
-    let report = code::status(root, offline)?;
+    let report = code::status(root, offline).map_err(|e| format!("{}", e))?;
     print_report(&report);
     Ok(())
 }
@@ -307,7 +307,7 @@ fn run_code_sync_one(name: &str, dry_run: bool, repo: PathBuf) -> Result<(), Str
         println!("[预览] 同步组件 '{}'", name);
         return Ok(());
     }
-    code::sync(root, name)
+    code::sync(root, name).map_err(|e| format!("{}", e))
 }
 
 fn run_code_sync_all(dry_run: bool, repo: PathBuf) -> Result<(), String> {
@@ -316,7 +316,7 @@ fn run_code_sync_all(dry_run: bool, repo: PathBuf) -> Result<(), String> {
         println!("[预览] 同步所有组件");
         return Ok(());
     }
-    code::sync_all(root)
+    code::sync_all(root).map_err(|e| format!("{}", e))
 }
 
 fn run_plan_clean(scope: Option<String>) -> Result<(), String> {
@@ -326,7 +326,8 @@ fn run_plan_clean(scope: Option<String>) -> Result<(), String> {
         println!("  未找到规划文件: {}", roadmap_path.display());
         return Ok(());
     }
-    let removed = qtcloud_devops_cli::plan::clean_roadmap(&roadmap_path)?;
+    let removed = qtcloud_devops_cli::plan::clean_roadmap(&roadmap_path)
+        .map_err(|e| format!("{}", e))?;
     if removed > 0 {
         println!(
             "  ✓ 已清理 {} 字节，文件: {}",
@@ -364,7 +365,8 @@ fn run_plan_doctor(scope: Option<String>) -> Result<(), String> {
         return Ok(());
     }
     let scope_label = scope.unwrap_or_else(|| "(auto)".to_string());
-    let issues = qtcloud_devops_cli::plan::doctor_roadmap(&roadmap_path, &scope_label)?;
+    let issues = qtcloud_devops_cli::plan::doctor_roadmap(&roadmap_path, &scope_label)
+        .map_err(|e| format!("{}", e))?;
     if issues.is_empty() {
         println!("  ✅ 格式无误");
     } else {

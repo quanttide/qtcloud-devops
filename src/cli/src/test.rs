@@ -78,7 +78,7 @@ fn run_direct(repo_path: &Path) -> Result<(), String> {
     };
 
     if scopes.is_empty() {
-        let lang = crate::contract::detect_language(repo_path);
+        let lang = crate::contract::detect_languages(repo_path).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
         run_scoped(repo_path, &lang)?;
     } else {
         for scope in &scopes {
@@ -232,7 +232,7 @@ pub fn status_to(
     writeln!(writer, "{}", "-".repeat(50))?;
 
     if scopes.is_empty() {
-        let lang = contract::detect_language(repo_path);
+        let lang = contract::detect_languages(repo_path).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
         let summary = collect_test_summary(repo_path, &lang);
         let coverage = collect_coverage(repo_path, &lang, c.stages.test.threshold);
         print_scope(writer, "(root)", &summary, &coverage)?;

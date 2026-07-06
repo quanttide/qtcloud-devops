@@ -2,14 +2,14 @@ use std::path::PathBuf;
 
 use crate::git::GitSubmoduleEditor;
 
-pub fn sync(root: PathBuf, name: &str) -> Result<(), String> {
+pub fn sync(root: PathBuf, name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let editor = GitSubmoduleEditor::new(root);
-    editor.sync_to_parent(name).map_err(|e| format!("同步失败: {}", e))
+    editor.sync_to_parent(name)
 }
 
-pub fn sync_all(root: PathBuf) -> Result<(), String> {
+pub fn sync_all(root: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let editor = GitSubmoduleEditor::new(root);
-    editor.sync_all_to_parent().map_err(|e| format!("同步失败: {}", e))
+    editor.sync_all_to_parent()
 }
 
 #[cfg(test)]
