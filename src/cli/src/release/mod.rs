@@ -6,10 +6,10 @@ mod status;
 
 pub use audit::{audit, audit_all, AuditItem};
 pub use changelog::ensure_changelog;
-pub use publish::publish;
-pub use status::status;
 pub use changelog::ChangelogError;
 pub use detect::DetectError;
+pub use publish::publish;
+pub use status::status;
 
 // ═══════════════════════════════════════════════════════════════════════
 // util (inlined)
@@ -93,29 +93,64 @@ fn tag_push_refspec(version: &str) -> String {
 }
 
 /// 推送 tag 到远程（需要网络）。
+/// 使用系统 git 命令而非 git2，避免 git2 缺少 credential callback 导致的认证失败。
 pub fn push_tag(version: &str, repo_path: &Path) -> Result<(), String> {
-    let repo = git2::Repository::open(repo_path)
-        .map_err(|e| format!("打开仓库失败: {}", e))?;
-    let mut remote = match repo.find_remote("origin") {
-        Ok(r) => r,
-        Err(_) => return Ok(()),
-    };
-    let refspec = tag_push_refspec(version);
-    remote.push(&[&refspec], None)
-        .map_err(|e| format!("推送标签失败: {}", e))
+    // 先确认是 git 仓库
+    let is_repo = std::process::Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .current_dir(repo_path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !is_repo {
+        return Err("不是 git 仓库".into());
+    }
+    // 没有 origin 则跳过推送（测试仓库常见）
+    let has_origin = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(repo_path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !has_origin {
+        return Ok(());
+    }
+    let output = std::process::Command::new("git")
+        .args(["push", "origin", &tag_push_refspec(version)])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("执行 git push 失败: {}", e))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(format!("推送标签失败: {}", stderr))
+    }
 }
 
 /// 从 version 字符串提取 scope，查契约得到子目录。
 pub fn resolve_scope_dir(version: &str, repo_path: &Path) -> std::path::PathBuf {
-    let scope_name = if version.contains('/') { version.split('/').next().unwrap_or("") } else { "(root)" };
-    if scope_name == "(root)" || scope_name.is_empty() { return repo_path.to_path_buf(); }
+    let scope_name = if version.contains('/') {
+        version.split('/').next().unwrap_or("")
+    } else {
+        "(root)"
+    };
+    if scope_name == "(root)" || scope_name.is_empty() {
+        return repo_path.to_path_buf();
+    }
     let scopes = crate::contract::load_scopes(repo_path);
     if let Some(s) = scopes.iter().find(|s| s.name == scope_name) {
         let d = repo_path.join(&s.dir);
-        if d.exists() { return d; }
+        if d.exists() {
+            return d;
+        }
     }
     let d = repo_path.join(scope_name);
-    if d.is_dir() { d } else { repo_path.to_path_buf() }
+    if d.is_dir() {
+        d
+    } else {
+        repo_path.to_path_buf()
+    }
 }
 
 /// 查询 remote origin 的 GitHub 仓库标识。
@@ -134,7 +169,9 @@ pub fn parse_github_repo(url: &str) -> Option<String> {
 
 pub fn create_release(version: &str, notes: &str, repo: &str) -> bool {
     let out = Command::new("gh")
-        .args(["release", "create", version, "--title", version, "--notes", notes, "--repo", repo])
+        .args([
+            "release", "create", version, "--title", version, "--notes", notes, "--repo", repo,
+        ])
         .output();
     match out {
         Ok(out) if out.status.success() => true,
@@ -176,17 +213,16 @@ pub fn delete_local_tag(version: &str, repo_path: &Path) -> bool {
 }
 
 /// 删除远端 tag（等价于 `git push --delete origin <version>`）。
+/// 使用系统 git 命令而非 git2，避免 git2 缺少 credential callback 导致的认证失败。
 pub fn delete_remote_tag(version: &str, repo_path: &Path) -> bool {
-    let repo = match git2::Repository::open(repo_path) {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
-    let mut remote = match repo.find_remote("origin") {
-        Ok(r) => r,
-        Err(_) => return true,
-    };
-    let refspec = format!(":refs/tags/{}", version);
-    remote.push(&[&refspec], None).is_ok()
+    let output = std::process::Command::new("git")
+        .args(["push", "--delete", "origin", version])
+        .current_dir(repo_path)
+        .output();
+    match output {
+        Ok(out) => out.status.success(),
+        Err(_) => false,
+    }
 }
 
 /// 删除 GitHub Release（等价于 `gh release delete <version> --yes`）。
@@ -231,7 +267,8 @@ mod tests {
         let sig = repo.signature().unwrap();
         let parent = repo.head().and_then(|h| h.peel_to_commit()).ok();
         let parents: Vec<&git2::Commit> = parent.iter().collect();
-        repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents)
+            .unwrap();
     }
 
     use super::*;
@@ -353,7 +390,10 @@ mod tests {
     }
     #[test]
     fn test_create_tag_in_non_git_dir() {
-        assert!(!create_tag("v0.0.0-test", tempfile::tempdir().unwrap().path()));
+        assert!(!create_tag(
+            "v0.0.0-test",
+            tempfile::tempdir().unwrap().path()
+        ));
     }
     #[test]
     fn test_create_tag_idempotent() {
@@ -374,7 +414,12 @@ mod tests {
         git_commit(d.path(), "init");
         assert!(create_tag("v0.0.0-test-remote", d.path()));
         std::process::Command::new("git")
-            .args(["remote", "add", "origin", "https://nonexistent.invalid/repo.git"])
+            .args([
+                "remote",
+                "add",
+                "origin",
+                "https://nonexistent.invalid/repo.git",
+            ])
             .current_dir(d.path())
             .output()
             .unwrap();
@@ -417,7 +462,15 @@ mod tests {
             .output()
             .unwrap();
         std::process::Command::new("git")
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-m",
+                "x",
+            ])
             .current_dir(d.path())
             .output()
             .unwrap();
@@ -435,9 +488,17 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let contract_dir = d.path().join(".quanttide/devops");
         std::fs::create_dir_all(&contract_dir).unwrap();
-        std::fs::write(contract_dir.join("contract.yaml"), "scopes:\n  cli:\n    dir: packages/cli\n    language: rust\n").unwrap();
+        std::fs::write(
+            contract_dir.join("contract.yaml"),
+            "scopes:\n  cli:\n    dir: packages/cli\n    language: rust\n",
+        )
+        .unwrap();
         std::fs::create_dir_all(d.path().join("packages/cli")).unwrap();
         let resolved = resolve_scope_dir("cli/v0.1.0", d.path());
-        assert!(resolved.ends_with("packages/cli"), "预期以 packages/cli 结尾，但得到: {:?}", resolved);
+        assert!(
+            resolved.ends_with("packages/cli"),
+            "预期以 packages/cli 结尾，但得到: {:?}",
+            resolved
+        );
     }
 }
