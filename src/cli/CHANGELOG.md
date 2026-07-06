@@ -1,12 +1,40 @@
 # CHANGELOG
 
-## [0.10.0-alpha.2] - 2026-07-06
+## [0.10.0-beta.1] - 2026-07-06
 
-- Changed
-  - 升级 quanttide-devops 0.2.1 → 0.2.2（`detect_languages` 替换手写多语言检测）
-  - 显示层重构：`writeln!` → `push_str` + 多行字符串，消除 25 个 writer 调用
-- Removed
-  - 删除 `detect_all_languages`、`detect_by_files` 手写包装，委托给 toolkit
+### Breaking
+- `doctor` → `source`（`doctor status` 改为 `source status`，无向后兼容）
+- `plan doctor` → `plan edit`
+- `test review` → `test audit`
+- `code sync` 移除
+- `test run` / `test clean` 移除
+
+### Added
+- 新增 `audit` 命令（顶层聚合 build/test/release 审计）
+- 新增 `build audit` / `build clean` — 构建配置审计、产物清理
+- 新增 `test audit` — 测试覆盖率与错误变体覆盖审计
+- 新增 `release audit` — 版本/配置/CHANGELOG/工作区/tag/远程/GH Release 6+1 项预检
+- 新增 `plan audit` — ROADMAP vs TODO 关系审计
+- 新增 `code audit` — TODO/FIXME 密度、语法检查
+- 新增 `help` 命令 — 按 stage 分组快速导览
+- 新增 `docs/architecture.md` — status/audit/action 三层架构文档
+
+### Changed
+- 升级 quanttide-devops 0.2.3 → 0.3.0（`latest_tag` 返回原始 tag + `latest_version` 标准化版本）
+- `release publish` 内部预检使用 `release audit` 模块
+- `parse_roadmap` 改用 toolkit 的 `RoadmapVersion`/`RoadmapChecklistItem` 数据模型
+- `collect_git_log` / `append_entry` / tag 操作委托给 toolkit
+- 代码总量减少 854 行
+
+### Removed
+- `code sync` / `git editor` — 组件同步功能移除
+- `test run` / `test clean` — 测试执行功能移除
+- 删除 `publish.rs` 中的死代码（重复的 `audit` 函数和 `AuditItem`）
+
+### Fixed
+- Issue #14：`release publish --force` 推送标签失败
+
+## [0.10.0-alpha.2] - 2026-07-06
 
 ## [0.10.0-alpha.1] - 2026-07-06
 

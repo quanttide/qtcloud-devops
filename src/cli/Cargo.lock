@@ -2755,7 +2755,7 @@ dependencies = [
 
 [[package]]
 name = "qtcloud-devops-cli"
-version = "0.10.0-alpha.2"
+version = "0.10.0-beta.1"
 dependencies = [
  "clap",
  "git2",
