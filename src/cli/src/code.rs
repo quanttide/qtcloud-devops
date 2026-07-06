@@ -80,7 +80,7 @@ pub fn audit(repo_path: &Path) {
     let c = contract::load(repo_path);
     println!("代码审计\n{}", "-".repeat(50));
     let mut passed = 0u32;
-    let total = 3u32;
+    let total = 5u32;
 
     let all_ok = c.scopes.iter().all(|s| {
         let dir = repo_path.join(&s.dir);
@@ -92,12 +92,30 @@ pub fn audit(repo_path: &Path) {
 
     let mut total_markers = 0usize;
     let mut total_lines = 0usize;
-    for s in &c.scopes { count_markers(&repo_path.join(&s.dir), &mut total_markers, &mut total_lines); }
+    let mut total_unwraps = 0usize;
+    let mut long_files = Vec::new();
+    for s in &c.scopes { count_markers(&repo_path.join(&s.dir), &mut total_markers, &mut total_lines, &mut total_unwraps, &mut long_files); }
     if total_lines > 0 {
         let density = total_markers as f64 / total_lines as f64 * 1000.0;
         if density < 5.0 { println!("  ✅ TODO/FIXME: {} 处, 密度 {:.1}‰", total_markers, density); passed += 1; }
         else { println!("  ❌ TODO/FIXME: {} 处, 密度 {:.1}‰（阈值 5‰）", total_markers, density); }
     } else { println!("  ⚠ TODO/FIXME: 无可扫描源码"); passed += 1; }
+
+    if total_lines > 0 {
+        let unwrap_density = total_unwraps as f64 / total_lines as f64 * 1000.0;
+        if unwrap_density < 10.0 { println!("  ✅ unwrap/expect: {} 处, 密度 {:.1}‰", total_unwraps, unwrap_density); passed += 1; }
+        else { println!("  ❌ unwrap/expect: {} 处, 密度 {:.1}‰（阈值 10‰）", total_unwraps, unwrap_density); }
+    } else { println!("  ⚠ unwrap/expect: 无可扫描源码"); passed += 1; }
+
+    if long_files.is_empty() {
+        println!("  ✅ 文件长度: 全部文件 ≤ 500 行");
+        passed += 1;
+    } else {
+        println!("  ❌ 超长文件（阈值 500 行）:");
+        for (path, line_count) in &long_files {
+            println!("     {} ({} 行)", path.display(), line_count);
+        }
+    }
 
     match check_lint_for_langs(repo_path) {
         Some(true) => { println!("  ✅ 语法检查: 通过"); passed += 1; }
@@ -110,7 +128,8 @@ pub fn audit(repo_path: &Path) {
     else { println!("  ⚠ {}/{} 项通过", passed, total); }
 }
 
-fn count_markers(dir: &Path, markers: &mut usize, lines: &mut usize) {
+fn count_markers(dir: &Path, markers: &mut usize, lines: &mut usize, unwraps: &mut usize, long_files: &mut Vec<(PathBuf, usize)>) {
+    const SRC_EXTENSIONS: &[&str] = &["rs", "py", "go", "ts", "tsx", "dart", "js", "jsx"];
     if !dir.exists() { return; }
     let entries = match std::fs::read_dir(dir) { Ok(e) => e, Err(_) => return };
     for entry in entries.flatten() {
@@ -118,15 +137,22 @@ fn count_markers(dir: &Path, markers: &mut usize, lines: &mut usize) {
         if path.is_dir() {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if name != "target" && !name.starts_with('.') && name != "node_modules" {
-                count_markers(&path, markers, lines);
+                count_markers(&path, markers, lines, unwraps, long_files);
             }
-        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+        } else if path.extension().and_then(|e| e.to_str()).map_or(false, |e| SRC_EXTENSIONS.contains(&e)) {
             if let Ok(content) = std::fs::read_to_string(&path) {
-                *lines += content.lines().count();
+                let file_lines = content.lines().count();
+                *lines += file_lines;
                 *markers += content.lines().filter(|l| {
                     let t = l.trim().to_lowercase();
                     t.contains("todo") || t.contains("fixme") || t.contains("hack")
                 }).count();
+                for l in content.lines() {
+                    *unwraps += l.matches(".unwrap()").count() + l.matches(".expect(").count();
+                }
+                if file_lines > 500 {
+                    long_files.push((path, file_lines));
+                }
             }
         }
     }

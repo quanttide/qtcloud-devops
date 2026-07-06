@@ -66,7 +66,7 @@ pub fn ensure_changelog(repo_path: &Path, scope_dir: &Path, version: &str) -> Re
     let changelog_path = scope_dir.join("CHANGELOG.md");
     if changelog_path.exists() {
         if let Ok(cl) = Changelog::from_path(&changelog_path) {
-            let ver = super::util::normalize_version(version);
+            let ver = super::normalize_version(version);
             if cl.contains_version(&ver) {
                 return Ok(None);
             }

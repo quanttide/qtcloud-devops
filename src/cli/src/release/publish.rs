@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::util::{self, resolve_scope_dir, PublishTarget};
+use super::{resolve_scope_dir, PublishTarget};
 use crate::contract;
 
 /// 发布版本。
@@ -26,7 +26,7 @@ pub fn publish(
     // ── 确定版本号 ────────────────────────────────────────────────
     let version = match version {
         Some(v) => {
-            if !util::validate_version(v) {
+            if !super::validate_version(v) {
                 return Err(format!("版本号格式错误: {}", v).into());
             }
             v.to_string()
@@ -53,7 +53,7 @@ pub fn publish(
         return Ok(());
     }
 
-    let ver = util::normalize_version(&version);
+    let ver = super::normalize_version(&version);
 
     // 从 version 提取 scope 前缀，从契约获取子目录
     let scope_dir = resolve_scope_dir(&version, repo_path);
@@ -63,12 +63,12 @@ pub fn publish(
 
     // 强制模式：清理已存在的 tag 和 Release，允许重新发布
     if force {
-        if let Some(repo) = super::util::get_remote_repo(repo_path) {
+        if let Some(repo) = super::get_remote_repo(repo_path) {
             eprintln!("🔁 强制重新发布，清理旧资源...");
-            super::util::delete_release(&version, &repo);
+            super::delete_release(&version, &repo);
         }
-        super::util::delete_remote_tag(&version, repo_path);
-        super::util::delete_local_tag(&version, repo_path);
+        super::delete_remote_tag(&version, repo_path);
+        super::delete_local_tag(&version, repo_path);
     }
 
     // 预检：所有配置文件版本号一致
@@ -125,7 +125,7 @@ pub fn publish(
                 .map(|o| o.status.success())
                 .unwrap_or(false)
             {
-                let ver = super::util::normalize_version(&version);
+                let ver = super::normalize_version(&version);
                 std::process::Command::new("git")
                     .args([
                         "commit",
@@ -148,28 +148,28 @@ pub fn publish(
     }
 
     let changelog_path = scope_dir.join("CHANGELOG.md");
-    let precheck_errors = util::precheck_version_changelog(&version, &changelog_path);
+    let precheck_errors = super::precheck_version_changelog(&version, &changelog_path);
     if !precheck_errors.is_empty() {
         return Err(precheck_errors.join("\n").into());
     }
 
-    if !yes && !util::confirm_release(&version, false) {
+    if !yes && !super::confirm_release(&version, false) {
         return Err("已取消发布".into());
     }
 
-    if !util::create_tag(&version, repo_path) {
+    if !super::create_tag(&version, repo_path) {
         return Err(format!("创建标签 {} 失败", version).into());
     }
-    if let Err(e) = util::push_tag(&version, repo_path) {
-        util::rollback_tag(&version, repo_path);
+    if let Err(e) = super::push_tag(&version, repo_path) {
+        super::rollback_tag(&version, repo_path);
         return Err(format!("推送标签失败: {}", e).into());
     }
     println!("✓ 标签 {} 已创建并推送", version);
 
-    let notes = util::extract_notes(&version, &changelog_path);
-    if let Some(repo) = util::get_remote_repo(repo_path) {
-        if !util::create_release(&version, notes.as_deref().unwrap_or(""), &repo) {
-            util::rollback_tag(&version, repo_path);
+    let notes = super::extract_notes(&version, &changelog_path);
+    if let Some(repo) = super::get_remote_repo(repo_path) {
+        if !super::create_release(&version, notes.as_deref().unwrap_or(""), &repo) {
+            super::rollback_tag(&version, repo_path);
             return Err("创建 GitHub Release 失败".into());
         }
         println!("✓ GitHub Release {} 已创建", version);

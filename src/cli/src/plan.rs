@@ -271,22 +271,6 @@ const CATEGORIES: &[&str] = &[
     "### Security",
 ];
 
-fn is_done_item(line: &str) -> bool {
-    let t = line.trim();
-    t.starts_with("- [x]") || t.starts_with("- [X]")
-}
-
-fn is_category_header(line: &str) -> bool {
-    let t = line.trim();
-    CATEGORIES
-        .iter()
-        .any(|c| t == *c || t.eq_ignore_ascii_case(c))
-}
-
-fn is_version_header(line: &str) -> bool {
-    is_version_line(line).is_some()
-}
-
 /// 删除 ROADMAP.md 中所有已完成条目。
 ///
 /// 只删 `- [x]` 行，级联清理空分类和空版本标题。
@@ -297,17 +281,20 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
     let mut lines: Vec<&str> = content.lines().collect();
 
     // 第一遍：删除 done item 行
-    lines.retain(|l| !is_done_item(l));
+    lines.retain(|l| {
+        let t = l.trim();
+        !t.starts_with("- [x]") && !t.starts_with("- [X]")
+    });
 
     // 第二遍：删除空的分类标题（跳过空行看后面是否真有内容）
     let mut i = 0;
     while i < lines.len() {
-        if is_category_header(lines[i]) {
+        if CATEGORIES.iter().any(|c| { let t = lines[i].trim(); t == *c || t.eq_ignore_ascii_case(c) }) {
             let mut j = i + 1;
             while j < lines.len() && lines[j].trim().is_empty() {
                 j += 1;
             }
-            if j >= lines.len() || is_category_header(lines[j]) || is_version_header(lines[j]) {
+            if j >= lines.len() || CATEGORIES.iter().any(|c| { let t = lines[j].trim(); t == *c || t.eq_ignore_ascii_case(c) }) || is_version_line(lines[j]).is_some() {
                 lines.remove(i);
                 continue;
             }
@@ -318,12 +305,12 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
     // 第三遍：删除空的版本标题（跳过空行看后面是否真有内容）
     let mut i = 0;
     while i < lines.len() {
-        if is_version_header(lines[i]) {
+        if is_version_line(lines[i]).is_some() {
             let mut j = i + 1;
             while j < lines.len() && lines[j].trim().is_empty() {
                 j += 1;
             }
-            if j >= lines.len() || is_version_header(lines[j]) {
+            if j >= lines.len() || is_version_line(lines[j]).is_some() {
                 // 后面是文件尾或另一个版本头 → 此版本为空
                 lines.remove(i);
                 continue;
@@ -333,7 +320,7 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
         i += 1;
     }
     if let Some(last) = lines.last() {
-        if is_version_header(last) {
+        if is_version_line(last).is_some() {
             lines.pop();
         }
     }

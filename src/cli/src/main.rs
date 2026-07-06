@@ -119,9 +119,12 @@ enum ContractAction {
 enum ReleaseAction {
     /// 发布预检审计：检查版本号、配置文件、CHANGELOG、工作区、标签冲突、远程可达性
     Audit {
-        /// 版本号。格式 `vX.Y.Z` 或 `scope/vX.Y.Z`。省略时自动检测。
+        /// 版本号。格式 `vX.Y.Z` 或 `scope/vX.Y.Z`。省略时审计全部 scope。
         #[arg(short = 'v', long)]
         version: Option<String>,
+        /// 仅审计指定 scope（不传时审计全部 scope）
+        #[arg(long)]
+        scope: Option<String>,
     },
     /// 发布版本：校验 CHANGELOG → 创建 tag → 推送到远端 → 创建 GitHub Release
     Publish {
@@ -242,25 +245,42 @@ fn main() {
             }
         },
         Commands::Release { action } => match action {
-            ReleaseAction::Audit { version } => {
+            ReleaseAction::Audit { version, scope } => {
                 let rp = repo_path();
-                match qtcloud_devops_cli::release::audit(version.as_deref(), &rp) {
-                    Ok(items) => {
-                        println!("发布审计\n{}", "-".repeat(50));
-                        let mut passed = 0u32;
-                        for item in &items {
-                            let icon = if item.passed { "✅" } else { "❌" };
-                            println!("  {} {}", icon, item.name);
-                            println!("        {}", item.detail);
-                            if item.passed { passed += 1; }
+                let results = if let Some(v) = version {
+                    qtcloud_devops_cli::release::audit(Some(&v), &rp)
+                        .map(|items| vec![("".to_string(), items)])
+                } else {
+                    qtcloud_devops_cli::release::audit_all(&rp, scope.as_deref())
+                };
+                match results {
+                    Ok(all_items) => {
+                        let (all_passed, all_total) = all_items.iter().fold((0u32, 0u32), |(p, t), (_, items)| {
+                            let sp = items.iter().filter(|i| i.passed).count() as u32;
+                            (p + sp, t + items.len() as u32)
+                        });
+                        for (scope_name, items) in &all_items {
+                            if !scope_name.is_empty() {
+                                println!("发布审计 — {}\n{}", scope_name, "-".repeat(50));
+                            } else {
+                                println!("发布审计\n{}", "-".repeat(50));
+                            }
+                            let mut passed = 0u32;
+                            for item in items {
+                                let icon = if item.passed { "✅" } else { "❌" };
+                                println!("  {} {}", icon, item.name);
+                                println!("        {}", item.detail);
+                                if item.passed { passed += 1; }
+                            }
+                            let total = items.len() as u32;
+                            println!("{}\n  {}/{} 项通过\n", "-".repeat(50), passed, total);
                         }
-                        println!("\n{}", "-".repeat(50));
-                        let total = items.len() as u32;
-                        if passed == total {
-                            println!("  全部 {} 项检查通过", total);
+                        let total = all_items.len() as u32;
+                        if all_passed == all_total {
+                            println!("  全部 {} 项检查通过 ({} scope)", all_total, total);
                             Ok(())
                         } else {
-                            Err(format!("{}/{} 项未通过", total - passed, total))
+                            Err(format!("{}/{} 项未通过 ({} scope)", all_total - all_passed, all_total, total))
                         }
                     }
                     Err(e) => Err(format!("审计失败: {}", e)),
@@ -354,7 +374,7 @@ fn main() {
             println!();
             qtcloud_devops_cli::test::audit(&rp, &c, true, false).ok();
             println!();
-            qtcloud_devops_cli::release::audit(None, &rp).ok();
+            qtcloud_devops_cli::release::audit_all(&rp, None).ok();
             Ok(())
         }
         Commands::Source { action } => match action {

@@ -441,7 +441,7 @@ fn get_changed_paths_since_last_tag(root: &Path) -> Result<Vec<String>, DetectEr
 // tag 处理
 // ═════════════════════════════════════════════════════════════════════
 
-fn get_latest_tag_for_scope(root: &Path, scope: Option<&str>) -> Option<String> {
+pub(crate) fn get_latest_tag_for_scope(root: &Path, scope: Option<&str>) -> Option<String> {
     let scope_name = scope.unwrap_or("");
     quanttide_devops::source::git_tag::latest_tag(root, scope_name).ok().flatten()
 }

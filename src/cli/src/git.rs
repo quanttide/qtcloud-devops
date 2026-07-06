@@ -1,5 +1,141 @@
-use crate::git::types::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// 截断 OID 到 7 字符显示（等价旧 CommitHash Display）。
+pub fn fmt_oid(id: &gix::ObjectId) -> String {
+    gix::hash::Prefix::new(id, 7)
+        .map(|p| p.to_string())
+        .unwrap_or_else(|_| id.to_string())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum SubmoduleStatus {
+    Clean,
+    AheadOfParent,
+    BehindRemote,
+    Detached,
+    Dirty,
+    Orphaned,
+    Uninitialized,
+}
+
+impl SubmoduleStatus {
+    pub fn priority(&self) -> u8 {
+        match self {
+            Self::Dirty => 0,
+            Self::Orphaned => 1,
+            Self::Detached => 2,
+            Self::Uninitialized => 3,
+            Self::BehindRemote => 4,
+            Self::AheadOfParent => 5,
+            Self::Clean => 6,
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Submodule {
+    pub name: String,
+    pub path: PathBuf,
+    pub url: String,
+    pub tracked_branch: String,
+    pub parent_pointer: gix::ObjectId,
+    pub local_head: gix::ObjectId,
+    pub remote_head: gix::ObjectId,
+    pub status: SubmoduleStatus,
+    pub ahead_count: usize,
+    pub behind_count: usize,
+    pub remote_unreachable: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RepoState {
+    pub root_path: PathBuf,
+    pub submodules: Vec<Submodule>,
+    pub total: usize,
+    pub clean_count: usize,
+    pub needs_attention: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct AggregateStatus {
+    pub total: usize,
+    pub clean: usize,
+    pub ahead_of_parent: usize,
+    pub behind_remote: usize,
+    pub detached: usize,
+    pub dirty: usize,
+    pub orphaned: usize,
+    pub uninitialized: usize,
+}
+
+impl AggregateStatus {
+    pub fn from_submodules(submodules: &[Submodule]) -> Self {
+        let mut clean = 0;
+        let mut ahead = 0;
+        let mut behind = 0;
+        let mut detached = 0;
+        let mut dirty = 0;
+        let mut orphaned = 0;
+        let mut uninit = 0;
+        for sm in submodules {
+            match sm.status {
+                SubmoduleStatus::Clean => clean += 1,
+                SubmoduleStatus::AheadOfParent => ahead += 1,
+                SubmoduleStatus::BehindRemote => behind += 1,
+                SubmoduleStatus::Detached => detached += 1,
+                SubmoduleStatus::Dirty => dirty += 1,
+                SubmoduleStatus::Orphaned => orphaned += 1,
+                SubmoduleStatus::Uninitialized => uninit += 1,
+            }
+        }
+        AggregateStatus {
+            total: submodules.len(),
+            clean,
+            ahead_of_parent: ahead,
+            behind_remote: behind,
+            detached,
+            dirty,
+            orphaned,
+            uninitialized: uninit,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HealthIssue {
+    pub submodule_name: String,
+    pub status: String,
+    pub description: String,
+    pub suggested_action: String,
+}
+
+pub fn describe_issue(status: &SubmoduleStatus) -> (String, String) {
+    match status {
+        SubmoduleStatus::AheadOfParent => (
+            "本地领先于父仓库记录".into(),
+            "运行 sync_to_parent 更新父仓库指针".into(),
+        ),
+        SubmoduleStatus::BehindRemote => (
+            "远程有更新，本地落后".into(),
+            "运行 code sync 获取最新代码".into(),
+        ),
+        SubmoduleStatus::Detached => (
+            "处于游离 HEAD 状态".into(),
+            "运行 checkout_branch 切换到跟踪分支".into(),
+        ),
+        SubmoduleStatus::Dirty => ("有未提交的修改".into(), "提交或 stash 当前修改".into()),
+        SubmoduleStatus::Orphaned => (
+            "父仓库记录的 commit 在远程已不存在".into(),
+            "需手动干预".into(),
+        ),
+        SubmoduleStatus::Uninitialized => ("尚未初始化".into(), "运行 init 初始化子模块".into()),
+        SubmoduleStatus::Clean => unreachable!(),
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// scan
+// ═══════════════════════════════════════════════════════════════════════
 
 /// 从 .gitmodules 解析子模块列表：name, path, url, branch
 pub fn parse_gitmodules(root: &Path) -> Vec<(String, PathBuf, String, String)> {
@@ -82,7 +218,6 @@ impl RepoState {
     }
 
     fn scan_with_options(root: &Path, offline: bool) -> Result<Self, Box<dyn std::error::Error>> {
-        // 确认是 git 仓库
         if gix::open(root).is_err() {
             return Err(format!("不在 git 仓库中: {:?}", root).into());
         }
@@ -90,7 +225,6 @@ impl RepoState {
         let raw_entries = parse_gitmodules(root);
         let mut submodules: Vec<Submodule> = Vec::with_capacity(raw_entries.len());
 
-        // gix 打开父仓库，用于 tree 查询 parent pointer
         let parent_repo = gix::open(root).ok();
 
         for (name, sm_path, url, branch) in &raw_entries {
@@ -161,7 +295,6 @@ impl RepoState {
         })
     }
 
-    /// 扫描单个子模块的远程状态，使用 gix + git2。
     #[allow(clippy::too_many_arguments)]
     fn scan_single_submodule(
         full_sm_path: &Path,
@@ -179,7 +312,6 @@ impl RepoState {
         bool,
         bool,
     ) {
-        // 子模块目录不存在 → 未初始化
         if !full_sm_path.exists() {
             return (
                 gix::ObjectId::null(gix::hash::Kind::Sha1),
@@ -193,7 +325,6 @@ impl RepoState {
                 false,
             );
         }
-        // 不是 git 仓库
         if !full_sm_path.join(".git").exists() {
             return (
                 gix::ObjectId::null(gix::hash::Kind::Sha1),
@@ -208,22 +339,18 @@ impl RepoState {
             );
         }
 
-        // 用 gix 打开子模块仓库
         let sm_repo = gix::open(full_sm_path).ok();
 
-        // 本地 HEAD
         let local_head: gix::ObjectId = sm_repo
             .as_ref()
             .and_then(|r| r.head_commit().ok().map(|c| c.id().into()))
             .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1));
 
-        // 是否游离 HEAD
         let is_detached = sm_repo
             .as_ref()
             .map(|r| r.head().ok().map(|h| h.is_detached()).unwrap_or(false))
             .unwrap_or(false);
 
-        // 是否 dirty — 用 git2
         let is_dirty = git2::Repository::open(full_sm_path)
             .map(|r| {
                 r.statuses(Some(git2::StatusOptions::new().include_untracked(true)))
@@ -232,7 +359,6 @@ impl RepoState {
             })
             .unwrap_or(false);
 
-        // fetch（非 offline 模式）— 用 git2
         if !offline {
             if let Ok(repo) = git2::Repository::open(full_sm_path) {
                 if let Ok(mut remote) = repo.find_remote("origin") {
@@ -241,7 +367,6 @@ impl RepoState {
             }
         }
 
-        // 远程 HEAD — 用 gix 查 refs/remotes/origin/{branch}
         let remote_ref = format!("refs/remotes/origin/{}", branch);
         let (remote_head, remote_unreachable) = sm_repo
             .as_ref()
@@ -258,7 +383,6 @@ impl RepoState {
             })
             .unwrap_or((gix::ObjectId::null(gix::hash::Kind::Sha1), true));
 
-        // ahead / behind — 用 gix revwalk
         let ahead = sm_repo
             .as_ref()
             .map(|r| gix_count_between(r, *parent_pointer, local_head))
@@ -273,7 +397,6 @@ impl RepoState {
                 .unwrap_or(0)
         };
 
-        // orphaned：父指针和远程不同
         let is_orphaned = !remote_unreachable
             && remote_head != gix::ObjectId::null(gix::hash::Kind::Sha1)
             && parent_pointer != &remote_head
@@ -334,6 +457,7 @@ impl RepoState {
         Ok((state.submodules, agg))
     }
 }
+
 #[cfg(test)]
 mod tests {
     fn git_init(path: &std::path::Path) {
@@ -360,6 +484,203 @@ mod tests {
     use super::*;
     use std::process::Command;
 
+    // ---- SubmoduleStatus tests ----
+    #[test]
+    fn test_status_priority_ordering() {
+        assert!(SubmoduleStatus::Dirty.priority() < SubmoduleStatus::Clean.priority());
+        assert!(SubmoduleStatus::Orphaned.priority() < SubmoduleStatus::BehindRemote.priority());
+    }
+    #[test]
+    fn test_clean_is_lowest_priority() {
+        for s in &[
+            SubmoduleStatus::Dirty,
+            SubmoduleStatus::Orphaned,
+            SubmoduleStatus::Detached,
+            SubmoduleStatus::Uninitialized,
+            SubmoduleStatus::BehindRemote,
+            SubmoduleStatus::AheadOfParent,
+        ] {
+            assert!(s.priority() < SubmoduleStatus::Clean.priority());
+        }
+    }
+    #[test]
+    fn test_all_priorities_are_unique() {
+        let p: Vec<u8> = [
+            SubmoduleStatus::Dirty,
+            SubmoduleStatus::Orphaned,
+            SubmoduleStatus::Detached,
+            SubmoduleStatus::Uninitialized,
+            SubmoduleStatus::BehindRemote,
+            SubmoduleStatus::AheadOfParent,
+            SubmoduleStatus::Clean,
+        ]
+        .iter()
+        .map(|s| s.priority())
+        .collect();
+        let mut s = p.clone();
+        s.sort();
+        s.dedup();
+        assert_eq!(p.len(), s.len());
+    }
+    #[test]
+    fn test_status_debug_output() {
+        assert_eq!(format!("{:?}", SubmoduleStatus::Clean), "Clean");
+    }
+    #[test]
+    fn test_status_clone_eq() {
+        assert_eq!(SubmoduleStatus::Dirty, SubmoduleStatus::Dirty);
+    }
+
+    // ---- fmt_oid ----
+    #[test]
+    fn test_fmt_oid_truncates() {
+        let oid = gix::ObjectId::from_hex(b"abcdef1234567890abcdef1234567890abcdef12").unwrap();
+        assert_eq!(fmt_oid(&oid), "abcdef1");
+    }
+    #[test]
+    fn test_fmt_oid_short() {
+        let oid = gix::ObjectId::null(gix::hash::Kind::Sha1);
+        assert_eq!(fmt_oid(&oid).len(), 7);
+    }
+    #[test]
+    fn test_fmt_oid_null() {
+        let oid = gix::ObjectId::null(gix::hash::Kind::Sha1);
+        let s = fmt_oid(&oid);
+        assert_eq!(s.len(), 7);
+        assert!(s.chars().all(|c| c == '0'));
+    }
+
+    // ---- Submodule ----
+    #[test]
+    fn test_submodule_builder() {
+        let sm = Submodule {
+            name: "test".into(),
+            path: PathBuf::from("libs/test"),
+            url: "https://example.com/test.git".into(),
+            tracked_branch: "main".into(),
+            parent_pointer: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            local_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            remote_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            status: SubmoduleStatus::BehindRemote,
+            ahead_count: 0,
+            behind_count: 3,
+            remote_unreachable: false,
+        };
+        assert_eq!(sm.name, "test");
+    }
+
+    // ---- AggregateStatus ----
+    #[test]
+    fn test_aggregate_status_default() {
+        assert_eq!(AggregateStatus::default().total, 0);
+    }
+    #[test]
+    fn test_aggregate_status_from_submodules() {
+        let sm = |s| Submodule {
+            name: String::new(),
+            path: PathBuf::new(),
+            url: String::new(),
+            tracked_branch: "main".into(),
+            parent_pointer: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            local_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            remote_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            status: s,
+            ahead_count: 0,
+            behind_count: 0,
+            remote_unreachable: false,
+        };
+        let agg = AggregateStatus::from_submodules(&[
+            sm(SubmoduleStatus::Clean),
+            sm(SubmoduleStatus::Dirty),
+            sm(SubmoduleStatus::Orphaned),
+        ]);
+        assert_eq!(agg.total, 3);
+        assert_eq!(agg.clean, 1);
+        assert_eq!(agg.dirty, 1);
+        assert_eq!(agg.orphaned, 1);
+    }
+    #[test]
+    fn test_aggregate_status_all_variants() {
+        let sm = |s| Submodule {
+            name: String::new(),
+            path: PathBuf::new(),
+            url: String::new(),
+            tracked_branch: "main".into(),
+            parent_pointer: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            local_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            remote_head: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            status: s,
+            ahead_count: 0,
+            behind_count: 0,
+            remote_unreachable: false,
+        };
+        let agg = AggregateStatus::from_submodules(&[
+            sm(SubmoduleStatus::Clean),
+            sm(SubmoduleStatus::AheadOfParent),
+            sm(SubmoduleStatus::BehindRemote),
+            sm(SubmoduleStatus::Detached),
+            sm(SubmoduleStatus::Dirty),
+            sm(SubmoduleStatus::Orphaned),
+            sm(SubmoduleStatus::Uninitialized),
+        ]);
+        assert_eq!(agg.total, 7);
+        assert_eq!(agg.clean, 1);
+    }
+
+    // ---- RepoState ----
+    #[test]
+    fn test_repo_state_empty() {
+        let s = RepoState {
+            root_path: PathBuf::from("/tmp"),
+            submodules: vec![],
+            total: 0,
+            clean_count: 0,
+            needs_attention: vec![],
+        };
+        assert_eq!(s.total, 0);
+    }
+
+    // ---- describe_issue ----
+    #[test]
+    fn test_describe_issue_ahead_of_parent() {
+        let (d, a) = describe_issue(&SubmoduleStatus::AheadOfParent);
+        assert!(d.contains("领先"));
+        assert!(a.contains("sync"));
+    }
+    #[test]
+    fn test_describe_issue_behind_remote() {
+        let (d, a) = describe_issue(&SubmoduleStatus::BehindRemote);
+        assert!(d.contains("落后"));
+        assert!(a.contains("sync"));
+    }
+    #[test]
+    fn test_describe_issue_detached() {
+        let (d, a) = describe_issue(&SubmoduleStatus::Detached);
+        assert!(d.contains("游离"));
+        assert!(a.contains("checkout"));
+    }
+    #[test]
+    fn test_describe_issue_dirty() {
+        let (d, _a) = describe_issue(&SubmoduleStatus::Dirty);
+        assert!(d.contains("修改"));
+    }
+    #[test]
+    fn test_describe_issue_orphaned() {
+        let (d, _a) = describe_issue(&SubmoduleStatus::Orphaned);
+        assert!(d.contains("不存在"));
+    }
+    #[test]
+    fn test_describe_issue_uninitialized() {
+        let (d, _a) = describe_issue(&SubmoduleStatus::Uninitialized);
+        assert!(d.contains("初始化"));
+    }
+    #[test]
+    #[should_panic(expected = "unreachable")]
+    fn test_describe_issue_clean_panics() {
+        describe_issue(&SubmoduleStatus::Clean);
+    }
+
+    // ---- scan tests ----
     fn setup_repo_with_submodule(tmp: &Path) -> PathBuf {
         let parent = tmp.join("parent");
         let sub = tmp.join("sub");
@@ -386,7 +707,6 @@ mod tests {
         gix::ObjectId::null(gix::hash::Kind::Sha1)
     }
     fn h(s: &str) -> gix::ObjectId {
-        // pad to 40 hex chars for gix::ObjectId::from_hex
         let padded = format!("{:0>40}", s);
         gix::ObjectId::from_hex(padded.as_bytes())
             .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1))
@@ -396,161 +716,61 @@ mod tests {
     #[test]
     fn test_determine_status_uninitialized() {
         assert_eq!(
-            RepoState::determine_submodule_status(
-                true,
-                false,
-                false,
-                false,
-                false,
-                0,
-                0,
-                &dh(),
-                &dh()
-            ),
+            RepoState::determine_submodule_status(true, false, false, false, false, 0, 0, &dh(), &dh()),
             SubmoduleStatus::Uninitialized
         );
     }
     #[test]
     fn test_determine_status_dirty() {
         assert_eq!(
-            RepoState::determine_submodule_status(
-                false,
-                true,
-                false,
-                false,
-                false,
-                0,
-                0,
-                &dh(),
-                &dh()
-            ),
+            RepoState::determine_submodule_status(false, true, false, false, false, 0, 0, &dh(), &dh()),
             SubmoduleStatus::Dirty
         );
     }
     #[test]
     fn test_determine_status_detached() {
         assert_eq!(
-            RepoState::determine_submodule_status(
-                false,
-                false,
-                true,
-                false,
-                false,
-                0,
-                0,
-                &dh(),
-                &dh()
-            ),
+            RepoState::determine_submodule_status(false, false, true, false, false, 0, 0, &dh(), &dh()),
             SubmoduleStatus::Detached
         );
     }
     #[test]
     fn test_determine_status_orphaned() {
         assert_eq!(
-            RepoState::determine_submodule_status(
-                false,
-                false,
-                false,
-                true,
-                false,
-                0,
-                0,
-                &dh(),
-                &dh()
-            ),
+            RepoState::determine_submodule_status(false, false, false, true, false, 0, 0, &dh(), &dh()),
             SubmoduleStatus::Orphaned
         );
     }
     #[test]
     fn test_determine_status_ahead_of_parent() {
         assert_eq!(
-            RepoState::determine_submodule_status(
-                false,
-                false,
-                false,
-                false,
-                true,
-                0,
-                0,
-                &h("abc"),
-                &dh()
-            ),
+            RepoState::determine_submodule_status(false, false, false, false, true, 0, 0, &h("abc"), &dh()),
             SubmoduleStatus::AheadOfParent
         );
         assert_eq!(
-            RepoState::determine_submodule_status(
-                false,
-                false,
-                false,
-                false,
-                false,
-                5,
-                0,
-                &dh(),
-                &dh()
-            ),
+            RepoState::determine_submodule_status(false, false, false, false, false, 5, 0, &dh(), &dh()),
             SubmoduleStatus::AheadOfParent
         );
         assert_eq!(
-            RepoState::determine_submodule_status(
-                false,
-                false,
-                false,
-                false,
-                false,
-                5,
-                3,
-                &dh(),
-                &dh()
-            ),
+            RepoState::determine_submodule_status(false, false, false, false, false, 5, 3, &dh(), &dh()),
             SubmoduleStatus::BehindRemote
         );
     }
     #[test]
     fn test_determine_status_behind_remote() {
         assert_eq!(
-            RepoState::determine_submodule_status(
-                false,
-                false,
-                false,
-                false,
-                false,
-                0,
-                3,
-                &dh(),
-                &dh()
-            ),
+            RepoState::determine_submodule_status(false, false, false, false, false, 0, 3, &dh(), &dh()),
             SubmoduleStatus::BehindRemote
         );
         assert_eq!(
-            RepoState::determine_submodule_status(
-                false,
-                false,
-                false,
-                false,
-                true,
-                0,
-                3,
-                &dh(),
-                &dh()
-            ),
+            RepoState::determine_submodule_status(false, false, false, false, true, 0, 3, &dh(), &dh()),
             SubmoduleStatus::Clean
         );
     }
     #[test]
     fn test_determine_status_clean() {
         assert_eq!(
-            RepoState::determine_submodule_status(
-                false,
-                false,
-                false,
-                false,
-                false,
-                0,
-                0,
-                &dh(),
-                &dh()
-            ),
+            RepoState::determine_submodule_status(false, false, false, false, false, 0, 0, &dh(), &dh()),
             SubmoduleStatus::Clean
         );
     }
@@ -563,7 +783,6 @@ mod tests {
         git_commit(t.path(), "c1");
         let repo = gix::open(t.path()).unwrap();
         let head: gix::ObjectId = repo.head_commit().unwrap().id().into();
-        // HEAD..HEAD = 0
         assert_eq!(gix_count_between(&repo, head, head), 0);
         git_commit(t.path(), "c2");
         let head2: gix::ObjectId = repo.head_commit().unwrap().id().into();
@@ -651,7 +870,6 @@ mod tests {
             SubmoduleStatus::Uninitialized
         );
     }
-
     #[test]
     fn test_scan_with_detached_submodule() {
         let tmp = tempfile::tempdir().unwrap();
@@ -677,7 +895,6 @@ mod tests {
             SubmoduleStatus::Detached
         );
     }
-
     #[test]
     fn test_scan_with_ahead_via_remote_unreachable() {
         let tmp = tempfile::tempdir().unwrap();
@@ -702,7 +919,6 @@ mod tests {
         let state = RepoState::scan(&parent).unwrap();
         assert_eq!(state.submodules[0].status, SubmoduleStatus::AheadOfParent);
     }
-
     #[test]
     fn test_scan_with_subrepo_open_error() {
         let tmp = tempfile::tempdir().unwrap();
@@ -718,7 +934,6 @@ mod tests {
             gix::ObjectId::null(gix::hash::Kind::Sha1)
         );
     }
-
     #[test]
     fn test_scan_with_behind_remote() {
         let tmp = tempfile::tempdir().unwrap();
@@ -772,7 +987,6 @@ mod tests {
             1
         );
     }
-
     #[test]
     fn test_scan_with_orphaned_submodule() {
         let tmp = tempfile::tempdir().unwrap();
@@ -795,7 +1009,6 @@ mod tests {
             SubmoduleStatus::Orphaned
         );
     }
-
     #[test]
     fn test_scan_with_ahead_of_parent_clean() {
         let tmp = tempfile::tempdir().unwrap();
@@ -803,7 +1016,6 @@ mod tests {
         git_commit(&parent.join("libs/sub"), "ahead commit");
         assert!(RepoState::scan(&parent).unwrap().submodules[0].ahead_count > 0);
     }
-
     #[test]
     fn test_orphaned_parse_oid_failure() {
         let tmp = tempfile::tempdir().unwrap();
@@ -815,7 +1027,6 @@ mod tests {
         std::fs::write(ref_dir.join("main"), "not-a-valid-oid\n").unwrap();
         assert!(!RepoState::scan(&parent).unwrap().submodules.is_empty());
     }
-
     #[test]
     fn test_ahead_of_parent_via_ahead_count() {
         let tmp = tempfile::tempdir().unwrap();
