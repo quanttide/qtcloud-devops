@@ -41,7 +41,7 @@ const IO_FN_PATTERNS: &[&str] = &[
     "check_command", "check_syntax", "check_ci", "check_deps",
     "clear_cache", "save_test_summary",
     "ensure_", "delete_", "create_",
-    "git_output", "llm_decide", "llm_changelog", "doctor_llm",
+    "git_output", "llm_decide", "llm_changelog", "edit_llm",
     "detect_version", "detect_single_scope", "detect_project_type",
     "resolve_roadmap_path",
     "print_status", "print_status_to", "print_scope_audit",

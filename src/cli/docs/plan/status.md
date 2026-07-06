@@ -9,7 +9,7 @@
 ```
 qtcloud-devops plan status [scope]    查看 scope 规划进度
 qtcloud-devops plan clean [scope]     删除已完成条目
-qtcloud-devops plan doctor [scope]    修复格式问题
+qtcloud-devops plan edit [scope]      编辑 ROADMAP：标准化格式
 ```
 
 ## 公共数据模型
@@ -85,7 +85,7 @@ pub struct Issue {
   ✓ 已提交
 ```
 
-## plan doctor — 修复格式问题
+## plan edit — 编辑 ROADMAP 格式
 
 验证 ROADMAP.md 的格式正确性，目前为只读检测（LLM 修复未接入）。
 

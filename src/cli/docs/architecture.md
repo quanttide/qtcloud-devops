@@ -71,7 +71,7 @@ release     release status   release status   release status
 | `code status / sync` | 子模块管理（跨 stage 的代码协作） |
 | `contract status` | 契约配置浏览 |
 | `source status` | 系统依赖诊断 |
-| `plan status / clean / doctor` | ROADMAP 规划与修复 |
+| `plan status / clean / edit` | ROADMAP 规划与编辑 |
 
 每个命令的 scope 由 `contract.yaml` 和当前工作目录决定。例如 `test audit` 扫描 `cli` 还是 `studio`，取决于你在哪个目录。
 

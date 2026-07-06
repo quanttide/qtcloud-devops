@@ -93,8 +93,8 @@ enum PlanAction {
         /// scope 名称
         scope: Option<String>,
     },
-    /// 修复 scope 格式问题（规则修复 + LLM 修复）
-    Doctor {
+    /// 编辑 scope ROADMAP：读取原始格式 → 标准化 → 写回
+    Edit {
         /// scope 名称
         scope: Option<String>,
     },
@@ -279,7 +279,7 @@ fn main() {
             PlanAction::Status { scope } => qtcloud_devops_cli::plan::print_status(&repo_path(), scope.as_deref())
                 .map_err(|e| format!("{}", e)),
             PlanAction::Clean { scope } => run_plan_clean(scope),
-            PlanAction::Doctor { scope } => run_plan_doctor(scope),
+            PlanAction::Edit { scope } => run_plan_edit(scope),
         },
         Commands::Contract { action } => match action {
             ContractAction::Status => {
@@ -401,7 +401,7 @@ fn run_plan_clean(scope: Option<String>) -> Result<(), String> {
     Ok(())
 }
 
-fn run_plan_doctor(scope: Option<String>) -> Result<(), String> {
+fn run_plan_edit(scope: Option<String>) -> Result<(), String> {
     let repo_path = repo_path();
     let roadmap_path = qtcloud_devops_cli::plan::resolve_roadmap_path(&repo_path, scope.as_deref());
     if !roadmap_path.exists() {
@@ -409,15 +409,12 @@ fn run_plan_doctor(scope: Option<String>) -> Result<(), String> {
         return Ok(());
     }
     let scope_label = scope.unwrap_or_else(|| "(auto)".to_string());
-    let issues = qtcloud_devops_cli::plan::doctor_roadmap(&roadmap_path, &scope_label)
+    let issues = qtcloud_devops_cli::plan::edit_roadmap(&roadmap_path, &scope_label)
         .map_err(|e| format!("{}", e))?;
     if issues.is_empty() {
         println!("  ✅ 格式无误");
     } else {
-        for f in &issues {
-            println!("  ⚠ L{}: {}", f.line, f.message);
-        }
-        println!("  规则仅做验证，修复由 LLM 完成（当前未接入）");
+        println!("  📝 已转换 {} 处格式", issues.len());
     }
     Ok(())
 }

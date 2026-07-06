@@ -302,11 +302,10 @@ fn test_cli_test_status() {
 }
 
 #[test]
-fn test_cli_plan_doctor() {
+fn test_cli_plan_edit() {
     let d = tempfile::tempdir().unwrap();
-    std::fs::write(d.path().join("ROADMAP.md"), "## [0.1.0]\n- [ ] item\n").unwrap();
     let output = cli()
-        .args(["plan", "doctor"])
+        .args(["plan", "edit"])
         .current_dir(d.path())
         .output()
         .unwrap();

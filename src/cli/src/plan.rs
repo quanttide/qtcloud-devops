@@ -172,7 +172,7 @@ pub fn print_status_to(
             let settings = quanttide_agent::Settings::from_env();
             if !settings.llm_api_key.is_empty() && cfg!(not(test)) {
                 writeln!(writer, "  🔄 检测到非标准格式，调用 LLM 转换...").ok();
-                if let Ok(llm_result) = doctor_llm(
+                if let Ok(llm_result) = edit_llm(
                     &content,
                     scope.unwrap_or("(auto)"),
                     &settings,
@@ -193,7 +193,7 @@ pub fn print_status_to(
             }
             writeln!(
                 writer,
-                "  ⚠ 文件含有非标准格式的标题，运行 `plan doctor` 查看详情"
+                "  ⚠ 文件含有非标准格式的标题，运行 `plan edit` 查看详情"
             )
             .ok();
         }
@@ -350,14 +350,11 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// plan doctor
+// plan edit
 // ═══════════════════════════════════════════════════════════════════════
 
-/// 诊断并修复 ROADMAP.md 的格式问题。
-///
-/// 1. LLM 修复：理解非标准格式并转换为标准格式（LLM 已配置时）
-/// 2. 规则校验：v 前缀、分类大小写、checkbox 格式（双重保障）
-pub fn doctor_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, PlanError> {
+/// 编辑 ROADMAP.md：读取原始格式 → 标准化（LLM + 规则）→ 写回。
+pub fn edit_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, PlanError> {
     let content = std::fs::read_to_string(path)?;
 
     let mut issues: Vec<Issue> = Vec::new();
@@ -365,7 +362,7 @@ pub fn doctor_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, PlanError>
     // Phase 1: LLM 先判断并修复（LLM 已配置且非测试环境时）
     let settings = quanttide_agent::Settings::from_env();
     if !settings.llm_api_key.is_empty() && cfg!(not(test)) {
-        if let Some(llm_issues) = doctor_llm(&content, scope, &settings, path)? {
+        if let Some(llm_issues) = edit_llm(&content, scope, &settings, path)? {
             issues.extend(llm_issues);
         }
     }
@@ -494,8 +491,8 @@ fn apply_rule_fixes(path: &Path, content: &str, scope: &str) -> Result<Vec<Issue
     Ok(issues)
 }
 
-/// LLM 修复：处理规则无法覆盖的复杂格式问题。
-fn doctor_llm(
+/// LLM 编辑：处理规则无法覆盖的复杂格式问题。
+fn edit_llm(
     content: &str,
     _scope: &str,
     settings: &quanttide_agent::Settings,
@@ -773,37 +770,37 @@ mod tests {
         assert!(content.contains("待办"), "待办内容应保留");
     }
 
-    // ── doctor_roadmap ────────────────────────────────────────
+    // ── edit_roadmap ────────────────────────────────────────
 
     #[test]
-    fn test_doctor_fixes_v_prefix() {
+    fn test_edit_fixes_v_prefix() {
         let d = write_roadmap("## [v0.1.0]\n- [ ] item\n");
-        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        let issues = edit_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert!(issues.iter().any(|f| f.message.contains("v 前缀")));
         let content = read_roadmap(d.path());
         assert!(!content.contains("## [v"));
     }
 
     #[test]
-    fn test_doctor_fixes_category_case() {
+    fn test_edit_fixes_category_case() {
         let d = write_roadmap("## [0.1.0]\n### added\n- [ ] item\n");
-        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        let issues = edit_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert!(issues.iter().any(|f| f.message.contains("大小写")));
         let content = read_roadmap(d.path());
         assert!(content.contains("### Added"));
     }
 
     #[test]
-    fn test_doctor_clean_file_no_issues() {
+    fn test_edit_clean_file_no_issues() {
         let d = write_roadmap("## [0.1.0]\n### Added\n- [ ] item\n");
-        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        let issues = edit_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert!(issues.is_empty());
     }
 
     #[test]
-    fn test_doctor_modifies_file() {
+    fn test_edit_modifies_file() {
         let d = write_roadmap("## [v0.1.0]\n### ADDED\n-  [x] bad\n");
-        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        let issues = edit_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert!(!issues.is_empty());
         let content = read_roadmap(d.path());
         assert!(content.contains("## [0.1.0]"));
@@ -812,9 +809,9 @@ mod tests {
     }
 
     #[test]
-    fn test_doctor_detects_nonstandard_header() {
+    fn test_edit_detects_nonstandard_header() {
         let d = write_roadmap("## 现状 (Current)\n- [ ] item\n");
-        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        let issues = edit_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert!(
             issues.iter().any(|i| i.message.contains("非标准版本头")),
             "应检测到非标准版本头: {:?}",
@@ -823,9 +820,9 @@ mod tests {
     }
 
     #[test]
-    fn test_doctor_detects_nonstandard_category() {
+    fn test_edit_detects_nonstandard_category() {
         let d = write_roadmap("## [0.1.0]\n### 0.1 fix bug\n- [ ] item\n");
-        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        let issues = edit_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert!(
             issues.iter().any(|i| i.message.contains("非标准分类")),
             "应检测到非标准分类: {:?}",
@@ -834,17 +831,17 @@ mod tests {
     }
 
     #[test]
-    fn test_doctor_file_not_found() {
+    fn test_edit_file_not_found() {
         let d = tempfile::tempdir().unwrap();
         let nonexistent = d.path().join("NONEXISTENT.md");
-        let result = doctor_roadmap(&nonexistent, "test");
+        let result = edit_roadmap(&nonexistent, "test");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_doctor_mixed_format() {
+    fn test_edit_mixed_format() {
         let d = write_roadmap("## [0.1.0]\n\n- [ ] 标准条目\n\n## 杂项 (Misc)\n\n- [ ] 非标准\n");
-        let issues = doctor_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
+        let issues = edit_roadmap(&d.path().join("ROADMAP.md"), "test").unwrap();
         assert!(
             issues.iter().any(|i| i.message.contains("非标准版本头")),
             "应检测到非标准版本头: {:?}",
@@ -880,8 +877,8 @@ mod tests {
         print_status_to(&mut buf, d.path(), None).unwrap();
         let output = String::from_utf8_lossy(&buf);
         assert!(
-            output.contains("plan doctor"),
-            "应提示运行 plan doctor: {}",
+            output.contains("plan edit"),
+            "应提示运行 plan edit: {}",
             output
         );
     }
