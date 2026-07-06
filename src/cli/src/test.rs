@@ -31,18 +31,50 @@ pub fn status(repo_path: &Path, c: &contract::Contract) {
     let _ = status_to(&mut std::io::stdout(), repo_path, c);
 }
 
+/// I/O 函数模式：这些名称的函数不要求单元测试（集成测试覆盖即可）。
+/// 注意：纯函数（parse_/determine_/build_/fmt_/map_/normalize_/apply_/extract_/is_）不应在此列表。
+const IO_FN_PATTERNS: &[&str] = &[
+    "status", "status_to", "run", "run_direct", "run_scoped",
+    "sync", "sync_all", "sync_to_parent", "sync_all_to_parent",
+    "publish", "scan", "scan_offline",
+    "push_submodule", "push_parent", "fetch_submodule", "rebase_submodule",
+    "check_command", "check_syntax", "check_ci", "check_deps",
+    "clear_cache", "save_test_summary",
+    "ensure_", "delete_", "create_",
+    "git_output", "llm_decide", "llm_changelog", "doctor_llm",
+    "detect_version", "detect_single_scope", "detect_project_type",
+    "resolve_roadmap_path",
+    "print_status", "print_status_to", "print_scope_review",
+    "collect_git_log", "collect_tags_with_scope", "collect_test_summary_from_run",
+    "load_contract_scopes", "load_scopes_map",
+    "apply_rule_fixes",
+    "collect_rs_files", "collect_test_fns", "collect_pub_fns", "collect_error_variants",
+];
+
+fn is_io_fn(name: &str) -> bool {
+    IO_FN_PATTERNS.iter().any(|p| {
+        if p.ends_with('_') {
+            name.starts_with(p)
+        } else {
+            name == *p
+        }
+    })
+}
+
 /// 质量审查结果。
 #[derive(Debug, Default)]
 pub struct ReviewReport {
     pub total_tests: usize,
     pub total_pub_fns: usize,
+    pub pure_pub_fns: usize,
     pub tested_pub_fns: usize,
     pub error_variants: usize,
     pub tested_variants: usize,
-    pub uncovered_fns: Vec<String>,
+    pub uncovered_fns: Vec<(String, String)>,
     pub uncovered_variants: Vec<String>,
     pub coverage_pct: f64,
     pub coverage_threshold: f64,
+    pub gates_met: bool,
 }
 
 /// 质量审查：扫描测试质量并对照门禁评估。
@@ -57,7 +89,6 @@ pub fn review(repo_path: &Path, c: &contract::Contract, all: bool, verbose: bool
             c.scopes.iter().map(|s| (s.name.clone(), repo_path.join(&s.dir))).collect()
         }
     } else {
-        // 仅当前目录所属 scope
         let current = if let Some(s) = c.find_scope_by_path(&cwd) {
             (s.name.clone(), repo_path.join(&s.dir))
         } else {
@@ -67,23 +98,25 @@ pub fn review(repo_path: &Path, c: &contract::Contract, all: bool, verbose: bool
     };
 
     println!("测试质量审查\n{}", "-".repeat(50));
-    let mut passed = 0u32;
-    let mut total_gates = 0u32;
+    let mut all_met = true;
+    let mut total_tests = 0u32;
     for (name, dir) in &scope_dirs {
         let report = scan_scope(dir, c, name)?;
         print_scope_review(name, &report, verbose);
-        passed += report.total_tests as u32;
-        total_gates += 1;
+        total_tests += report.total_tests as u32;
+        if !report.gates_met {
+            all_met = false;
+        }
     }
 
     println!("\n{}", "-".repeat(50));
-    if passed == 0 {
+    if total_tests == 0 {
         println!("  未检测到测试");
     } else {
-        println!("  测试总数: {}", passed);
+        println!("  测试总数: {}", total_tests);
     }
-    if total_gates > 0 {
-        println!("  门禁: {} 达标", passed);
+    if !all_met {
+        return Err("门禁未达标，请补充测试覆盖".into());
     }
     Ok(())
 }
@@ -95,6 +128,11 @@ fn scan_scope(dir: &Path, c: &contract::Contract, scope_name: &str) -> Result<Re
     // 收集所有 .rs 文件（排除 target/）
     let mut rs_files = Vec::new();
     collect_rs_files(dir, &mut rs_files);
+    // 也包括 tests/ 目录（不嵌套在 src/ 中的集成测试）
+    let tests_dir = dir.join("tests");
+    if tests_dir.is_dir() {
+        collect_rs_files(&tests_dir, &mut rs_files);
+    }
 
     // 分离测试文件（包含 #[cfg(test)]）和生产文件
     let mut test_fns = Vec::new();
@@ -111,8 +149,8 @@ fn scan_scope(dir: &Path, c: &contract::Contract, scope_name: &str) -> Result<Re
         collect_pub_fns(&content, &mut pub_fns, f);
         // 收集错误枚举变体
         collect_error_variants(&content, &mut error_enums);
-        // 如果是测试模块，收集内容用于引用检查
-        if content.contains("#[cfg(test)]") {
+        // 收集测试文件内容用于引用检查（#[cfg(test)] + tests/ 目录）
+        if content.contains("#[cfg(test)]") || f.to_string_lossy().contains("/tests/") {
             test_body.push_str(&content);
             test_body.push('\n');
         }
@@ -120,22 +158,40 @@ fn scan_scope(dir: &Path, c: &contract::Contract, scope_name: &str) -> Result<Re
 
     report.total_tests = test_fns.len();
     report.total_pub_fns = pub_fns.len();
+
+    // 分纯函数和 I/O 函数
+    let pure_fns: Vec<_> = pub_fns.iter().filter(|(name, _)| !is_io_fn(name)).collect();
+    report.pure_pub_fns = pure_fns.len();
+
+    // 所有 pub fn：函数名出现在测试代码中即视为覆盖
     report.tested_pub_fns = pub_fns.iter().filter(|(name, _)| {
-        test_fns.iter().any(|t| t == name) || test_body.contains(name)
+        test_body.contains(name.as_str())
     }).count();
 
-    report.uncovered_fns = pub_fns.iter()
-        .filter(|(name, _)| {
-            !test_fns.iter().any(|t| t == name) && !test_body.contains(name)
-        })
-        .map(|(name, path)| format!("{}::{}", path, name))
-        .collect();
+    // 未覆盖：按类别标记
+    report.uncovered_fns = Vec::new();
+    for (name, path) in pub_fns.iter().filter(|(name, _)| {
+        !test_body.contains(name.as_str())
+    }) {
+        let kind = if is_io_fn(name) { "I/O" } else { "纯函数" };
+        report.uncovered_fns.push((format!("{}::{}", path, name), kind.into()));
+    }
 
-    // 计算错误变体覆盖
+    // 计算错误变体覆盖：用 EnumName::Variant 精确匹配
     report.error_variants = error_enums.iter().map(|(_, vs)| vs.len()).sum();
-    let all_variants: Vec<&str> = error_enums.iter().flat_map(|(_, vs)| vs.iter().map(|s| s.as_str())).collect();
-    report.tested_variants = all_variants.iter().filter(|v| test_body.contains(*v)).count();
-    report.uncovered_variants = all_variants.iter().filter(|v| !test_body.contains(*v)).map(|s| s.to_string()).collect();
+    report.tested_variants = 0;
+    report.uncovered_variants.clear();
+    for (enum_name, variants) in &error_enums {
+        for v in variants {
+            // 测试中应引用 ErrorName::VariantName
+            let qualified = format!("{}::{}", enum_name, v);
+            if test_body.contains(&qualified) {
+                report.tested_variants += 1;
+            } else {
+                report.uncovered_variants.push(qualified);
+            }
+        }
+    }
     report.uncovered_variants.sort();
 
     // 读取覆盖率（沿用现有逻辑）
@@ -144,6 +200,12 @@ fn scan_scope(dir: &Path, c: &contract::Contract, scope_name: &str) -> Result<Re
     let lang = contract::detect_languages(dir).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
     let coverage = collect_coverage(dir, &lang, threshold);
     report.coverage_pct = coverage.percentage;
+
+    // 评估门禁
+    let fn_ok = report.total_pub_fns == 0 || report.tested_pub_fns as f64 / report.total_pub_fns as f64 >= 0.5;
+    let err_ok = report.error_variants == 0 || report.tested_variants as f64 / report.error_variants as f64 >= 0.5;
+    let cov_ok = report.coverage_pct == 0.0 || report.coverage_pct >= report.coverage_threshold;
+    report.gates_met = fn_ok && err_ok && cov_ok;
 
     Ok(report)
 }
@@ -166,7 +228,7 @@ fn collect_rs_files(dir: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-/// 从源码中收集 #[test] 函数名。
+/// 从源码中收集 #[test] 函数名和 #[cfg(test)] 模块中的函数。
 fn collect_test_fns(content: &str, fns: &mut Vec<String>) {
     let lines: Vec<&str> = content.lines().collect();
     for i in 0..lines.len().saturating_sub(1) {
@@ -182,7 +244,7 @@ fn collect_test_fns(content: &str, fns: &mut Vec<String>) {
     }
 }
 
-/// 从源码中收集 pub fn 名称。
+/// 从源码中收集 pub fn 名称，排除 macro_export、trait 内的。
 fn collect_pub_fns(content: &str, fns: &mut Vec<(String, String)>, path: &Path) {
     let rel = path.to_string_lossy().to_string();
     for line in content.lines() {
@@ -190,7 +252,7 @@ fn collect_pub_fns(content: &str, fns: &mut Vec<(String, String)>, path: &Path) 
         if let Some(rest) = t.strip_prefix("pub fn ") {
             if let Some(end) = rest.find('(') {
                 let name = rest[..end].trim().to_string();
-                if !name.is_empty() && !name.starts_with('_') {
+                if !name.is_empty() && !name.starts_with('_') && !name.contains(" ") {
                     fns.push((name, rel.clone()));
                 }
             }
@@ -198,62 +260,72 @@ fn collect_pub_fns(content: &str, fns: &mut Vec<(String, String)>, path: &Path) 
     }
 }
 
-/// 从源码中收集错误枚举变体。
+/// 从源码中收集错误枚举变体（基于 brace depth 的稳健解析）。
 fn collect_error_variants(content: &str, enums: &mut Vec<(String, Vec<String>)>) {
-    let lines: Vec<&str> = content.lines().collect();
-    let mut in_error_enum = false;
+    let mut depth: isize = 0;
     let mut enum_name = String::new();
     let mut variants: Vec<String> = Vec::new();
-    for line in &lines {
+    let mut in_error_enum = false;
+    let mut in_attr = false;
+
+    for line in content.lines() {
         let t = line.trim();
-        if let Some(rest) = t.strip_prefix("pub enum ") {
-            if rest.contains("Error") || rest.contains("error") {
-                enum_name = rest.split('{').next().unwrap_or("").trim().to_string();
-                if t.contains('{') {
+
+        // 检测 enum 定义开始
+        if !in_error_enum {
+            if let Some(rest) = t.strip_prefix("pub enum ") {
+                let name = rest.split(|c: char| c == '{' || c == ' ' || c == '\t')
+                    .next().unwrap_or("").to_string();
+                if name.contains("Error") || name.contains("error") {
+                    enum_name = name;
                     in_error_enum = true;
                     variants.clear();
-                    // 同一行可能有变体
-                    if let Some(body) = t.split('{').nth(1) {
-                        if let Some(end) = body.find('}') {
-                            for v in body[..end].split(',') {
-                                let v = v.trim();
-                                if !v.is_empty() && !v.starts_with('#') {
-                                    variants.push(v.split('(').next().unwrap_or(v).split('{').next().unwrap_or("").trim().to_string());
-                                }
-                            }
-                            if !variants.is_empty() {
-                                enums.push((enum_name.clone(), variants.clone()));
-                            }
-                            in_error_enum = false;
-                        }
-                    }
-                } else {
-                    in_error_enum = true;
-                    variants.clear();
+                    depth = 0;
+                    in_attr = false;
+                    // 同一行可能有 {，计入深度
+                    if t.contains('{') { depth = 1; }
+                    continue;
                 }
-                continue;
             }
+            continue;
         }
-        if in_error_enum {
-            if t == "}" || t.starts_with("//") {
-                continue;
+
+        // 在 enum 体内
+        if t.starts_with('#') {
+            in_attr = true;
+            if t.ends_with(']') { in_attr = false; }
+            if t.contains('{') { depth += t.matches('{').count() as isize; }
+            if t.contains('}') { depth -= t.matches('}').count() as isize; }
+            if depth <= 0 { break; }
+            continue;
+        }
+        if in_attr && t.ends_with(']') { in_attr = false; continue; }
+        if in_attr { continue; }
+
+        // 跟踪 brace depth
+        if t.contains('{') { depth += t.matches('{').count() as isize; }
+        if t.contains('}') { depth -= t.matches('}').count() as isize; }
+
+        if depth <= 0 {
+            if !variants.is_empty() {
+                enums.push((enum_name.clone(), variants.clone()));
             }
-            if t.starts_with('}') {
-                if !variants.is_empty() {
-                    enums.push((enum_name.clone(), variants.clone()));
-                }
-                in_error_enum = false;
-                continue;
-            }
-            if t.starts_with('#') || t.is_empty() {
-                continue;
-            }
-            let v = t.split('(').next().unwrap_or(t).split('{').next().unwrap_or("").trim().to_string();
-            if !v.is_empty() && !v.starts_with('#') {
-                variants.push(v.trim_end_matches(',').to_string());
-            }
+            in_error_enum = false;
+            continue;
+        }
+
+        // 跳过空行、注释、derive
+        if t.is_empty() || t.starts_with("//") || t.starts_with("#[") { continue; }
+
+        // 提取变体名（取第一个标识符，忽略元组参数等）
+        let v = t.split(|c: char| c == '(' || c == '{' || c == ',' || c == ' ' || c == '\t')
+            .next().unwrap_or("").trim().to_string();
+        if !v.is_empty() && !v.starts_with('#') {
+            variants.push(v);
         }
     }
+
+    // 文件终止时 enum 未关闭则保存
     if in_error_enum && !variants.is_empty() {
         enums.push((enum_name, variants));
     }
@@ -264,18 +336,22 @@ fn print_scope_review(name: &str, report: &ReviewReport, verbose: bool) {
     println!("\n  [{}]", name);
     println!("    测试函数:     {}", report.total_tests);
     if report.total_pub_fns > 0 {
-        let pct = report.tested_pub_fns as f64 / report.total_pub_fns as f64 * 100.0;
+        let pure_count = report.pure_pub_fns;
+        let covered = report.tested_pub_fns.min(report.total_pub_fns);
+        let total = report.total_pub_fns;
+        let pct = if total > 0 { covered as f64 / total as f64 * 100.0 } else { 0.0 };
         let icon = if pct >= 70.0 { "✅" } else { "⚠" };
-        println!("    函数覆盖率:   {:.0}% ({}/{}) {}", pct, report.tested_pub_fns, report.total_pub_fns, icon);
+        println!("    函数覆盖率:   {:.0}% ({}/{}) {} (纯函数 {} 个)", pct, covered, total, icon, pure_count);
         if verbose && !report.uncovered_fns.is_empty() {
-            for f in &report.uncovered_fns {
-                println!("      未覆盖: {}", f);
+            println!("      未覆盖函数:");
+            for (path, kind) in &report.uncovered_fns {
+                println!("        {} [{}]", path, kind);
             }
         }
     }
     if report.error_variants > 0 {
         let pct = if report.error_variants > 0 { report.tested_variants as f64 / report.error_variants as f64 * 100.0 } else { 100.0 };
-        let icon = if pct >= 50.0 { "✅" } else { "⚠" };
+        let icon = if pct >= 80.0 { "✅" } else { "⚠" };
         println!("    错误变体覆盖: {:.0}% ({}/{}) {}", pct, report.tested_variants, report.error_variants, icon);
         if verbose && !report.uncovered_variants.is_empty() {
             println!("      未覆盖: {}", report.uncovered_variants.join(", "));
