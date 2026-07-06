@@ -1,4 +1,4 @@
-use crate::git::{GitSubmoduleEditor, RepoState};
+use crate::git::RepoState;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::path::PathBuf;
@@ -27,31 +27,9 @@ fn scan_repo(path: String) -> PyResult<PyObject> {
     state_to_dict(&state)
 }
 
-#[pyfunction]
-fn sync_single(name: String, path: String) -> PyResult<PyObject> {
-    let canonical = resolve_path(&path)?;
-    let editor = GitSubmoduleEditor::new(canonical);
-    editor
-        .sync_to_parent(&name)
-        .map_err(|e| PyRuntimeError::new_err(format!("同步子模块 '{}' 失败: {}", name, e)))?;
-    Python::with_gil(|py| Ok(py.None()))
-}
-
-#[pyfunction]
-fn sync_all(path: String) -> PyResult<PyObject> {
-    let canonical = resolve_path(&path)?;
-    let editor = GitSubmoduleEditor::new(canonical);
-    editor
-        .sync_all_to_parent()
-        .map_err(|e| PyRuntimeError::new_err(format!("同步所有子模块失败: {}", e)))?;
-    Python::with_gil(|py| Ok(py.None()))
-}
-
 #[pymodule]
 fn _native(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(scan_repo, m)?)?;
-    m.add_function(wrap_pyfunction!(sync_single, m)?)?;
-    m.add_function(wrap_pyfunction!(sync_all, m)?)?;
     Ok(())
 }
 
@@ -59,7 +37,6 @@ fn _native(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(feature = "python")]
 mod tests {
     use super::*;
-    use crate::git::*;
 
     #[test]
     fn test_py_resolve_path_valid() {

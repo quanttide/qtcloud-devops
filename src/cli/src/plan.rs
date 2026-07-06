@@ -658,48 +658,10 @@ pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
         }
     }
 
-    // ── 2. ROADMAP ↔ TODO 一致性 ─────────────────────────────────
+    // ── 2. LLM 语义审计 ─────────────────────────────────────────
     if roadmap_path.exists() && todo_path.exists() {
         let roadmap_content = std::fs::read_to_string(&roadmap_path)?;
         let todo_content = std::fs::read_to_string(&todo_path)?;
-
-        // 提取 TODO 中的条目内容（去掉 checkbox 前缀）
-        let todo_items: Vec<String> = todo_content.lines()
-            .filter(|l| l.trim().starts_with("- [ ]") || l.trim().starts_with("- [x]"))
-            .map(|l| {
-                let item = if l.contains("[x]") || l.contains("[X]") {
-                    &l[l.find(']').unwrap_or(0)+1..]
-                } else {
-                    &l[l.find(']').unwrap_or(0)+1..]
-                };
-                item.trim().to_lowercase()
-            })
-            .collect();
-
-        let mut orphaned = Vec::new();
-        for item in &todo_items {
-            // 检查 TODO 条目是否能在 ROADMAP 中找到对应
-            if !roadmap_content.to_lowercase().contains(item) {
-                orphaned.push(item.clone());
-            }
-        }
-
-        if orphaned.is_empty() {
-            println!("  ✅ TODO 条目均映射到 ROADMAP");
-        } else {
-            all_ok = false;
-            println!("  ❌ TODO 中存在未在 ROADMAP 中规划的条目:");
-            for o in &orphaned {
-                println!("     • {}", o);
-            }
-        }
-
-        // 计数
-        let roadmap_total = roadmap_content.lines().filter(|l| l.trim().starts_with("- [ ]") || l.trim().starts_with("- [x]")).count();
-        let todo_total = todo_items.len();
-        println!("  📊 ROADMAP: {} 条目, TODO: {} 条目", roadmap_total, todo_total);
-
-        // ── 3. LLM 语义审计 ────────────────────────────────────────
         let settings = quanttide_agent::Settings::from_env();
         if !settings.llm_api_key.is_empty() && cfg!(not(test)) {
             match llm_audit_consistency(&roadmap_content, &todo_content, &settings) {

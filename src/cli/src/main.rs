@@ -157,19 +157,10 @@ enum CodeAction {
         #[arg(long)]
         offline: bool,
     },
-    /// 审计子模块状态：检查各子模块健康状况
+    /// 审计代码质量：scope 目录、TODO/FIXME 密度、语法检查
     Audit {
         #[arg(default_value = ".")]
         path: PathBuf,
-    },
-    /// 同步组件到远端
-    Sync {
-        /// 组件名称（省略则同步全部）
-        name: Option<String>,
-        #[arg(long)]
-        dry_run: bool,
-        #[arg(default_value = ".")]
-        repo: PathBuf,
     },
 }
 
@@ -363,16 +354,6 @@ fn run_code(action: CodeAction) -> Result<(), String> {
             qtcloud_devops_cli::code::audit(&root);
             Ok(())
         }
-        CodeAction::Sync {
-            name: Some(n),
-            dry_run,
-            repo,
-        } => run_code_sync_one(&n, dry_run, repo),
-        CodeAction::Sync {
-            name: None,
-            dry_run,
-            repo,
-        } => run_code_sync_all(dry_run, repo),
     }
 }
 
@@ -381,24 +362,6 @@ fn run_code_status(path: PathBuf, offline: bool) -> Result<(), String> {
     let report = code::status(root, offline).map_err(|e| format!("{}", e))?;
     print_report(&report);
     Ok(())
-}
-
-fn run_code_sync_one(name: &str, dry_run: bool, repo: PathBuf) -> Result<(), String> {
-    let root = resolve_path(&repo)?;
-    if dry_run {
-        println!("[预览] 同步组件 '{}'", name);
-        return Ok(());
-    }
-    code::sync(root, name).map_err(|e| format!("{}", e))
-}
-
-fn run_code_sync_all(dry_run: bool, repo: PathBuf) -> Result<(), String> {
-    let root = resolve_path(&repo)?;
-    if dry_run {
-        println!("[预览] 同步所有组件");
-        return Ok(());
-    }
-    code::sync_all(root).map_err(|e| format!("{}", e))
 }
 
 fn run_plan_clean(scope: Option<String>) -> Result<(), String> {

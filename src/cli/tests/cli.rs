@@ -313,11 +313,11 @@ fn test_cli_plan_edit() {
 }
 
 #[test]
-fn test_cli_code_sync_help() {
+fn test_cli_code_audit_help() {
     let output = cli().args(["code", "--help"]).output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("sync"));
+    assert!(stdout.contains("audit"));
 }
 
 #[test]
