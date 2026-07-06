@@ -7,8 +7,8 @@
 ## 命令
 
 ```
-qtcloud-devops test status       按 scope 查看测试状态（读缓存，不运行测试）
-qtcloud-devops test run          运行测试 + 覆盖率
+qtcloud-devops test status       按 scope 查看测试状态（读缓存）
+qtcloud-devops test audit        质量审计：函数覆盖/错误变体/行覆盖
 qtcloud-devops test clean        清理缓存的测试结果
 ```
 
@@ -22,7 +22,7 @@ qtcloud-devops test clean        清理缓存的测试结果
 
 ## test status — 读取缓存的测试摘要
 
-`test status` 只读缓存文件 `.quanttide/devops/test-summary.json`，**不运行测试**。测试结果由 `test run` 生成并缓存。
+`test status` 只读缓存文件 `.quanttide/devops/test-summary.json`，**不运行测试**。测试结果由外部命令（如 `cargo test`）生成并缓存。
 
 ### 输出示例
 
@@ -42,47 +42,9 @@ qtcloud-devops test clean        清理缓存的测试结果
     覆盖率:       未检测到覆盖率报告
 ```
 
-## test run — 运行测试 + 覆盖率
+## test audit — 质量审计
 
-### 执行逻辑
-
-1. 加载契约，确定 scope 列表
-2. 若处于 scope 子目录中，仅运行该 scope
-3. 对每个 scope：
-   - 先运行覆盖率命令（Rust 用 `cargo llvm-cov`，自带测试；Python 用 `coverage xml` + 单独 `python -m pytest`）
-   - 覆盖率命令失败时回退到仅运行测试
-4. 运行测试后解析输出生成 `TestSummary`，缓存到 `.quanttide/devops/test-summary.json`
-
-### 测试覆盖率命令
-
-| Language | 命令 | 是否包含测试 |
-|----------|------|------------|
-| `Rust` | `cargo llvm-cov --lcov --output-path target/coverage/lcov.info` | ✅ 是（`cargo llvm-cov` 自带测试运行） |
-| `Python` | `coverage xml` | ❌ 否，需先单独运行 `python -m pytest` |
-| `Go` | `go tool cover -html=coverage.out -o coverage.html` | ❌ 否 |
-| `Dart` | `flutter test --coverage` | ✅ 是 |
-| `TypeScript` | `npx nyc --reporter=lcov npm test` | ✅ 是 |
-| `Unknown` | 跳过覆盖率 | — |
-
-### 测试命令
-
-| Language | 命令 |
-|----------|------|
-| `Rust` | `cargo test` |
-| `Python` | `python -m pytest` |
-| `Go` | `go test ./...` |
-| `Dart` | `flutter test` |
-| `TypeScript` | `npm test` |
-| `Unknown` | 跳过 |
-
-### 输出示例
-
-```
-  运行测试...
-  生成覆盖率 (cargo)...
-  ✅ 覆盖率已更新
-  ✅ 测试通过
-```
+见 [review.md](audit.md)。
 
 ## test clean — 清理缓存
 

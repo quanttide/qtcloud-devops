@@ -321,12 +321,6 @@ fn test_cli_code_sync_help() {
 }
 
 #[test]
-fn test_cli_test_run_help() {
-    let output = cli().args(["test", "run", "--help"]).output().unwrap();
-    assert!(output.status.success());
-}
-
-#[test]
 fn test_cli_source_help() {
     let output = cli().args(["source", "--help"]).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -392,21 +386,4 @@ fn test_cli_release_help() {
     assert!(stdout.contains("publish"));
 }
 
-#[test]
-fn test_cli_test_run_in_temp_project() {
-    let d = tempfile::tempdir().unwrap();
-    std::fs::write(
-        d.path().join("Cargo.toml"),
-        "[package]\nname = \"test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .unwrap();
-    std::fs::create_dir_all(d.path().join("src")).unwrap();
-    std::fs::write(d.path().join("src/lib.rs"), "#[test] fn it_works() {}\n").unwrap();
-    let output = cli()
-        .args(["test", "run"])
-        .current_dir(d.path())
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("测试通过"), "应有测试通过: {}", stdout);
-}
+

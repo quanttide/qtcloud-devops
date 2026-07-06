@@ -470,6 +470,9 @@ fn coverage_command(lang: &contract::Language) -> Option<(&'static str, &'static
     }
 }
 
+// ── 以下函数原属于已移除的 test run 命令，保留供外部库使用者参考 ──
+// 可安全删除，不影响 CLI 功能。
+
 /// 从 /proc/meminfo 读取 MemAvailable (kB)，计算安全的并行编译 job 数。
 /// 公式：jobs = max(1, min(CPU核数, MemAvailable_GB / 1.5))
 fn safe_parallel_jobs() -> usize {
@@ -565,9 +568,8 @@ pub fn status_to(
 
     if scopes.is_empty() {
         let lang = contract::detect_languages(repo_path).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
-        let summary = collect_test_summary(repo_path, &lang);
         let coverage = collect_coverage(repo_path, &lang, c.stages.test.threshold);
-        print_scope(writer, "(root)", &summary, &coverage)?;
+        print_scope_status(writer, "(root)", &coverage)?;
     } else {
         for scope in &scopes {
             let scope_dir = repo_path.join(&scope.dir);
@@ -576,49 +578,21 @@ pub fn status_to(
                 continue;
             }
             let lang = c.resolve_language(scope, &scope_dir);
-            let summary = collect_test_summary(&scope_dir, &lang);
             let threshold = c.scope_test_threshold(scope);
             let coverage = collect_coverage(&scope_dir, &lang, threshold);
-            print_scope(writer, &scope.name, &summary, &coverage)?;
+            print_scope_status(writer, &scope.name, &coverage)?;
         }
     }
 
     Ok(())
 }
 
-fn print_scope(
+fn print_scope_status(
     writer: &mut impl std::io::Write,
     name: &str,
-    summary: &TestSummary,
     coverage: &Coverage,
 ) -> std::io::Result<()> {
-    let status_icon = if summary.failed > 0 {
-        "❌"
-    } else if summary.skipped > 0 {
-        "⚠"
-    } else if summary.total > 0 {
-        "✅"
-    } else {
-        "—"
-    };
-
-    let detail = if summary.total > 0 {
-        if summary.failed > 0 {
-            format!("{} / {} 失败", summary.failed, summary.total)
-        } else if summary.skipped > 0 {
-            format!(
-                "{} 通过 / {} 跳过 / {} 总计",
-                summary.passed, summary.skipped, summary.total
-            )
-        } else {
-            format!("{} ✅ 全部通过", summary.total)
-        }
-    } else {
-        "暂无测试".into()
-    };
-
-    writeln!(writer, "  [{:<12}] {}", name, status_icon)?;
-    writeln!(writer, "    测试数:       {}", detail)?;
+    writeln!(writer, "  [{:<12}]", name)?;
 
     let cov_icon = if coverage.met() {
         "✅"
@@ -670,6 +644,7 @@ fn cache_path(dir: &Path) -> PathBuf {
     dir.join(TEST_SUMMARY_CACHE)
 }
 
+#[allow(dead_code)]
 /// 收集已缓存的测试结果（不运行测试）。
 fn collect_test_summary(dir: &Path, _lang: &contract::Language) -> TestSummary {
     let cache = cache_path(dir);
@@ -889,51 +864,13 @@ mod tests {
     }
 
     #[test]
-    fn test_print_scope_skipped() {
-        let mut buf = Vec::new();
-        let s = TestSummary {
-            total: 10,
-            passed: 8,
-            failed: 0,
-            skipped: 2,
-        };
-        let c = Coverage {
-            percentage: 0.0,
-            threshold: 70.0,
-        };
-        print_scope(&mut buf, "test", &s, &c).unwrap();
-        let out = String::from_utf8_lossy(&buf);
-        assert!(out.contains("⚠"), "跳过应有 ⚠");
-    }
-
-    #[test]
-    fn test_print_scope_no_tests() {
-        let mut buf = Vec::new();
-        let s = TestSummary::default();
-        let c = Coverage {
-            percentage: 0.0,
-            threshold: 70.0,
-        };
-        print_scope(&mut buf, "test", &s, &c).unwrap();
-        let out = String::from_utf8_lossy(&buf);
-        assert!(out.contains("—"), "无测试应有 —");
-        assert!(out.contains("暂无测试"));
-    }
-
-    #[test]
     fn test_print_scope_coverage_warn() {
         let mut buf = Vec::new();
-        let s = TestSummary {
-            total: 10,
-            passed: 10,
-            failed: 0,
-            skipped: 0,
-        };
         let c = Coverage {
             percentage: 50.0,
             threshold: 70.0,
         };
-        print_scope(&mut buf, "test", &s, &c).unwrap();
+        print_scope_status(&mut buf, "test", &c).unwrap();
         let out = String::from_utf8_lossy(&buf);
         assert!(out.contains("⚠"), "低于阈值应有 ⚠");
     }
@@ -1314,61 +1251,32 @@ mod tests {
             percentage: 0.0,
             threshold: 70.0,
         };
-        print_scope(&mut buf, "core", &s, &c).unwrap();
+        print_scope_status(&mut buf, "core", &c).unwrap();
         let out = String::from_utf8_lossy(&buf);
-        assert!(out.contains("✅"), "全部通过应有 ✅");
         assert!(out.contains("未检测到覆盖率报告"));
     }
 
     #[test]
     fn test_print_scope_with_coverage_met() {
         let mut buf = Vec::new();
-        let s = TestSummary {
-            total: 10,
-            passed: 10,
-            failed: 0,
-            skipped: 0,
-        };
         let c = Coverage {
             percentage: 85.0,
             threshold: 70.0,
         };
-        print_scope(&mut buf, "lib", &s, &c).unwrap();
+        print_scope_status(&mut buf, "lib", &c).unwrap();
         let out = String::from_utf8_lossy(&buf);
         assert!(out.contains("✅"), "满足阈值应有 ✅");
         assert!(out.contains("85.0%"));
     }
 
     #[test]
-    fn test_print_scope_all_failed() {
-        let mut buf = Vec::new();
-        let s = TestSummary {
-            total: 3,
-            passed: 0,
-            failed: 3,
-            skipped: 0,
-        };
-        let c = Coverage::default();
-        print_scope(&mut buf, "test", &s, &c).unwrap();
-        let out = String::from_utf8_lossy(&buf);
-        assert!(out.contains("❌"), "全部失败应有 ❌");
-        assert!(out.contains("3 / 3"));
-    }
-
-    #[test]
     fn test_print_scope_coverage_below_threshold() {
         let mut buf = Vec::new();
-        let s = TestSummary {
-            total: 1,
-            passed: 1,
-            failed: 0,
-            skipped: 0,
-        };
         let c = Coverage {
             percentage: 30.0,
             threshold: 70.0,
         };
-        print_scope(&mut buf, "lib", &s, &c).unwrap();
+        print_scope_status(&mut buf, "lib", &c).unwrap();
         let out = String::from_utf8_lossy(&buf);
         assert!(out.contains("⚠"), "低于阈值应有 ⚠");
         assert!(out.contains("30.0%"));
@@ -1538,7 +1446,6 @@ mod tests {
         let out = String::from_utf8_lossy(&buf);
 
         assert!(out.contains("测试状态"));
-        assert!(out.contains("全部通过") || out.contains("暂无测试"));
     }
 
     #[test]
