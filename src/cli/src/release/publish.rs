@@ -114,12 +114,48 @@ pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, 
     });
 
     // ── 6. 远程可达性 ─────────────────────────────────────────────
-    let remote_ok = super::util::get_remote_repo(repo_path).is_some();
+    let remote_name = super::util::get_remote_repo(repo_path);
     items.push(AuditItem {
         name: "远程仓库",
-        passed: remote_ok,
-        detail: if remote_ok { "origin 可达".into() } else { "未配置 origin".into() },
+        passed: remote_name.is_some(),
+        detail: if let Some(ref r) = remote_name { format!("origin ({})", r) } else { "未配置 origin".into() },
     });
+
+    // ── 7. GitHub Release 同步 ─────────────────────────────────────
+    if tag_exists {
+        if let Some(ref repo) = remote_name {
+            let out = std::process::Command::new("gh")
+                .args(["release", "view", &version, "--repo", repo, "--json", "body", "--jq", ".body"])
+                .output()
+                .ok();
+            let body = out.and_then(|o| {
+                if o.status.success() {
+                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                } else { None }
+            });
+            let notes = super::util::extract_notes(&version, &changelog_path);
+            let synced = body.as_deref() == notes.as_deref();
+            items.push(AuditItem {
+                name: "GitHub Release",
+                passed: synced,
+                detail: if body.is_none() { "不存在".into() }
+                    else if synced { "body 与 CHANGELOG 一致".into() }
+                    else { "body 与 CHANGELOG 不同步".into() },
+            });
+        } else {
+            items.push(AuditItem {
+                name: "GitHub Release",
+                passed: true,
+                detail: "无远程仓库，跳过".into(),
+            });
+        }
+    } else {
+        items.push(AuditItem {
+            name: "GitHub Release",
+            passed: true,
+            detail: "标签未发布，无需检查".into(),
+        });
+    }
 
     Ok(items)
 }
