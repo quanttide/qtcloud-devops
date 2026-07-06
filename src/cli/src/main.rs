@@ -108,6 +108,12 @@ enum ContractAction {
 
 #[derive(Subcommand)]
 enum ReleaseAction {
+    /// 发布预检审计：检查版本号、配置文件、CHANGELOG、工作区、标签冲突、远程可达性
+    Audit {
+        /// 版本号。格式 `vX.Y.Z` 或 `scope/vX.Y.Z`。省略时自动检测。
+        #[arg(short = 'v', long)]
+        version: Option<String>,
+    },
     /// 发布版本：校验 CHANGELOG → 创建 tag → 推送到远端 → 创建 GitHub Release
     Publish {
         /// 版本号。格式 `vX.Y.Z` 或 `scope/vX.Y.Z`（如 `cli/v0.5.0`）。省略时自动检测。
@@ -225,6 +231,30 @@ fn main() {
             }
         },
         Commands::Release { action } => match action {
+            ReleaseAction::Audit { version } => {
+                let rp = repo_path();
+                match qtcloud_devops_cli::release::audit(version.as_deref(), &rp) {
+                    Ok(items) => {
+                        println!("发布审计\n{}", "-".repeat(50));
+                        let mut passed = 0u32;
+                        for item in &items {
+                            let icon = if item.passed { "✅" } else { "❌" };
+                            println!("  {} {}", icon, item.name);
+                            println!("        {}", item.detail);
+                            if item.passed { passed += 1; }
+                        }
+                        println!("\n{}", "-".repeat(50));
+                        let total = items.len() as u32;
+                        if passed == total {
+                            println!("  全部 {} 项检查通过", total);
+                            Ok(())
+                        } else {
+                            Err(format!("{}/{} 项未通过", total - passed, total))
+                        }
+                    }
+                    Err(e) => Err(format!("审计失败: {}", e)),
+                }
+            }
             ReleaseAction::Publish {
                 version,
                 yes,

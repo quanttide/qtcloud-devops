@@ -5,6 +5,7 @@ mod status;
 mod util;
 
 pub use changelog::ensure_changelog;
+pub use publish::audit;
 pub use publish::publish;
 pub use status::status;
 pub use changelog::ChangelogError;
