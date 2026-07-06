@@ -60,6 +60,10 @@ enum Commands {
 enum BuildAction {
     /// 查看构建状态
     Status,
+    /// 清理构建产物（target/、dist/ 等）
+    Clean,
+    /// 构建审计：检查编译器配置、CI 工作流、依赖声明
+    Audit,
 }
 
 #[derive(Subcommand)]
@@ -207,6 +211,14 @@ fn main() {
         Commands::Build { action } => match action {
             BuildAction::Status => {
                 qtcloud_devops_cli::build::status(&repo_path());
+                Ok(())
+            }
+            BuildAction::Clean => {
+                qtcloud_devops_cli::build::clean(&repo_path());
+                Ok(())
+            }
+            BuildAction::Audit => {
+                qtcloud_devops_cli::build::audit(&repo_path());
                 Ok(())
             }
         },

@@ -332,6 +332,82 @@ fn check_dependencies(dir: &Path) -> String {
     }
 }
 
+/// 清理构建产物。
+pub fn clean(repo_path: &Path) {
+    let targets = &[
+        repo_path.join("target"),
+        repo_path.join("dist"),
+        repo_path.join("node_modules"),
+        repo_path.join("__pycache__"),
+    ];
+    let mut count = 0u32;
+    for t in targets {
+        if t.is_dir() { std::fs::remove_dir_all(t).ok(); count += 1; }
+    }
+    if count == 0 {
+        println!("  无构建产物可清理");
+    } else {
+        println!("  ✓ 已清理 {} 个构建目录", count);
+    }
+}
+
+/// 构建审计：检查编译器配置、CI 工作流、依赖声明。
+pub fn audit(repo_path: &Path) {
+    let c = crate::contract::load(repo_path);
+    println!("构建审计\n{}", "-".repeat(50));
+    let mut passed = 0u32;
+    let total = 4u32;
+
+    // 1. 编译器安装
+    let lang = contract::detect_languages(repo_path).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
+    if let Some((cmd, label)) = check_command(&lang) {
+        let ok = std::process::Command::new(cmd).arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
+        println!("  {} 编译器: {}", if ok { "✅" } else { "❌" }, label);
+        if ok { passed += 1; }
+    } else {
+        println!("  ⚠ 编译器: 未知语言，跳过");
+        passed += 1;
+    }
+
+    // 2. 清单文件存在
+    let mf = check_manifest_file(&lang);
+    if let Some(f) = mf {
+        let exists = repo_path.join(f).exists();
+        println!("  {} 清单文件: {}", if exists { "✅" } else { "❌" }, f);
+        if exists { passed += 1; }
+    } else {
+        println!("  ⚠ 清单文件: 未知语言，跳过");
+        passed += 1;
+    }
+
+    // 3. CI 工作流
+    if !c.scopes.is_empty() {
+        let all_ci = c.scopes.iter().all(|s| {
+            let workflow = resolve_workflow(&s.name, s.ci_workflow.as_deref());
+            repo_path.join(".github/workflows").join(format!("{}.yml", workflow)).exists()
+                || repo_path.join(".github/workflows").join(format!("{}.yaml", workflow)).exists()
+        });
+        println!("  {} CI 工作流: {}", if all_ci { "✅" } else { "❌" }, if all_ci { "全部 scope 已定义" } else { "部分 scope 缺少 CI 工作流" });
+        if all_ci { passed += 1; }
+    } else {
+        println!("  ⚠ CI 工作流: 无 scope，跳过");
+        passed += 1;
+    }
+
+    // 4. 依赖来源
+    let deps = check_dependencies(repo_path);
+    let deps_ok = deps == "✅ crates.io" || deps == "—";
+    println!("  {} 依赖来源: {}", if deps_ok { "✅" } else { "❌" }, deps);
+    if deps_ok { passed += 1; }
+
+    println!("\n{}", "-".repeat(50));
+    if passed == total {
+        println!("  ✅ 全部 {} 项检查通过", total);
+    } else {
+        println!("  ⚠ {}/{} 项通过", passed, total);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
