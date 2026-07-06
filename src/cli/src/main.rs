@@ -97,6 +97,8 @@ enum PlanAction {
         /// scope 名称
         scope: Option<String>,
     },
+    /// 审计 ROADMAP 与 TODO 的关系：ROADMAP 是完整规划，TODO 是待办
+    Audit,
     /// 编辑 scope ROADMAP：读取原始格式 → 标准化 → 写回
     Edit {
         /// scope 名称
@@ -290,6 +292,11 @@ fn main() {
                 .map_err(|e| format!("{}", e)),
             PlanAction::Clean { scope } => run_plan_clean(scope),
             PlanAction::Edit { scope } => run_plan_edit(scope),
+            PlanAction::Audit => {
+                let rp = repo_path();
+                qtcloud_devops_cli::plan::plan_audit(&rp)
+                    .map_err(|e| format!("{}", e))
+            }
         },
         Commands::Contract { action } => match action {
             ContractAction::Status => {

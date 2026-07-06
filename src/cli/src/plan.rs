@@ -34,15 +34,28 @@ pub struct VersionProgress {
     pub total: usize,
 }
 
-/// 检测一行是否为版本标题，成功时返回版本号（去除 v 前缀）。
-/// 支持 `## [X.Y.Z]`、`## [X.Y.Z] — 已发布`、`## [vX.Y.Z]` 等格式。
+/// 检测一行是否为规划文件中的章节标题。
+/// 支持格式：
+/// - `## [X.Y.Z]` — ROADMAP.md 版本标题
+/// - `## N. title` — TODO.md 序号标题
+/// - 以上格式的可选后缀（如 `— 已发布`）
 pub fn is_version_line(line: &str) -> Option<String> {
     let t = line.trim();
-    if t.starts_with("## [") {
-        if let Some(end) = t.find(']') {
+    if let Some(end) = t.find(']') {
+        if t.starts_with("## [") {
             let ver = t["## [".len()..end].trim().trim_start_matches('v');
             if !ver.is_empty() {
                 return Some(ver.to_string());
+            }
+        }
+    }
+    // TODO.md 格式: ## N. title
+    if t.starts_with("## ") {
+        let rest = &t[3..].trim();
+        if let Some(dot) = rest.find('.') {
+            let num = &rest[..dot].trim();
+            if num.chars().all(|c| c.is_ascii_digit()) && !num.is_empty() {
+                return Some(rest.to_string());
             }
         }
     }
@@ -148,59 +161,69 @@ pub fn print_status_to(
     repo_path: &Path,
     scope: Option<&str>,
 ) -> Result<(), PlanError> {
-    let roadmap_path = resolve_roadmap_path(repo_path, scope);
-    if !roadmap_path.exists() {
-        writeln!(writer, "  未创建规划文件: {}", roadmap_path.display()).ok();
-        return Ok(());
+    let plan_dir = resolve_plan_dir(repo_path, scope);
+    let scope_label = scope.unwrap_or("(auto)");
+    let files = ["ROADMAP.md", "TODO.md"];
+    let mut found = false;
+    for fname in &files {
+        let path = plan_dir.join(fname);
+        if path.exists() {
+            found = true;
+            try_print_plan_file(writer, &path, fname, scope_label)?;
+        }
     }
+    if !found {
+        writeln!(writer, "  未创建规划文件: {}", plan_dir.join("ROADMAP.md").display()).ok();
+    }
+    Ok(())
+}
 
-    let versions = parse_roadmap(&roadmap_path)?;
+/// 尝试打印单个规划文件的状态。
+fn try_print_plan_file(
+    writer: &mut impl std::io::Write,
+    path: &Path,
+    _label: &str,
+    scope_label: &str,
+) -> Result<(), PlanError> {
+    let versions = parse_roadmap(path)?;
     if versions.is_empty() {
+        // 对于 TODO.md 空结果不是错误，跳过即可
+        if _label == "TODO.md" {
+            return Ok(());
+        }
         writeln!(writer, "  未找到标准规划条目").ok();
-        // 诊断：检查文件是否有非标准格式
-        let content = std::fs::read_to_string(&roadmap_path).unwrap_or_default();
+        let content = std::fs::read_to_string(path).unwrap_or_default();
         let has_unknown_headers = content.lines().any(|l| {
             let t = l.trim();
             (t.starts_with("## ") && !t.starts_with("## ["))
                 || (t.starts_with("### ")
-                    && !CATEGORIES
-                        .iter()
-                        .any(|c| c.to_lowercase() == t.to_lowercase()))
+                    && !CATEGORIES.iter().any(|c| c.to_lowercase() == t.to_lowercase()))
         });
         if has_unknown_headers {
-            // LLM 已配置时（非测试环境）：尝试转换非标准格式
             let settings = quanttide_agent::Settings::from_env();
             if !settings.llm_api_key.is_empty() && cfg!(not(test)) {
                 writeln!(writer, "  🔄 检测到非标准格式，调用 LLM 转换...").ok();
-                if let Ok(llm_result) = edit_llm(
-                    &content,
-                    scope.unwrap_or("(auto)"),
-                    &settings,
-                    &roadmap_path,
-                ) {
+                if let Ok(llm_result) = edit_llm(&content, scope_label, &settings, path) {
                     if llm_result.is_some() {
-                        if let Ok(new_versions) = parse_roadmap(&roadmap_path) {
+                        if let Ok(new_versions) = parse_roadmap(path) {
                             if !new_versions.is_empty() {
-                                return print_progress(
-                                    writer,
-                                    scope.unwrap_or("(auto)"),
-                                    &new_versions,
-                                );
+                                return print_progress(writer, scope_label, &new_versions);
                             }
                         }
                     }
                 }
             }
-            writeln!(
-                writer,
-                "  ⚠ 文件含有非标准格式的标题，运行 `plan edit` 查看详情"
-            )
-            .ok();
+            writeln!(writer, "  ⚠ 文件含有非标准格式的标题，运行 `plan edit` 查看详情").ok();
         }
         return Ok(());
     }
+    print_progress(writer, scope_label, &versions)
+}
 
-    print_progress(writer, scope.unwrap_or("(auto)"), &versions)
+/// 返回 planning 文件所在目录。
+fn resolve_plan_dir(repo_path: &Path, scope: Option<&str>) -> PathBuf {
+    let p = resolve_roadmap_path(repo_path, scope);
+    p.parent().unwrap_or(repo_path).to_path_buf()
 }
 
 /// 输出进度表（抽离以供 LLM 转换后重用）。
@@ -539,6 +562,103 @@ c) 条目格式：- [x] 内容 或 - [ ] 内容
         scope: String::new(),
         message: "LLM 格式修复完成".to_string(),
     }]))
+}
+
+/// 审计规划：ROADMAP 是完整规划，TODO 是待办。
+/// 检查格式合规、条目一致性（TODO 不应包含 ROADMAP 未规划的工作）。
+pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
+    let dir = resolve_plan_dir(repo_path, None);
+    let roadmap_path = dir.join("ROADMAP.md");
+    let todo_path = dir.join("TODO.md");
+
+    println!("规划审计\n{}", "-".repeat(50));
+
+    if !roadmap_path.exists() && !todo_path.exists() {
+        println!("  未找到 ROADMAP.md 或 TODO.md");
+        return Ok(());
+    }
+
+    let mut all_ok = true;
+
+    // ── 1. 格式审计 ───────────────────────────────────────────────
+    if roadmap_path.exists() {
+        let issues = edit_roadmap(&roadmap_path, "(root)")?;
+        if !issues.is_empty() {
+            all_ok = false;
+            println!("  ❌ ROADMAP.md 格式问题: {} 处", issues.len());
+            for i in &issues {
+                println!("     L{}: {}", i.line, i.message);
+            }
+        } else {
+            println!("  ✅ ROADMAP.md 格式规范");
+        }
+    }
+
+    if todo_path.exists() {
+        let issues = edit_roadmap(&todo_path, "(root)")?;
+        if !issues.is_empty() {
+            all_ok = false;
+            println!("  ❌ TODO.md 格式问题: {} 处", issues.len());
+            for i in &issues {
+                println!("     L{}: {}", i.line, i.message);
+            }
+        } else {
+            println!("  ✅ TODO.md 格式规范");
+        }
+    }
+
+    // ── 2. ROADMAP ↔ TODO 一致性 ─────────────────────────────────
+    if roadmap_path.exists() && todo_path.exists() {
+        let roadmap_content = std::fs::read_to_string(&roadmap_path)?;
+        let todo_content = std::fs::read_to_string(&todo_path)?;
+
+        // 提取 TODO 中的条目内容（去掉 checkbox 前缀）
+        let todo_items: Vec<String> = todo_content.lines()
+            .filter(|l| l.trim().starts_with("- [ ]") || l.trim().starts_with("- [x]"))
+            .map(|l| {
+                let item = if l.contains("[x]") || l.contains("[X]") {
+                    &l[l.find(']').unwrap_or(0)+1..]
+                } else {
+                    &l[l.find(']').unwrap_or(0)+1..]
+                };
+                item.trim().to_lowercase()
+            })
+            .collect();
+
+        let mut orphaned = Vec::new();
+        for item in &todo_items {
+            // 检查 TODO 条目是否能在 ROADMAP 中找到对应
+            if !roadmap_content.to_lowercase().contains(item) {
+                orphaned.push(item.clone());
+            }
+        }
+
+        if orphaned.is_empty() {
+            println!("  ✅ TODO 条目均映射到 ROADMAP");
+        } else {
+            all_ok = false;
+            println!("  ❌ TODO 中存在未在 ROADMAP 中规划的条目:");
+            for o in &orphaned {
+                println!("     • {}", o);
+            }
+        }
+
+        // 计数
+        let roadmap_total = roadmap_content.lines().filter(|l| l.trim().starts_with("- [ ]") || l.trim().starts_with("- [x]")).count();
+        let todo_total = todo_items.len();
+        println!("  📊 ROADMAP: {} 条目, TODO: {} 条目", roadmap_total, todo_total);
+    } else if todo_path.exists() && !roadmap_path.exists() {
+        println!("  ⚠ TODO.md 存在但无 ROADMAP.md（建议从 ROADMAP 派生）");
+        all_ok = false;
+    }
+
+    println!("\n{}", "-".repeat(50));
+    if all_ok {
+        println!("  ✅ 审计通过");
+    } else {
+        println!("  ⚠ 存在待修复问题");
+    }
+    if all_ok { Ok(()) } else { Err(PlanError::Other("审计未通过".into())) }
 }
 
 #[cfg(test)]
