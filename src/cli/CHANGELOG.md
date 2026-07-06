@@ -1,6 +1,18 @@
 # CHANGELOG
 
 
+
+## [0.10.0-beta.4] - 2026-07-06
+
+Added
+- 审计功能新增导入计数和热点检查
+
+Changed
+- 在 AGENTS.md 和 audit.md 中记录 DevOps 与代码的边界
+
+Fixed
+- 跳过生成的代码生成文件，避免审计误报
+- 移除不可操作的代码热点指标
 ## [0.10.0-beta.3] - 2026-07-06
 
 ### Changed
