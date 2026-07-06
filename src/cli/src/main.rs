@@ -8,7 +8,8 @@ use std::process;
 #[command(
     name = "qtcloud-devops",
     about = "量潮DevOps实验室 — Git 子模块管理 & 发布管理",
-    version
+    version,
+    disable_help_subcommand(true)
 )]
 struct Cli {
     #[command(subcommand)]
@@ -47,6 +48,8 @@ enum Commands {
         #[command(subcommand)]
         action: ReleaseAction,
     },
+    /// 快速导览：按 stage 分组展示命令
+    Help,
     /// 概览状态：聚合 build / test / release / contract / plan 状态
     Status,
     /// 概览审计：聚合 build / test / release 审计
@@ -300,6 +303,29 @@ fn main() {
                 Ok(())
             }
         },
+        Commands::Help => {
+            println!("qtcloud-devops — 量潮DevOps命令行工具");
+            println!();
+            println!("Development lifecycle (stages):");
+            println!("  build → test → release");
+            println!();
+            println!("  build status / clean / audit");
+            println!("  test  status / clean / audit");
+            println!("        release status / audit / publish");
+            println!();
+            println!("Cross-stage:");
+            println!("  code status / audit");
+            println!("  plan  status / clean / edit / audit");
+            println!("  contract status");
+            println!("  source status");
+            println!();
+            println!("Overview:");
+            println!("  status    聚合所有 status");
+            println!("  audit     聚合所有 audit");
+            println!();
+            println!("Use `--help` on any command for detailed options.");
+            Ok(())
+        }
         Commands::Status => {
             let rp = repo_path();
             qtcloud_devops_cli::contract::status(&rp);

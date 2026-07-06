@@ -8,7 +8,7 @@
 /// - `doctor` — 修复格式问题（规则修复 + LLM 修复）
 use std::path::{Path, PathBuf};
 
-use quanttide_devops::source::roadmap::{Roadmap, RoadmapVersion};
+use quanttide_devops::source::roadmap::RoadmapVersion;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlanError {
