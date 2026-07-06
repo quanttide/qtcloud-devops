@@ -16,5 +16,6 @@
 ### Fixed
 - [ ] `release publish` 从 monorepo root 执行误检测 scope
 - [ ] `gh release create` 超时无重试
+- [ ] `plan clean/status` scope 路径解析：无 contract 时只查仓库根目录，未搜索 scope 子目录内的 ROADMAP
 - [ ] release 后主仓库子模组指针未自动更新
 
