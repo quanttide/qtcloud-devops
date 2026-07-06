@@ -157,6 +157,11 @@ enum CodeAction {
         #[arg(long)]
         offline: bool,
     },
+    /// 审计子模块状态：检查各子模块健康状况
+    Audit {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
     /// 同步组件到远端
     Sync {
         /// 组件名称（省略则同步全部）
@@ -353,6 +358,11 @@ fn main() {
 fn run_code(action: CodeAction) -> Result<(), String> {
     match action {
         CodeAction::Status { path, offline } => run_code_status(path, offline),
+        CodeAction::Audit { path } => {
+            let root = resolve_path(&path)?;
+            qtcloud_devops_cli::code::audit(&root);
+            Ok(())
+        }
         CodeAction::Sync {
             name: Some(n),
             dry_run,
