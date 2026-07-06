@@ -33,11 +33,16 @@ pub fn status_to(writer: &mut impl Write, repo_path: &Path) -> std::io::Result<(
         "git",
         check_command("git", &["--version"])
     ));
-    o.push_str(&format!(
-        "  {:<12} {}\n",
-        "gh",
-        check_command("gh", &["--version"])
-    ));
+    let gh_ver = check_command("gh", &["--version"]);
+    o.push_str(&format!("  {:<12} {}\n", "gh", gh_ver));
+    // 检查 gh 认证状态（空版本字符串说明未安装，跳过 auth 检查）
+    if gh_ver.starts_with("✅") {
+        o.push_str(&format!(
+            "    {:<10} {}\n",
+            "auth",
+            check_command("gh", &["auth", "status"])
+        ));
+    }
 
     for lang in &["rust", "python", "go", "dart", "typescript"] {
         if !used_langs.iter().any(|l| l == lang) {
@@ -108,7 +113,6 @@ pub fn status_to(writer: &mut impl Write, repo_path: &Path) -> std::io::Result<(
     }
     write!(writer, "{}", o)
 }
-
 
 fn check_command(cmd: &str, args: &[&str]) -> String {
     match Command::new(cmd).args(args).output() {

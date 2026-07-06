@@ -255,10 +255,11 @@ fn main() {
                 };
                 match results {
                     Ok(all_items) => {
-                        let (all_passed, all_total) = all_items.iter().fold((0u32, 0u32), |(p, t), (_, items)| {
-                            let sp = items.iter().filter(|i| i.passed).count() as u32;
-                            (p + sp, t + items.len() as u32)
-                        });
+                        let (all_passed, all_total) =
+                            all_items.iter().fold((0u32, 0u32), |(p, t), (_, items)| {
+                                let sp = items.iter().filter(|i| i.passed).count() as u32;
+                                (p + sp, t + items.len() as u32)
+                            });
                         for (scope_name, items) in &all_items {
                             if !scope_name.is_empty() {
                                 println!("发布审计 — {}\n{}", scope_name, "-".repeat(50));
@@ -270,7 +271,9 @@ fn main() {
                                 let icon = if item.passed { "✅" } else { "❌" };
                                 println!("  {} {}", icon, item.name);
                                 println!("        {}", item.detail);
-                                if item.passed { passed += 1; }
+                                if item.passed {
+                                    passed += 1;
+                                }
                             }
                             let total = items.len() as u32;
                             println!("{}\n  {}/{} 项通过\n", "-".repeat(50), passed, total);
@@ -280,7 +283,12 @@ fn main() {
                             println!("  全部 {} 项检查通过 ({} scope)", all_total, total);
                             Ok(())
                         } else {
-                            Err(format!("{}/{} 项未通过 ({} scope)", all_total - all_passed, all_total, total))
+                            Err(format!(
+                                "{}/{} 项未通过 ({} scope)",
+                                all_total - all_passed,
+                                all_total,
+                                total
+                            ))
                         }
                     }
                     Err(e) => Err(format!("审计失败: {}", e)),
@@ -307,14 +315,15 @@ fn main() {
             }
         },
         Commands::Plan { action } => match action {
-            PlanAction::Status { scope } => qtcloud_devops_cli::plan::print_status(&repo_path(), scope.as_deref())
-                .map_err(|e| format!("{}", e)),
+            PlanAction::Status { scope } => {
+                qtcloud_devops_cli::plan::print_status(&repo_path(), scope.as_deref())
+                    .map_err(|e| format!("{}", e))
+            }
             PlanAction::Clean { scope } => run_plan_clean(scope),
             PlanAction::Edit { scope } => run_plan_edit(scope),
             PlanAction::Audit => {
                 let rp = repo_path();
-                qtcloud_devops_cli::plan::plan_audit(&rp)
-                    .map_err(|e| format!("{}", e))
+                qtcloud_devops_cli::plan::plan_audit(&rp).map_err(|e| format!("{}", e))
             }
         },
         Commands::Contract { action } => match action {
@@ -354,7 +363,7 @@ fn main() {
             println!();
             qtcloud_devops_cli::plan::print_status(&rp, None).ok();
             println!();
-            if let Ok(report) = qtcloud_devops_cli::code::status(rp.clone(), false) {
+            if let Ok(report) = qtcloud_devops_cli::code::status(rp.clone(), true) {
                 print_report(&report);
             }
             println!();
@@ -417,8 +426,8 @@ fn run_plan_clean(scope: Option<String>) -> Result<(), String> {
         println!("  未找到规划文件: {}", roadmap_path.display());
         return Ok(());
     }
-    let removed = qtcloud_devops_cli::plan::clean_roadmap(&roadmap_path)
-        .map_err(|e| format!("{}", e))?;
+    let removed =
+        qtcloud_devops_cli::plan::clean_roadmap(&roadmap_path).map_err(|e| format!("{}", e))?;
     if removed > 0 {
         println!(
             "  ✓ 已清理 {} 字节，文件: {}",
