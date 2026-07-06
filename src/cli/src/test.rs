@@ -697,10 +697,19 @@ fn save_test_summary(dir: &Path, summary: &TestSummary) {
     }
 }
 
-/// 清除缓存的测试摘要。
+/// 清除本地测试产物：覆盖率报告、缓存等。
 pub fn clear_cache(dir: &Path) {
-    let cache = cache_path(dir);
-    std::fs::remove_file(&cache).ok();
+    let targets = [
+        dir.join("target/coverage"),
+        dir.join("coverage.xml"),
+        dir.join("htmlcov"),
+        dir.join(".quanttide/devops/test-summary.json"),
+    ];
+    for t in &targets {
+        if t.is_dir() { std::fs::remove_dir_all(t).ok(); }
+        else if t.exists() { std::fs::remove_file(t).ok(); }
+    }
+    println!("  ✓ 测试产物已清理");
 }
 
 fn parse_test_summary(content: &str) -> TestSummary {

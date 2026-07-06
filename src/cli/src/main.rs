@@ -66,6 +66,8 @@ enum BuildAction {
 enum TestAction {
     /// 查看测试状态
     Status,
+    /// 清理本地测试产物（覆盖率报告等）
+    Clean,
     /// 质量审计：扫描测试覆盖率、错误变体覆盖、门禁达标情况
     Audit {
         /// 审计所有 scope（默认仅当前 scope）
@@ -212,6 +214,10 @@ fn main() {
             TestAction::Status => {
                 let c = qtcloud_devops_cli::contract::load(&repo_path());
                 qtcloud_devops_cli::test::status(&repo_path(), &c);
+                Ok(())
+            }
+            TestAction::Clean => {
+                qtcloud_devops_cli::test::clear_cache(&repo_path());
                 Ok(())
             }
             TestAction::Audit { all, verbose } => {
