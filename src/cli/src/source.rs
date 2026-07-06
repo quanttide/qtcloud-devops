@@ -1,4 +1,4 @@
-/// doctor 命令：检查系统依赖的外部命令状态。
+/// source 命令：检查系统依赖的外部命令状态。
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;

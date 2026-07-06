@@ -1,4 +1,4 @@
-# doctor 命令设计
+# source status 命令设计
 
 ## 定位
 
@@ -7,7 +7,7 @@
 ## 命令
 
 ```
-qtcloud-devops doctor status   检查外部依赖
+qtcloud-devops source status   检查系统依赖
 ```
 
 ## 检查项

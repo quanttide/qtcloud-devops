@@ -49,10 +49,10 @@ enum Commands {
     },
     /// 概览状态：聚合 build / test / release / contract / plan 状态
     Status,
-    /// 系统诊断：检查外部依赖命令状态
-    Doctor {
+    /// 环境诊断：检查外部依赖命令状态
+    Source {
         #[command(subcommand)]
-        action: DoctorAction,
+        action: SourceAction,
     },
 }
 
@@ -137,8 +137,8 @@ enum ReleaseAction {
 }
 
 #[derive(Subcommand)]
-enum DoctorAction {
-    /// 检查外部依赖命令状态
+enum SourceAction {
+    /// 检查系统依赖命令状态
     Status,
 }
 
@@ -291,7 +291,7 @@ fn main() {
             let rp = repo_path();
             qtcloud_devops_cli::contract::status(&rp);
             println!();
-            qtcloud_devops_cli::doctor::status(&rp);
+            qtcloud_devops_cli::source::status(&rp);
             println!();
             qtcloud_devops_cli::plan::print_status(&rp, None).ok();
             println!();
@@ -307,10 +307,10 @@ fn main() {
             qtcloud_devops_cli::release::status(&rp);
             Ok(())
         }
-        Commands::Doctor { action } => match action {
-            DoctorAction::Status => {
+        Commands::Source { action } => match action {
+            SourceAction::Status => {
                 let rp = repo_path();
-                qtcloud_devops_cli::doctor::status(&rp);
+                qtcloud_devops_cli::source::status(&rp);
                 Ok(())
             }
         },

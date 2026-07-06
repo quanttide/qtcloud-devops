@@ -28,11 +28,11 @@
 
 **测试范围：**
 - `--help` / `--version` 输出
-- 各子命令 `--help`（code / release / contract / plan / test / doctor / build）
+- 各子命令 `--help`（code / release / contract / plan / test / source / build）
 - `release publish -v vX.Y.Z -y` 在临时 git 仓库中的完整流程
 - `release publish` 自动生成 CHANGELOG
 - `release publish` gh 未安装时的降级
-- `contract status` / `doctor status` / `build status` / `release status` / `plan status` / `test status`
+- `contract status` / `source status` / `build status` / `release status` / `plan status` / `test status`
 - `plan clean` 条目清理
 - `code status` / `code sync`
 - `test run` 在临时 Cargo 项目中

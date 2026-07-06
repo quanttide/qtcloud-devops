@@ -17,7 +17,7 @@ test status     测试缓存中的通过数/覆盖率
 release status  git 标签/未发布提交数
 build status    本地编译/CI/依赖状态
 contract status  契约文件内容
-doctor status   系统命令安装状态
+env status      系统命令安装状态
 code status     子模块同步状态
 ```
 
@@ -70,8 +70,8 @@ release     release status   release status   release status
 |------|------|
 | `code status / sync` | 子模块管理（跨 stage 的代码协作） |
 | `contract status` | 契约配置浏览 |
-| `doctor status` | 系统依赖诊断 |
-| `plan status / clean / doctor` | ROADMAP 规划管理 |
+| `source status` | 系统依赖诊断 |
+| `plan status / clean / doctor` | ROADMAP 规划与修复 |
 
 每个命令的 scope 由 `contract.yaml` 和当前工作目录决定。例如 `test audit` 扫描 `cli` 还是 `studio`，取决于你在哪个目录。
 
