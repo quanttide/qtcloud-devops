@@ -564,6 +564,57 @@ c) 条目格式：- [x] 内容 或 - [ ] 内容
     }]))
 }
 
+/// LLM 语义审计：检查 ROADMAP 与 TODO 的一致性。
+/// TODO 应是 ROADMAP 的待办子集，不应包含未规划的工作。
+fn llm_audit_consistency(
+    roadmap: &str,
+    todo: &str,
+    settings: &quanttide_agent::Settings,
+) -> Result<Vec<String>, PlanError> {
+    use quanttide_agent::{llm::CompleteOptions, Message, LLM};
+    let llm = LLM::new(&settings.llm_model, &settings.llm_base_url, &settings.llm_api_key);
+    let prompt = format!(
+        r#"你是一个规划一致性审计专家。ROADMAP.md 是完整规划，TODO.md 是待办子集。
+
+要求：
+1. TODO 中的每条待办是否能在 ROADMAP 中找到对应条目？
+2. ROADMAP 中是否有高优先级条目应出现在 TODO 但缺失？
+3. TODO 条目是否与 ROADMAP 的版本优先级相符？
+
+只输出 JSON 数组，每项格式：{{"severity": "error|warn", "message": "..."}}
+如果完全一致，输出空数组 []。
+
+ROADMAP.md:
+{}
+
+TODO.md:
+{}"#,
+        roadmap, todo
+    );
+    let messages = vec![
+        Message::new("system", "你是一个严格的规划审计工具。只输出 JSON 数组，不要额外内容。"),
+        Message::new("user", &prompt),
+    ];
+    let options = CompleteOptions {
+        response_format: Some(serde_json::json!({"type": "json_object"})),
+        ..Default::default()
+    };
+    let resp = llm.complete(&messages, options)
+        .map_err(|e| PlanError::Other(format!("LLM 调用失败: {}", e.0)))?;
+    let findings: Vec<serde_json::Value> = serde_json::from_str(&resp.content)
+        .map_err(|e| PlanError::Other(format!("LLM 输出解析失败: {}", e)))?;
+    let mut result = Vec::new();
+    for f in &findings {
+        if let (Some(severity), Some(msg)) = (
+            f.get("severity").and_then(|s| s.as_str()),
+            f.get("message").and_then(|s| s.as_str()),
+        ) {
+            result.push(format!("[{}] {}", severity, msg));
+        }
+    }
+    Ok(result)
+}
+
 /// 审计规划：ROADMAP 是完整规划，TODO 是待办。
 /// 检查格式合规、条目一致性（TODO 不应包含 ROADMAP 未规划的工作）。
 pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
@@ -647,6 +698,25 @@ pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
         let roadmap_total = roadmap_content.lines().filter(|l| l.trim().starts_with("- [ ]") || l.trim().starts_with("- [x]")).count();
         let todo_total = todo_items.len();
         println!("  📊 ROADMAP: {} 条目, TODO: {} 条目", roadmap_total, todo_total);
+
+        // ── 3. LLM 语义审计 ────────────────────────────────────────
+        let settings = quanttide_agent::Settings::from_env();
+        if !settings.llm_api_key.is_empty() && cfg!(not(test)) {
+            match llm_audit_consistency(&roadmap_content, &todo_content, &settings) {
+                Ok(audit_result) => {
+                    if audit_result.is_empty() {
+                        println!("  ✅ LLM 语义审计: 一致");
+                    } else {
+                        all_ok = false;
+                        println!("  ❌ LLM 语义审计:");
+                        for line in &audit_result {
+                            println!("     • {}", line);
+                        }
+                    }
+                }
+                Err(e) => println!("  ⚠ LLM 语义审计失败: {}", e),
+            }
+        }
     } else if todo_path.exists() && !roadmap_path.exists() {
         println!("  ⚠ TODO.md 存在但无 ROADMAP.md（建议从 ROADMAP 派生）");
         all_ok = false;
