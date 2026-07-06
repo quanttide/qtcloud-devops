@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::util::{self, PublishTarget};
+use super::util::{self, resolve_scope_dir, PublishTarget};
 use crate::contract;
 
 /// 发布审计结果项。
@@ -339,34 +339,6 @@ pub fn publish(
     Ok(())
 }
 
-/// 从 version 字符串提取 scope，查契约得到子目录。
-fn resolve_scope_dir(version: &str, repo_path: &Path) -> std::path::PathBuf {
-    // "cli/v0.6.0" → scope="cli", "v0.1.0" → scope="(root)"
-    let scope_name = if version.contains('/') {
-        version.split('/').next().unwrap_or("")
-    } else {
-        "(root)"
-    };
-    if scope_name == "(root)" || scope_name.is_empty() {
-        return repo_path.to_path_buf();
-    }
-    // 从契约查找 scope
-    let scopes = contract::load_scopes(repo_path);
-    if let Some(s) = scopes.iter().find(|s| s.name == scope_name) {
-        let d = repo_path.join(&s.dir);
-        if d.exists() {
-            return d;
-        }
-    }
-    // 回退：scope 名作为子目录
-    let d = repo_path.join(scope_name);
-    if d.is_dir() {
-        d
-    } else {
-        repo_path.to_path_buf()
-    }
-}
-
 /// 更新 Cargo.toml / pyproject.toml 中的版本号。
 fn update_config_version(repo_path: &Path, version: &str) {
     for filename in &["Cargo.toml", "pyproject.toml"] {
@@ -481,25 +453,6 @@ mod tests {
         let content = "{\n  \"version\": \"1.0.0\",\n}\n";
         let result = update_version_in_content(content, "2.0.0");
         assert!(result.contains("\"version\": \"2.0.0\""));
-    }
-
-    #[test]
-    fn test_resolve_scope_dir_with_contract() {
-        let d = tempfile::tempdir().unwrap();
-        let contract_dir = d.path().join(".quanttide/devops");
-        std::fs::create_dir_all(&contract_dir).unwrap();
-        std::fs::write(
-            contract_dir.join("contract.yaml"),
-            "scopes:\n  cli:\n    dir: packages/cli\n    language: rust\n",
-        )
-        .unwrap();
-        std::fs::create_dir_all(d.path().join("packages/cli")).unwrap();
-        let resolved = resolve_scope_dir("cli/v0.1.0", d.path());
-        assert!(
-            resolved.ends_with("packages/cli"),
-            "预期以 packages/cli 结尾，但得到: {:?}",
-            resolved
-        );
     }
 
     #[test]

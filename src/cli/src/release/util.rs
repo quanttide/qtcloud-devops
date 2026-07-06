@@ -121,6 +121,19 @@ pub fn push_tag(version: &str, repo_path: &Path) -> Result<(), String> {
         .map_err(|e| format!("推送标签失败: {}", e))
 }
 
+/// 从 version 字符串提取 scope，查契约得到子目录。
+pub fn resolve_scope_dir(version: &str, repo_path: &Path) -> std::path::PathBuf {
+    let scope_name = if version.contains('/') { version.split('/').next().unwrap_or("") } else { "(root)" };
+    if scope_name == "(root)" || scope_name.is_empty() { return repo_path.to_path_buf(); }
+    let scopes = crate::contract::load_scopes(repo_path);
+    if let Some(s) = scopes.iter().find(|s| s.name == scope_name) {
+        let d = repo_path.join(&s.dir);
+        if d.exists() { return d; }
+    }
+    let d = repo_path.join(scope_name);
+    if d.is_dir() { d } else { repo_path.to_path_buf() }
+}
+
 /// 将 git tag 解析为 semver::Version（用于语义化版本比较）。
 /// 支持 "vX.Y.Z"、"scope/vX.Y.Z"、"X.Y.Z-pre.N" 等格式。
 pub fn parse_tag_semver(tag: &str) -> semver::Version {
@@ -473,5 +486,16 @@ mod tests {
             .output()
             .unwrap();
         assert!(!String::from_utf8_lossy(&o.stdout).contains("v0.0.0-test-rollback"));
+    }
+
+    #[test]
+    fn test_resolve_scope_dir_with_contract() {
+        let d = tempfile::tempdir().unwrap();
+        let contract_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&contract_dir).unwrap();
+        std::fs::write(contract_dir.join("contract.yaml"), "scopes:\n  cli:\n    dir: packages/cli\n    language: rust\n").unwrap();
+        std::fs::create_dir_all(d.path().join("packages/cli")).unwrap();
+        let resolved = resolve_scope_dir("cli/v0.1.0", d.path());
+        assert!(resolved.ends_with("packages/cli"), "预期以 packages/cli 结尾，但得到: {:?}", resolved);
     }
 }
