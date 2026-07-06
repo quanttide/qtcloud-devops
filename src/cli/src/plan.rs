@@ -8,6 +8,8 @@
 /// - `doctor` — 修复格式问题（规则修复 + LLM 修复）
 use std::path::{Path, PathBuf};
 
+use quanttide_devops::source::roadmap::{Roadmap, RoadmapVersion};
+
 #[derive(Debug, thiserror::Error)]
 pub enum PlanError {
     #[error("I/O 错误: {0}")]
@@ -22,16 +24,10 @@ impl From<String> for PlanError {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// 模型
-// ═══════════════════════════════════════════════════════════════════════
-
-/// 单个版本的规划进度。
-#[derive(Debug)]
-pub struct VersionProgress {
-    pub version: String,
-    pub done: usize,
-    pub total: usize,
+impl From<quanttide_devops::source::roadmap::RoadmapError> for PlanError {
+    fn from(e: quanttide_devops::source::roadmap::RoadmapError) -> Self {
+        PlanError::Other(e.to_string())
+    }
 }
 
 /// 检测一行是否为规划文件中的章节标题。
@@ -105,46 +101,49 @@ pub fn resolve_roadmap_path(repo_path: &Path, scope: Option<&str>) -> PathBuf {
 // ═══════════════════════════════════════════════════════════════════════
 
 /// 解析 ROADMAP.md，返回各版本进度列表。
-pub fn parse_roadmap(path: &Path) -> Result<Vec<VersionProgress>, PlanError> {
+pub fn parse_roadmap(path: &Path) -> Result<Vec<RoadmapVersion>, PlanError> {
     let content = std::fs::read_to_string(path)?;
+    parse_roadmap_str(&content)
+}
 
-    let mut versions: Vec<VersionProgress> = Vec::new();
+/// 解析 ROADMAP.md 字符串，返回各版本进度列表。
+pub fn parse_roadmap_str(s: &str) -> Result<Vec<RoadmapVersion>, PlanError> {
+    let mut versions: Vec<RoadmapVersion> = Vec::new();
+    let lines: Vec<&str> = s.lines().collect();
+    let mut i = 0;
     let mut current_version: Option<String> = None;
     let mut done = 0usize;
     let mut total = 0usize;
+    let mut categories: Vec<(String, Vec<quanttide_devops::source::roadmap::RoadmapChecklistItem>)> = Vec::new();
+    let mut current_cat: Option<String> = None;
+    let mut cat_items: Vec<quanttide_devops::source::roadmap::RoadmapChecklistItem> = Vec::new();
 
-    for line in content.lines() {
-        let trimmed = line.trim();
-
-        // `## [X.Y.Z]` — 版本标题（支持 `— 已发布` 等后缀）
-        if let Some(ver) = is_version_line(trimmed) {
+    while i < lines.len() {
+        let t = lines[i].trim();
+        if let Some(ver) = is_version_line(t) {
             if let Some(v) = current_version.take() {
-                versions.push(VersionProgress {
-                    version: v,
-                    done,
-                    total,
-                });
+                if let Some(cat) = current_cat.take() { categories.push((cat, cat_items.clone())); cat_items.clear(); }
+                versions.push(RoadmapVersion { version: v, status: String::new(), done, total, categories: std::mem::take(&mut categories) });
             }
-            done = 0;
-            total = 0;
+            done = 0; total = 0;
             current_version = Some(ver);
-            continue;
+        } else if t.starts_with("### ") && current_version.is_some() {
+            if let Some(cat) = current_cat.take() { categories.push((cat, std::mem::take(&mut cat_items))); }
+            current_cat = Some(t[4..].trim().to_string());
+        } else if current_version.is_some() {
+            if t.starts_with("- [x]") || t.starts_with("- [X]") {
+                total += 1; done += 1;
+                cat_items.push(quanttide_devops::source::roadmap::RoadmapChecklistItem { description: t[5..].trim().to_string(), completed: true });
+            } else if t.starts_with("- [ ]") {
+                total += 1;
+                cat_items.push(quanttide_devops::source::roadmap::RoadmapChecklistItem { description: t[5..].trim().to_string(), completed: false });
+            }
         }
-
-        if trimmed.starts_with("- [x]") || trimmed.starts_with("- [X]") {
-            total += 1;
-            done += 1;
-        } else if trimmed.starts_with("- [ ]") {
-            total += 1;
-        }
+        i += 1;
     }
-
+    if let Some(cat) = current_cat.take() { categories.push((cat, cat_items)); }
     if let Some(ver) = current_version {
-        versions.push(VersionProgress {
-            version: ver,
-            done,
-            total,
-        });
+        versions.push(RoadmapVersion { version: ver, status: String::new(), done, total, categories });
     }
     Ok(versions)
 }
@@ -230,7 +229,7 @@ fn resolve_plan_dir(repo_path: &Path, scope: Option<&str>) -> PathBuf {
 fn print_progress(
     writer: &mut impl std::io::Write,
     scope_label: &str,
-    versions: &[VersionProgress],
+    versions: &[RoadmapVersion],
 ) -> Result<(), PlanError> {
     writeln!(writer, "  [{}] 规划进度", scope_label).ok();
     writeln!(writer, "  {}", "-".repeat(40)).ok();
@@ -244,12 +243,7 @@ fn print_progress(
         } else {
             0.0
         };
-        writeln!(
-            writer,
-            "  [{:<8}] {:>2}/{:>2} 完成 ({:.0}%)",
-            v.version, v.done, v.total, rate
-        )
-        .ok();
+        writeln!(writer, "  [{:<8}] {:>2}/{:>2} 完成 ({:.0}%)", v.version, v.done, v.total, rate).ok();
         total_done += v.done;
         total_all += v.total;
     }
@@ -259,13 +253,8 @@ fn print_progress(
     } else {
         0.0
     };
-    writeln!(writer, "  {}", "-".repeat(40)).ok();
-    writeln!(
-        writer,
-        "  总计:  {}/{} 完成 ({:.0}%)",
-        total_done, total_all, overall
-    )
-    .ok();
+    writeln!(writer,  "  {}", "-".repeat(40)).ok();
+    writeln!(writer, "  总计:  {}/{} 完成 ({:.0}%)", total_done, total_all, overall).ok();
     Ok(())
 }
 
