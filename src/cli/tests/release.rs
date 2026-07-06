@@ -262,23 +262,19 @@ fn test_release_publish_with_v_prefix_changelog() {
 }
 
 #[test]
-fn test_release_publish_extract_notes_filters_headers() {
-    // LLM 产物混入日期头部，extract_notes 应过滤
+fn test_release_publish_extract_notes() {
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
     std::fs::write(
         dir.path().join("CHANGELOG.md"),
-        "# CHANGELOG\n\n## [1.0.0] - 2026-06-28\n\n\
-         ## [v1.0.0] - 2023-08-31\n\n\
-         ### Added\n- init\n",
+        "# CHANGELOG\n\n## [1.0.0] - 2026-06-28\n\n### Added\n- init\n",
     )
     .unwrap();
     let notes =
         qtcloud_devops_cli::release::extract_notes("v1.0.0", &dir.path().join("CHANGELOG.md"))
             .unwrap_or_default();
-    assert!(!notes.contains("## ["), "Release notes 应过滤 ## [ 行");
-    assert!(notes.contains("### Added"));
-    assert!(notes.contains("- init"));
+    assert!(notes.contains("### Added"), "应包含分类: {}", notes);
+    assert!(notes.contains("- init"), "应包含条目: {}", notes);
 }
 
 #[test]

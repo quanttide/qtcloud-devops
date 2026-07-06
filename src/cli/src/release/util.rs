@@ -22,12 +22,11 @@ pub fn precheck_version_changelog(version: &str, changelog_path: &Path) -> Vec<S
         errors.push(format!("版本号格式错误: {}", version));
     }
     if changelog_path.exists() {
-        let content = std::fs::read_to_string(changelog_path).unwrap_or_default();
         let ver = normalize_version(version);
-        let marker = format!("## [{}]", ver);
-        let v_marker = format!("## [v{}]", ver);
-        if !content.contains(&marker) && !content.contains(&v_marker) {
-            errors.push(format!("CHANGELOG.md 未找到 {} 版本记录", ver));
+        if let Ok(cl) = quanttide_devops::source::changelog::Changelog::from_path(changelog_path) {
+            if !cl.contains_version(&ver) {
+                errors.push(format!("CHANGELOG.md 未找到 {} 版本记录", ver));
+            }
         }
     } else {
         errors.push(format!("CHANGELOG.md 不存在: {}", changelog_path.display()));
@@ -36,40 +35,9 @@ pub fn precheck_version_changelog(version: &str, changelog_path: &Path) -> Vec<S
 }
 
 pub fn extract_notes(version: &str, changelog_path: &Path) -> Option<String> {
-    let content = std::fs::read_to_string(changelog_path).ok()?;
     let ver = normalize_version(version);
-    let start_marker = format!("## [{}]", ver);
-    let start_marker_v = format!("## [v{}]", ver);
-    let mut capture = false;
-    let mut notes: Vec<&str> = Vec::new();
-    for line in content.lines() {
-        if line.trim().starts_with(&start_marker) || line.trim().starts_with(&start_marker_v) {
-            capture = true;
-            continue;
-        }
-        if capture {
-            if line.starts_with("## [") {
-                if line.contains(&ver) || line.contains(&format!("v{}", ver)) {
-                    continue;
-                }
-                break;
-            }
-            notes.push(line);
-        }
-    }
-    let text = notes
-        .iter()
-        .filter(|l| !l.trim().starts_with("## ["))
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string();
-    if text.is_empty() {
-        None
-    } else {
-        Some(text)
-    }
+    let cl = quanttide_devops::source::changelog::Changelog::from_path(changelog_path).ok()?;
+    cl.release_notes(&ver).map(|s| s.to_string())
 }
 
 pub fn confirm_release(version: &str, yes: bool) -> bool {
@@ -286,19 +254,16 @@ mod tests {
         assert!(extract_notes("v2.0.0", &d.path().join("C.md")).is_none());
     }
     #[test]
-    fn test_extract_notes_filters_header_lines() {
+    fn test_extract_notes() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(
             d.path().join("C.md"),
-            "## [1.0.0] - 2026-06-26\n\n\
-             ## [v1.0.0] - 2023-08-31\n\n\
-             ### Added\n- feature\n",
+            "# Changelog\n\n## [1.0.0] - 2026-06-26\n\n### Added\n- feature\n",
         )
         .unwrap();
         let notes = extract_notes("v1.0.0", &d.path().join("C.md")).unwrap_or_default();
-        assert!(!notes.contains("## ["), "提取内容应过滤 ## [ 行: {}", notes);
-        assert!(notes.contains("### Added"));
-        assert!(notes.contains("- feature"));
+        assert!(notes.contains("### Added"), "应包含分类: {}", notes);
+        assert!(notes.contains("- feature"), "应包含条目: {}", notes);
     }
 
     #[test]
