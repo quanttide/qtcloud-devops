@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::contract;
@@ -94,7 +93,7 @@ pub fn audit(repo_path: &Path) {
     let c = contract::load(repo_path);
     println!("代码审计\n{}", "-".repeat(50));
     let mut passed = 0u32;
-    let total = 7u32;
+    let total = 6u32;
 
     let all_ok = c.scopes.iter().all(|s| {
         let dir = repo_path.join(&s.dir);
@@ -129,10 +128,16 @@ pub fn audit(repo_path: &Path) {
     if total_lines > 0 {
         let density = total_markers as f64 / total_lines as f64 * 1000.0;
         if density < 5.0 {
-            println!("  ✅ TODO/FIXME: {} 处, 密度 {:.1}‰", total_markers, density);
+            println!(
+                "  ✅ TODO/FIXME: {} 处, 密度 {:.1}‰",
+                total_markers, density
+            );
             passed += 1;
         } else {
-            println!("  ❌ TODO/FIXME: {} 处, 密度 {:.1}‰（阈值 5‰）", total_markers, density);
+            println!(
+                "  ❌ TODO/FIXME: {} 处, 密度 {:.1}‰（阈值 5‰）",
+                total_markers, density
+            );
         }
     } else {
         println!("  ⚠ TODO/FIXME: 无可扫描源码");
@@ -142,10 +147,16 @@ pub fn audit(repo_path: &Path) {
     if total_lines > 0 {
         let unwrap_density = total_unwraps as f64 / total_lines as f64 * 1000.0;
         if unwrap_density < 10.0 {
-            println!("  ✅ unwrap/expect: {} 处, 密度 {:.1}‰", total_unwraps, unwrap_density);
+            println!(
+                "  ✅ unwrap/expect: {} 处, 密度 {:.1}‰",
+                total_unwraps, unwrap_density
+            );
             passed += 1;
         } else {
-            println!("  ❌ unwrap/expect: {} 处, 密度 {:.1}‰（阈值 10‰）", total_unwraps, unwrap_density);
+            println!(
+                "  ❌ unwrap/expect: {} 处, 密度 {:.1}‰（阈值 10‰）",
+                total_unwraps, unwrap_density
+            );
         }
     } else {
         println!("  ⚠ unwrap/expect: 无可扫描源码");
@@ -172,21 +183,16 @@ pub fn audit(repo_path: &Path) {
         }
     }
 
-    let hotspots = scan_hotspots(repo_path, 20);
-    if hotspots.is_empty() {
-        println!("  ✅ 修改热度: 无异常频繁文件");
-        passed += 1;
-    } else {
-        println!("  ❌ 修改热度（≥20 commits）:");
-        for (path, count) in &hotspots {
-            println!("     {} ({} commits)", path, count);
-        }
-    }
-
     match check_lint_for_langs(repo_path) {
-        Some(true) => { println!("  ✅ 语法检查: 通过"); passed += 1; }
+        Some(true) => {
+            println!("  ✅ 语法检查: 通过");
+            passed += 1;
+        }
         Some(false) => println!("  ❌ 语法检查: 存在错误"),
-        None => { println!("  ⚠ 语法检查: 跳过（不支持的语言）"); passed += 1; }
+        None => {
+            println!("  ⚠ 语法检查: 跳过（不支持的语言）");
+            passed += 1;
+        }
     }
 
     println!("\n{}", "-".repeat(50));
@@ -227,7 +233,15 @@ fn count_markers(
         if path.is_dir() {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if name != "target" && !name.starts_with('.') && name != "node_modules" {
-                count_markers(&path, markers, lines, unwraps, imports, long_files, high_import_files);
+                count_markers(
+                    &path,
+                    markers,
+                    lines,
+                    unwraps,
+                    imports,
+                    long_files,
+                    high_import_files,
+                );
             }
         } else if path
             .extension()
@@ -268,31 +282,6 @@ fn count_markers(
             }
         }
     }
-}
-
-fn scan_hotspots(repo_path: &Path, threshold: usize) -> Vec<(String, usize)> {
-    let output = match std::process::Command::new("git")
-        .args(["log", "--format=", "--name-only"])
-        .current_dir(repo_path)
-        .output()
-    {
-        Ok(o) if o.status.success() => o,
-        _ => return vec![],
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for line in stdout.lines() {
-        let t = line.trim();
-        if !t.is_empty() {
-            *counts.entry(t.to_string()).or_default() += 1;
-        }
-    }
-    let mut result: Vec<_> = counts.into_iter()
-        .filter(|(_, c)| *c > threshold)
-        .collect();
-    result.sort_by(|a, b| b.1.cmp(&a.1));
-    result.truncate(10);
-    result
 }
 
 fn check_lint_for_langs(repo_path: &Path) -> Option<bool> {
