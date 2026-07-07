@@ -30,11 +30,19 @@ impl From<lib_changelog::ChangelogError> for ChangelogError {
 
 fn collect_git_log(repo_path: &Path) -> Result<String, ChangelogError> {
     let tag = get_latest_tag(repo_path);
-    let result = lib_changelog::collect_git_log(repo_path, tag.as_deref())?;
-    if result.is_empty() {
-        return Err(ChangelogError::NoNewCommits);
+    let result = lib_changelog::collect_git_log(repo_path, tag.as_deref());
+    match result {
+        Ok(log) if log.is_empty() => Err(ChangelogError::NoNewCommits),
+        Ok(log) => Ok(log),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("没有新的提交") {
+                Err(ChangelogError::NoNewCommits)
+            } else {
+                Err(ChangelogError::from(e))
+            }
+        }
     }
-    Ok(result)
 }
 
 fn get_latest_tag(repo_path: &Path) -> Option<String> {
