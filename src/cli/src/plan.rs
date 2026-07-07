@@ -351,6 +351,7 @@ const CATEGORIES: &[&str] = &[
     "### Removed",
     "### Deprecated",
     "### Security",
+    "### Refactor",
 ];
 
 /// 删除规划文件中所有已完成条目（`- [x]` / `- [X]`）。
@@ -738,16 +739,26 @@ TODO.md:
 }
 
 /// 从 TODO 条目行中提取反引号包裹的文件路径。
+/// 支持 `:N` 行号后缀（如 `src/foo.rs:123`），自动剥离。
 /// 只提取包含 `/` 或以常见扩展名结尾的 token（如 `src/main.rs`、`packages/foo`）。
-fn extract_line_paths(line: &str) -> Vec<&str> {
+fn extract_line_paths(line: &str) -> Vec<String> {
     line.split('`')
         .skip(1)
         .step_by(2)
-        .filter(|s| {
+        .filter_map(|s| {
             let s = s.trim();
-            (s.contains('/') || s.ends_with(".rs") || s.ends_with(".md") || s.ends_with(".toml"))
-                && !s.starts_with('-')
-                && !s.starts_with('[')
+            let path = s.split(':').next().unwrap_or(s);
+            if (path.contains('/')
+                || path.ends_with(".rs")
+                || path.ends_with(".md")
+                || path.ends_with(".toml"))
+                && !path.starts_with('-')
+                && !path.starts_with('[')
+            {
+                Some(path.to_string())
+            } else {
+                None
+            }
         })
         .collect()
 }
@@ -1280,6 +1291,18 @@ mod tests {
     fn test_extract_line_paths_skip_non_path_backtick() {
         let paths = extract_line_paths("- [ ] `clean` 命令支持 `--all` 参数");
         assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_extract_line_paths_strips_line_number() {
+        let paths = extract_line_paths("- [ ] `src/foo.rs:123` 修复 bug");
+        assert_eq!(paths, vec!["src/foo.rs"]);
+    }
+
+    #[test]
+    fn test_extract_line_paths_with_colon_no_number() {
+        let paths = extract_line_paths("- [ ] `docs/README.md` 更新文档");
+        assert_eq!(paths, vec!["docs/README.md"]);
     }
 
     // ── plan_audit path checks ───────────────────────────────────

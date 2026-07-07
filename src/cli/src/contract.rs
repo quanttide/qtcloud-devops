@@ -108,3 +108,87 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
     }
     write!(writer, "{}", o)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmpdir() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
+    #[test]
+    fn test_detect_by_files_empty_dir() {
+        let d = tmpdir();
+        let lang = detect_by_files(d.path());
+        assert!(matches!(lang, Language::Unknown(_)));
+    }
+
+    #[test]
+    fn test_detect_by_files_cargo_toml() {
+        let d = tmpdir();
+        std::fs::write(d.path().join("Cargo.toml"), "").unwrap();
+        let lang = detect_by_files(d.path());
+        assert_eq!(lang.as_str(), "rust");
+    }
+
+    #[test]
+    fn test_detect_by_files_python() {
+        let d = tmpdir();
+        std::fs::write(d.path().join("pyproject.toml"), "").unwrap();
+        let lang = detect_by_files(d.path());
+        assert_eq!(lang.as_str(), "python");
+    }
+
+    #[test]
+    fn test_version_status_no_repo() {
+        let d = tmpdir();
+        let scope = Scope {
+            name: "test".into(),
+            dir: ".".into(),
+            language: Language::Unknown(String::new()),
+            framework: String::new(),
+            build_tool: BuildTool::Unknown(String::new()),
+            registry: Registry::None,
+            release: StageRelease::default(),
+            test_threshold: None,
+            ci_workflow: None,
+        };
+        let state = version_status(d.path(), &scope);
+        assert!(!state.consistent);
+    }
+
+    #[test]
+    fn test_load_default_contract() {
+        let d = tmpdir();
+        let c = load(d.path());
+        assert!(c.scopes.is_empty());
+    }
+
+    #[test]
+    fn test_status_to_empty_dir() {
+        let d = tmpdir();
+        let mut buf = Vec::new();
+        status_to(&mut buf, d.path()).unwrap();
+        let output = String::from_utf8_lossy(&buf);
+        assert!(output.contains("默认配置"));
+        assert!(output.contains("Scopes:"));
+    }
+
+    #[test]
+    fn test_status_to_with_contract() {
+        let d = tmpdir();
+        let contract_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&contract_dir).unwrap();
+        std::fs::write(
+            contract_dir.join("contract.yaml"),
+            "stages:\n  test:\n    threshold: 80\nscopes:\n  cli:\n    dir: src/cli\n",
+        )
+        .unwrap();
+        let mut buf = Vec::new();
+        status_to(&mut buf, d.path()).unwrap();
+        let output = String::from_utf8_lossy(&buf);
+        assert!(output.contains("已加载"));
+        assert!(output.contains("cli"));
+    }
+}

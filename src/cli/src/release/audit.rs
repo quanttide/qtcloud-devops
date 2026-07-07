@@ -149,3 +149,88 @@ pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, 
 
     Ok(items)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmpdir() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
+    // ── detect_candidate_version ─────────────────────────────────
+
+    #[test]
+    fn test_detect_candidate_no_tags() {
+        let d = tmpdir();
+        let version = detect_candidate_version(d.path(), "cli");
+        assert_eq!(version, "cli/v0.1.0");
+    }
+
+    #[test]
+    fn test_detect_candidate_with_existing_tag() {
+        let d = tmpdir();
+        std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "test"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::fs::write(d.path().join("file"), "").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["tag", "cli/v1.2.3"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+
+        let version = detect_candidate_version(d.path(), "cli");
+        assert_eq!(version, "cli/v1.2.4");
+    }
+
+    // ── audit ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_audit_invalid_version() {
+        let d = tmpdir();
+        let items = audit(Some("bad-version"), d.path()).unwrap();
+        assert!(!items.is_empty());
+        // 版本号格式检查应失败
+        assert!(items.iter().any(|i| !i.passed && i.name == "版本号格式"));
+    }
+
+    #[test]
+    fn test_audit_valid_version() {
+        let d = tmpdir();
+        let items = audit(Some("cli/v1.0.0"), d.path()).unwrap();
+        assert!(items.len() >= 2, "应有多项检查: {:?}", items);
+        assert!(items.iter().any(|i| i.passed && i.name == "版本号格式"));
+    }
+
+    #[test]
+    fn test_audit_no_remote() {
+        let d = tmpdir();
+        let items = audit(Some("cli/v1.0.0"), d.path()).unwrap();
+        let remote = items.iter().find(|i| i.name == "远程仓库");
+        assert!(remote.is_some());
+        assert!(!remote.unwrap().passed, "无远程应标记为失败");
+    }
+}
