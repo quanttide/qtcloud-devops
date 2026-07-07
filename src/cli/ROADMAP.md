@@ -13,7 +13,7 @@
 ### Changed
 - [ ] 移除 `git2` 依赖，全部读操作走 `gix` + `quanttide-devops` trait
 - [ ] 测试辅助函数从 git2 改为 `MockGit`
-- [ ] `plan edit` LLM prompt 标题同时覆盖 ROADMAP 和 TODO
+- [ ] `plan doctor` LLM prompt 标题同时覆盖 ROADMAP 和 TODO
 - [ ] 清理长函数技术债：拆分 10+ 个 MUST 级长函数（`main` 190 行、`publish` 165 行、`plan_audit` 126 行等），目标单函数 ≤ 60 行
 - [ ] 补充 `release/audit.rs`、`contract.rs` 缺失的单元测试
 - [ ] 精简 `determine_submodule_status` 等长参数列表（≥6 参数），优先用 struct 传参
@@ -22,4 +22,4 @@
 - [ ] `release publish` 从 monorepo root 执行误检测 scope
 - [ ] `gh release create` 超时无重试
 - [ ] `plan clean/status` scope 路径解析：无 contract 时只查仓库根目录，未搜索 scope 子目录内的 ROADMAP
-- [ ] release 后主仓库子模组指针未自动更新
+- [ ] `src/release/publish.rs` release 后主仓库子模组指针未自动更新
