@@ -100,6 +100,33 @@ pub fn resolve_roadmap_path(repo_path: &Path, scope: Option<&str>) -> PathBuf {
 // plan status
 // ═══════════════════════════════════════════════════════════════════════
 
+/// 获取 scope 对应的规划目录（ROADMAP.md 和 TODO.md 所在目录）。
+pub fn resolve_roadmap_dir(repo_path: &Path, scope: Option<&str>) -> PathBuf {
+    let c = crate::contract::load(repo_path);
+    match scope {
+        Some(name) if !name.is_empty() => {
+            if let Some(s) = c.scopes.iter().find(|s| s.name == name) {
+                repo_path.join(&s.dir)
+            } else {
+                repo_path.join(name)
+            }
+        }
+        _ => {
+            let current_dir = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
+            if let Some(s) = c.find_scope_by_path(&current_dir) {
+                repo_path.join(&s.dir)
+            } else {
+                repo_path.to_path_buf()
+            }
+        }
+    }
+}
+
+/// 修复 ROADMAP 或 TODO 文件的格式。
+pub fn doctor_file(path: &Path, scope: &str) -> Result<Vec<Issue>, PlanError> {
+    edit_roadmap(path, scope)
+}
+
 /// 解析 ROADMAP.md，返回各版本进度列表。
 pub fn parse_roadmap(path: &Path) -> Result<Vec<RoadmapVersion>, PlanError> {
     let content = std::fs::read_to_string(path)?;
@@ -114,7 +141,10 @@ pub fn parse_roadmap_str(s: &str) -> Result<Vec<RoadmapVersion>, PlanError> {
     let mut current_version: Option<String> = None;
     let mut done = 0usize;
     let mut total = 0usize;
-    let mut categories: Vec<(String, Vec<quanttide_devops::source::roadmap::RoadmapChecklistItem>)> = Vec::new();
+    let mut categories: Vec<(
+        String,
+        Vec<quanttide_devops::source::roadmap::RoadmapChecklistItem>,
+    )> = Vec::new();
     let mut current_cat: Option<String> = None;
     let mut cat_items: Vec<quanttide_devops::source::roadmap::RoadmapChecklistItem> = Vec::new();
 
@@ -122,28 +152,55 @@ pub fn parse_roadmap_str(s: &str) -> Result<Vec<RoadmapVersion>, PlanError> {
         let t = lines[i].trim();
         if let Some(ver) = is_version_line(t) {
             if let Some(v) = current_version.take() {
-                if let Some(cat) = current_cat.take() { categories.push((cat, cat_items.clone())); cat_items.clear(); }
-                versions.push(RoadmapVersion { version: v, status: String::new(), done, total, categories: std::mem::take(&mut categories) });
+                if let Some(cat) = current_cat.take() {
+                    categories.push((cat, cat_items.clone()));
+                    cat_items.clear();
+                }
+                versions.push(RoadmapVersion {
+                    version: v,
+                    status: String::new(),
+                    done,
+                    total,
+                    categories: std::mem::take(&mut categories),
+                });
             }
-            done = 0; total = 0;
+            done = 0;
+            total = 0;
             current_version = Some(ver);
         } else if t.starts_with("### ") && current_version.is_some() {
-            if let Some(cat) = current_cat.take() { categories.push((cat, std::mem::take(&mut cat_items))); }
+            if let Some(cat) = current_cat.take() {
+                categories.push((cat, std::mem::take(&mut cat_items)));
+            }
             current_cat = Some(t[4..].trim().to_string());
         } else if current_version.is_some() {
             if t.starts_with("- [x]") || t.starts_with("- [X]") {
-                total += 1; done += 1;
-                cat_items.push(quanttide_devops::source::roadmap::RoadmapChecklistItem { description: t[5..].trim().to_string(), completed: true });
+                total += 1;
+                done += 1;
+                cat_items.push(quanttide_devops::source::roadmap::RoadmapChecklistItem {
+                    description: t[5..].trim().to_string(),
+                    completed: true,
+                });
             } else if t.starts_with("- [ ]") {
                 total += 1;
-                cat_items.push(quanttide_devops::source::roadmap::RoadmapChecklistItem { description: t[5..].trim().to_string(), completed: false });
+                cat_items.push(quanttide_devops::source::roadmap::RoadmapChecklistItem {
+                    description: t[5..].trim().to_string(),
+                    completed: false,
+                });
             }
         }
         i += 1;
     }
-    if let Some(cat) = current_cat.take() { categories.push((cat, cat_items)); }
+    if let Some(cat) = current_cat.take() {
+        categories.push((cat, cat_items));
+    }
     if let Some(ver) = current_version {
-        versions.push(RoadmapVersion { version: ver, status: String::new(), done, total, categories });
+        versions.push(RoadmapVersion {
+            version: ver,
+            status: String::new(),
+            done,
+            total,
+            categories,
+        });
     }
     Ok(versions)
 }
@@ -172,7 +229,12 @@ pub fn print_status_to(
         }
     }
     if !found {
-        writeln!(writer, "  未创建规划文件: {}", plan_dir.join("ROADMAP.md").display()).ok();
+        writeln!(
+            writer,
+            "  未创建规划文件: {}",
+            plan_dir.join("ROADMAP.md").display()
+        )
+        .ok();
     }
     Ok(())
 }
@@ -196,11 +258,17 @@ fn try_print_plan_file(
             let t = l.trim();
             (t.starts_with("## ") && !t.starts_with("## ["))
                 || (t.starts_with("### ")
-                    && !CATEGORIES.iter().any(|c| c.to_lowercase() == t.to_lowercase()))
+                    && !CATEGORIES
+                        .iter()
+                        .any(|c| c.to_lowercase() == t.to_lowercase()))
         });
         if has_unknown_headers {
             let settings = quanttide_agent::Settings::from_env();
-        if !settings.llm_api_key.is_empty() && !settings.llm_base_url.is_empty() && !settings.llm_model.is_empty() && cfg!(not(test)) {
+            if !settings.llm_api_key.is_empty()
+                && !settings.llm_base_url.is_empty()
+                && !settings.llm_model.is_empty()
+                && cfg!(not(test))
+            {
                 writeln!(writer, "  🔄 检测到非标准格式，调用 LLM 转换...").ok();
                 if let Ok(llm_result) = edit_llm(&content, scope_label, &settings, path) {
                     if llm_result.is_some() {
@@ -212,7 +280,11 @@ fn try_print_plan_file(
                     }
                 }
             }
-            writeln!(writer, "  ⚠ 文件含有非标准格式的标题，运行 `plan edit` 查看详情").ok();
+            writeln!(
+                writer,
+                "  ⚠ 文件含有非标准格式的标题，运行 `plan edit` 查看详情"
+            )
+            .ok();
         }
         return Ok(());
     }
@@ -243,7 +315,12 @@ fn print_progress(
         } else {
             0.0
         };
-        writeln!(writer, "  [{:<8}] {:>2}/{:>2} 完成 ({:.0}%)", v.version, v.done, v.total, rate).ok();
+        writeln!(
+            writer,
+            "  [{:<8}] {:>2}/{:>2} 完成 ({:.0}%)",
+            v.version, v.done, v.total, rate
+        )
+        .ok();
         total_done += v.done;
         total_all += v.total;
     }
@@ -253,8 +330,13 @@ fn print_progress(
     } else {
         0.0
     };
-    writeln!(writer,  "  {}", "-".repeat(40)).ok();
-    writeln!(writer, "  总计:  {}/{} 完成 ({:.0}%)", total_done, total_all, overall).ok();
+    writeln!(writer, "  {}", "-".repeat(40)).ok();
+    writeln!(
+        writer,
+        "  总计:  {}/{} 完成 ({:.0}%)",
+        total_done, total_all, overall
+    )
+    .ok();
     Ok(())
 }
 
@@ -289,12 +371,21 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
     // 第二遍：删除空的分类标题（跳过空行看后面是否真有内容）
     let mut i = 0;
     while i < lines.len() {
-        if CATEGORIES.iter().any(|c| { let t = lines[i].trim(); t == *c || t.eq_ignore_ascii_case(c) }) {
+        if CATEGORIES.iter().any(|c| {
+            let t = lines[i].trim();
+            t == *c || t.eq_ignore_ascii_case(c)
+        }) {
             let mut j = i + 1;
             while j < lines.len() && lines[j].trim().is_empty() {
                 j += 1;
             }
-            if j >= lines.len() || CATEGORIES.iter().any(|c| { let t = lines[j].trim(); t == *c || t.eq_ignore_ascii_case(c) }) || is_version_line(lines[j]).is_some() {
+            if j >= lines.len()
+                || CATEGORIES.iter().any(|c| {
+                    let t = lines[j].trim();
+                    t == *c || t.eq_ignore_ascii_case(c)
+                })
+                || is_version_line(lines[j]).is_some()
+            {
                 lines.remove(i);
                 continue;
             }
@@ -548,7 +639,11 @@ fn llm_audit_consistency(
     settings: &quanttide_agent::Settings,
 ) -> Result<Vec<String>, PlanError> {
     use quanttide_agent::{llm::CompleteOptions, Message, LLM};
-    let llm = LLM::new(&settings.llm_model, &settings.llm_base_url, &settings.llm_api_key);
+    let llm = LLM::new(
+        &settings.llm_model,
+        &settings.llm_base_url,
+        &settings.llm_api_key,
+    );
     let prompt = format!(
         r#"你是一个规划一致性审计专家。ROADMAP.md 是完整规划，TODO.md 是待办子集。
 
@@ -568,14 +663,18 @@ TODO.md:
         roadmap, todo
     );
     let messages = vec![
-        Message::new("system", "你是一个严格的规划审计工具。只输出 JSON 数组，不要额外内容。"),
+        Message::new(
+            "system",
+            "你是一个严格的规划审计工具。只输出 JSON 数组，不要额外内容。",
+        ),
         Message::new("user", &prompt),
     ];
     let options = CompleteOptions {
         response_format: Some(serde_json::json!({"type": "json_object"})),
         ..Default::default()
     };
-    let resp = llm.complete(&messages, options)
+    let resp = llm
+        .complete(&messages, options)
         .map_err(|e| PlanError::Other(format!("LLM 调用失败: {}", e.0)))?;
     let findings: Vec<serde_json::Value> = serde_json::from_str(&resp.content)
         .map_err(|e| PlanError::Other(format!("LLM 输出解析失败: {}", e)))?;
@@ -666,7 +765,11 @@ pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
     } else {
         println!("  ⚠ 存在待修复问题");
     }
-    if all_ok { Ok(()) } else { Err(PlanError::Other("审计未通过".into())) }
+    if all_ok {
+        Ok(())
+    } else {
+        Err(PlanError::Other("审计未通过".into()))
+    }
 }
 
 #[cfg(test)]

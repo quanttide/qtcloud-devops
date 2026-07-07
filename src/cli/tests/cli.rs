@@ -238,12 +238,13 @@ fn test_cli_contract_status() {
 
 #[test]
 fn test_cli_source_status() {
-    let output = cli()
-        .args(["source", "status"])
-        .output()
-        .unwrap();
+    let output = cli().args(["source", "status"]).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("git"), "source status 应包含 git: {}", &stdout[..100]);
+    assert!(
+        stdout.contains("git"),
+        "source status 应包含 git: {}",
+        &stdout[..100]
+    );
 }
 
 #[test]
@@ -302,10 +303,10 @@ fn test_cli_test_status() {
 }
 
 #[test]
-fn test_cli_plan_edit() {
+fn test_cli_plan_doctor() {
     let d = tempfile::tempdir().unwrap();
     let output = cli()
-        .args(["plan", "edit"])
+        .args(["plan", "doctor"])
         .current_dir(d.path())
         .output()
         .unwrap();
@@ -385,5 +386,3 @@ fn test_cli_release_help() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("publish"));
 }
-
-

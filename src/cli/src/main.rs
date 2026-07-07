@@ -102,8 +102,8 @@ enum PlanAction {
     },
     /// 审计 ROADMAP 与 TODO 的关系：ROADMAP 是完整规划，TODO 是待办
     Audit,
-    /// 编辑 scope ROADMAP：读取原始格式 → 标准化 → 写回
-    Edit {
+    /// 修复 ROADMAP 和 TODO 的格式：标准化版本头、分类、checkbox
+    Doctor {
         /// scope 名称
         scope: Option<String>,
     },
@@ -320,7 +320,7 @@ fn main() {
                     .map_err(|e| format!("{}", e))
             }
             PlanAction::Clean { scope } => run_plan_clean(scope),
-            PlanAction::Edit { scope } => run_plan_edit(scope),
+            PlanAction::Doctor { scope } => run_plan_doctor(scope),
             PlanAction::Audit => {
                 let rp = repo_path();
                 qtcloud_devops_cli::plan::plan_audit(&rp).map_err(|e| format!("{}", e))
@@ -344,7 +344,7 @@ fn main() {
             println!();
             println!("Cross-stage:");
             println!("  code status / audit");
-            println!("  plan  status / clean / edit / audit");
+            println!("  plan  status / clean / doctor / audit");
             println!("  contract status");
             println!("  source status");
             println!();
@@ -457,20 +457,23 @@ fn run_plan_clean(scope: Option<String>) -> Result<(), String> {
     Ok(())
 }
 
-fn run_plan_edit(scope: Option<String>) -> Result<(), String> {
+fn run_plan_doctor(scope: Option<String>) -> Result<(), String> {
     let repo_path = repo_path();
-    let roadmap_path = qtcloud_devops_cli::plan::resolve_roadmap_path(&repo_path, scope.as_deref());
-    if !roadmap_path.exists() {
-        println!("  未找到规划文件: {}", roadmap_path.display());
-        return Ok(());
-    }
-    let scope_label = scope.unwrap_or_else(|| "(auto)".to_string());
-    let issues = qtcloud_devops_cli::plan::edit_roadmap(&roadmap_path, &scope_label)
-        .map_err(|e| format!("{}", e))?;
-    if issues.is_empty() {
-        println!("  ✅ 格式无误");
-    } else {
-        println!("  📝 已转换 {} 处格式", issues.len());
+    let scope_label = scope.clone().unwrap_or_else(|| "(auto)".to_string());
+
+    for file_name in &["ROADMAP.md", "TODO.md"] {
+        let dir = qtcloud_devops_cli::plan::resolve_roadmap_dir(&repo_path, scope.as_deref());
+        let path = dir.join(file_name);
+        if !path.exists() {
+            continue;
+        }
+        let issues = qtcloud_devops_cli::plan::doctor_file(&path, &scope_label)
+            .map_err(|e| format!("{}", e))?;
+        if issues.is_empty() {
+            println!("  ✅ {} 格式无误", file_name);
+        } else {
+            println!("  📝 {}: 已转换 {} 处格式", file_name, issues.len());
+        }
     }
     Ok(())
 }
