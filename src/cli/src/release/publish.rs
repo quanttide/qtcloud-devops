@@ -54,122 +54,107 @@ pub fn publish(
     }
 
     let ver = super::normalize_version(&version);
-
-    // 从 version 提取 scope 前缀，从契约获取子目录
     let scope_dir = resolve_scope_dir(&version, repo_path);
 
-    // 自动更新配置文件版本（scope 子目录下）—— 先于一致性检查
     update_config_version(&scope_dir, &ver);
+    prepare_force_release(force, &version, repo_path);
+    verify_config_consistency(&scope_dir, &ver)?;
+    update_cargo_lock(&scope_dir);
+    prepare_changelog_and_commit(repo_path, &scope_dir, &version);
+    precheck_changelog(&version, &scope_dir)?;
+    confirm_or_abort(yes, &version)?;
+    execute_release(&version, repo_path, registry)?;
 
-    // 强制模式：清理已存在的 tag 和 Release，允许重新发布
-    if force {
-        if let Some(repo) = super::get_remote_repo(repo_path) {
-            eprintln!("🔁 强制重新发布，清理旧资源...");
-            super::delete_release(&version, &repo);
-        }
-        super::delete_remote_tag(&version, repo_path);
-        super::delete_local_tag(&version, repo_path);
+    println!("✓ 版本 {} 已发布", version);
+    Ok(())
+}
+
+fn prepare_force_release(force: bool, version: &str, repo_path: &Path) {
+    if !force { return; }
+    if let Some(repo) = super::get_remote_repo(repo_path) {
+        eprintln!("🔁 强制重新发布，清理旧资源...");
+        super::delete_release(version, &repo);
     }
+    super::delete_remote_tag(version, repo_path);
+    super::delete_local_tag(version, repo_path);
+}
 
-    // 预检：所有配置文件版本号一致
-    let config_files = contract::read_config_versions(&scope_dir);
-    let inconsistent: Vec<&(String, Option<String>)> = config_files
-        .iter()
-        .filter(|(_, v)| match v {
-            Some(cv) => cv != &ver,
-            None => false,
-        })
-        .collect();
+fn verify_config_consistency(scope_dir: &Path, ver: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let config_files = contract::read_config_versions(scope_dir);
+    let inconsistent: Vec<_> = config_files.iter().filter(|(_, v)| match v {
+        Some(cv) => cv != ver, None => false,
+    }).collect();
     if !inconsistent.is_empty() {
         for (fname, v) in &inconsistent {
-            let v_display = v.as_deref().unwrap_or("?");
-            eprintln!("⚠ {}: 版本 {} 与目标 {} 不一致", fname, v_display, ver);
+            eprintln!("⚠ {}: 版本 {} 与目标 {} 不一致", fname, v.as_deref().unwrap_or("?"), ver);
         }
         return Err("存在版本号不一致的配置文件，请先同步".into());
     }
+    Ok(())
+}
 
-    // 如果是 Rust 项目，更新 Cargo.lock 保持与 Cargo.toml 同步
-    if scope_dir.join("Cargo.toml").exists() {
-        let lockfile_updated = std::process::Command::new("cargo")
-            .args(["generate-lockfile"])
-            .current_dir(&scope_dir)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if lockfile_updated {
-            println!("✓ Cargo.lock 已同步");
-        }
-    }
+fn update_cargo_lock(scope_dir: &Path) {
+    if !scope_dir.join("Cargo.toml").exists() { return; }
+    let ok = std::process::Command::new("cargo")
+        .args(["generate-lockfile"]).current_dir(scope_dir).output()
+        .map(|o| o.status.success()).unwrap_or(false);
+    if ok { println!("✓ Cargo.lock 已同步"); }
+}
 
-    // git add 配置文件，让 ensure_changelog 的 commit 一并提交
+fn prepare_changelog_and_commit(repo_path: &Path, scope_dir: &Path, version: &str) {
     for f in &["Cargo.toml", "pyproject.toml", "Cargo.lock"] {
         let path = scope_dir.join(f);
         if path.exists() {
             if let Ok(rel) = path.strip_prefix(repo_path) {
                 std::process::Command::new("git")
-                    .args(["add", rel.to_str().unwrap_or(f)])
-                    .current_dir(repo_path)
-                    .output()
-                    .ok();
+                    .args(["add", rel.to_str().unwrap_or(f)]).current_dir(repo_path).output().ok();
             }
         }
     }
-
-    // 自动生成 CHANGELOG（scope 子目录下，git 操作在 repo 根）
-    match super::ensure_changelog(repo_path, &scope_dir, &version) {
+    match super::ensure_changelog(repo_path, scope_dir, version) {
         Ok(Some(rel)) => {
-            if std::process::Command::new("git")
-                .args(["add", &rel])
-                .current_dir(repo_path)
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
+            if std::process::Command::new("git").args(["add", &rel]).current_dir(repo_path)
+                .output().map(|o| o.status.success()).unwrap_or(false)
             {
-                let ver = super::normalize_version(&version);
+                let ver = super::normalize_version(version);
                 std::process::Command::new("git")
-                    .args([
-                        "commit",
-                        "-m",
-                        &format!("chore: add CHANGELOG entry for {}", ver),
-                    ])
-                    .current_dir(repo_path)
-                    .output()
-                    .ok();
+                    .args(["commit", "-m", &format!("chore: add CHANGELOG entry for {}", ver)])
+                    .current_dir(repo_path).output().ok();
                 println!("✓ CHANGELOG 修改已提交");
             }
         }
-        Err(e) => {
-            eprintln!(
-                "⚠ CHANGELOG 生成失败: {}\n   发布将继续，但请确保 CHANGELOG.md 包含版本 {} 的记录。",
-                e, version
-            );
-        }
+        Err(e) => eprintln!("⚠ CHANGELOG 生成失败: {}\n   发布将继续，但请确保 CHANGELOG.md 包含版本 {} 的记录。", e, version),
         _ => {}
     }
+}
 
+fn precheck_changelog(version: &str, scope_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let changelog_path = scope_dir.join("CHANGELOG.md");
-    let precheck_errors = super::precheck_version_changelog(&version, &changelog_path);
-    if !precheck_errors.is_empty() {
-        return Err(precheck_errors.join("\n").into());
-    }
+    let errors = super::precheck_version_changelog(version, &changelog_path);
+    if !errors.is_empty() { return Err(errors.join("\n").into()); }
+    Ok(())
+}
 
-    if !yes && !super::confirm_release(&version, false) {
-        return Err("已取消发布".into());
-    }
+fn confirm_or_abort(yes: bool, version: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if !yes && !super::confirm_release(version, false) {
+        Err("已取消发布".into())
+    } else { Ok(()) }
+}
 
-    if !super::create_tag(&version, repo_path) {
+fn execute_release(version: &str, repo_path: &Path, registry: Option<PublishTarget>) -> Result<(), Box<dyn std::error::Error>> {
+    if !super::create_tag(version, repo_path) {
         return Err(format!("创建标签 {} 失败", version).into());
     }
-    if let Err(e) = super::push_tag(&version, repo_path) {
-        super::rollback_tag(&version, repo_path);
+    if let Err(e) = super::push_tag(version, repo_path) {
+        super::rollback_tag(version, repo_path);
         return Err(format!("推送标签失败: {}", e).into());
     }
     println!("✓ 标签 {} 已创建并推送", version);
-
-    let notes = super::extract_notes(&version, &changelog_path);
+    let changelog_path = repo_path.join("CHANGELOG.md");
+    let notes = super::extract_notes(version, &changelog_path);
     if let Some(repo) = super::get_remote_repo(repo_path) {
-        if !super::create_release(&version, notes.as_deref().unwrap_or(""), &repo) {
-            super::rollback_tag(&version, repo_path);
+        if !super::create_release(version, notes.as_deref().unwrap_or(""), &repo) {
+            super::rollback_tag(version, repo_path);
             return Err("创建 GitHub Release 失败".into());
         }
         println!("✓ GitHub Release {} 已创建", version);
@@ -178,7 +163,6 @@ pub fn publish(
     if let Some(reg) = registry {
         println!("  {:?} 由 CI 自动发布，无需本地操作", reg);
     }
-    println!("✓ 版本 {} 已发布", version);
     Ok(())
 }
 

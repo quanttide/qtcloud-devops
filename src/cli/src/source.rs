@@ -11,6 +11,13 @@ pub fn status(repo_path: &Path) {
 
 /// 将系统诊断信息写入指定的 writer。
 pub fn status_to(writer: &mut impl Write, repo_path: &Path) -> std::io::Result<()> {
+    let used_langs = detect_used_languages(repo_path);
+    let mut o = build_tool_status_header(&used_langs);
+    o.push_str(&build_language_sections(&used_langs));
+    write!(writer, "{}", o)
+}
+
+fn detect_used_languages(repo_path: &Path) -> Vec<String> {
     let c = crate::contract::load(repo_path);
     let mut used_langs: Vec<String> = Vec::new();
     if c.scopes.is_empty() {
@@ -26,92 +33,54 @@ pub fn status_to(writer: &mut impl Write, repo_path: &Path) -> std::io::Result<(
     }
     used_langs.sort();
     used_langs.dedup();
+    used_langs
+}
 
+fn build_tool_status_header(_used_langs: &[String]) -> String {
     let mut o = format!("系统诊断\n{}\n", "-".repeat(50));
-    o.push_str(&format!(
-        "  {:<12} {}\n",
-        "git",
-        check_command("git", &["--version"])
-    ));
+    o.push_str(&format!("  {:<12} {}\n", "git", check_command("git", &["--version"])));
     let gh_ver = check_command("gh", &["--version"]);
     o.push_str(&format!("  {:<12} {}\n", "gh", gh_ver));
-    // 检查 gh 认证状态（空版本字符串说明未安装，跳过 auth 检查）
     if gh_ver.starts_with("✅") {
-        o.push_str(&format!(
-            "    {:<10} {}\n",
-            "auth",
-            check_command("gh", &["auth", "status"])
-        ));
+        o.push_str(&format!("    {:<10} {}\n", "auth", check_command("gh", &["auth", "status"])));
     }
+    o
+}
 
+fn build_language_sections(used_langs: &[String]) -> String {
+    let mut o = String::new();
     for lang in &["rust", "python", "go", "dart", "typescript"] {
-        if !used_langs.iter().any(|l| l == lang) {
-            continue;
-        }
-        match *lang {
-            "rust" => {
-                o.push_str(&format!(
-                    "  {:<12} {}\n",
-                    "cargo",
-                    check_command("cargo", &["--version"])
-                ));
-                o.push_str(&format!(
-                    "  {:<12} {}\n",
-                    "rustc",
-                    check_command("rustc", &["--version"])
-                ));
-            }
+        if !used_langs.iter().any(|l| l == lang) { continue; }
+        o.push_str(&match *lang {
+            "rust" => format!(
+                "  {:<12} {}\n  {:<12} {}\n",
+                "cargo", check_command("cargo", &["--version"]),
+                "rustc", check_command("rustc", &["--version"]),
+            ),
             "python" => {
-                o.push_str(&format!(
-                    "  {:<12} {}\n",
-                    "python",
-                    check_command("python", &["--version"])
-                ));
+                let mut s = format!("  {:<12} {}\n", "python", check_command("python", &["--version"]));
                 for sub in &["uv", "pytest", "coverage"] {
-                    o.push_str(&format!(
-                        "    {:<10} {}\n",
-                        sub,
-                        check_command(sub, &["--version"])
-                    ));
+                    s.push_str(&format!("    {:<10} {}\n", sub, check_command(sub, &["--version"])));
                 }
+                s
             }
-            "go" => {
-                o.push_str(&format!(
-                    "  {:<12} {}\n",
-                    "go",
-                    check_command("go", &["version"])
-                ));
-            }
-            "dart" => {
-                o.push_str(&format!(
-                    "  {:<12} {}\n",
-                    "flutter",
-                    check_command("flutter", &["--version"])
-                ));
-                o.push_str(&format!(
-                    "    {:<10} {}\n",
-                    "dart",
-                    check_command("dart", &["--version"])
-                ));
-            }
+            "go" => format!("  {:<12} {}\n", "go", check_command("go", &["version"])),
+            "dart" => format!(
+                "  {:<12} {}\n    {:<10} {}\n",
+                "flutter", check_command("flutter", &["--version"]),
+                "dart", check_command("dart", &["--version"]),
+            ),
             "typescript" => {
-                o.push_str(&format!(
-                    "  {:<12} {}\n",
-                    "node",
-                    check_command("node", &["--version"])
-                ));
+                let mut s = format!("  {:<12} {}\n", "node", check_command("node", &["--version"]));
                 for sub in &["npm", "npx"] {
-                    o.push_str(&format!(
-                        "    {:<10} {}\n",
-                        sub,
-                        check_command(sub, &["--version"])
-                    ));
+                    s.push_str(&format!("    {:<10} {}\n", sub, check_command(sub, &["--version"])));
                 }
+                s
             }
-            _ => {}
-        }
+            _ => String::new(),
+        });
     }
-    write!(writer, "{}", o)
+    o
 }
 
 fn check_command(cmd: &str, args: &[&str]) -> String {

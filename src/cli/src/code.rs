@@ -95,85 +95,75 @@ pub fn audit(repo_path: &Path) {
     let mut passed = 0u32;
     let total = 5u32;
 
+    if audit_scope_dirs(&c, repo_path) { passed += 1; }
+
+    let counts = collect_scope_markers(&c, repo_path);
+    if audit_marker_density(&counts) { passed += 1; }
+    if audit_imports(&counts) { passed += 1; }
+    if audit_file_lengths(&counts) { passed += 1; }
+
+    if audit_lint(repo_path) { passed += 1; }
+
+    print_audit_summary(passed, total);
+}
+
+fn audit_scope_dirs(c: &contract::Contract, repo_path: &Path) -> bool {
     let all_ok = c.scopes.iter().all(|s| {
-        let dir = repo_path.join(&s.dir);
-        let exists = dir.exists();
-        if !exists {
-            println!("  ❌ scope {}: 目录不存在 ({})", s.name, s.dir);
-        }
+        let exists = repo_path.join(&s.dir).exists();
+        if !exists { println!("  ❌ scope {}: 目录不存在 ({})", s.name, s.dir); }
         exists
     });
-    if all_ok {
-        println!("  ✅ Scope 目录: 全部 {} 个 scope 存在", c.scopes.len());
-        passed += 1;
-    }
+    if all_ok { println!("  ✅ Scope 目录: 全部 {} 个 scope 存在", c.scopes.len()); }
+    all_ok
+}
 
-    let mut total_markers = 0usize;
-    let mut total_lines = 0usize;
-    let mut total_imports = 0usize;
-    let mut long_files = Vec::new();
-    let mut high_import_files = Vec::new();
+fn collect_scope_markers(c: &contract::Contract, repo_path: &Path) -> MarkerCounts {
+    let mut counts = MarkerCounts::default();
     for s in &c.scopes {
-        count_markers(
-            &repo_path.join(&s.dir),
-            &mut total_markers,
-            &mut total_lines,
-            &mut total_imports,
-            &mut long_files,
-            &mut high_import_files,
-        );
+        count_markers(&repo_path.join(&s.dir), &mut counts);
     }
-    if total_lines > 0 {
-        let density = total_markers as f64 / total_lines as f64 * 1000.0;
-        if density < 5.0 {
-            println!(
-                "  ✅ TODO/FIXME: {} 处, 密度 {:.1}‰",
-                total_markers, density
-            );
-            passed += 1;
-        } else {
-            println!(
-                "  ❌ TODO/FIXME: {} 处, 密度 {:.1}‰（阈值 5‰）",
-                total_markers, density
-            );
-        }
-    } else {
-        println!("  ⚠ TODO/FIXME: 无可扫描源码");
-        passed += 1;
-    }
+    counts
+}
 
-    if high_import_files.is_empty() {
+fn audit_marker_density(counts: &MarkerCounts) -> bool {
+    if counts.lines == 0 { println!("  ⚠ TODO/FIXME: 无可扫描源码"); return true; }
+    let density = counts.markers as f64 / counts.lines as f64 * 1000.0;
+    if density < 5.0 {
+        println!("  ✅ TODO/FIXME: {} 处, 密度 {:.1}‰", counts.markers, density);
+        true
+    } else {
+        println!("  ❌ TODO/FIXME: {} 处, 密度 {:.1}‰（阈值 5‰）", counts.markers, density);
+        false
+    }
+}
+
+fn audit_imports(counts: &MarkerCounts) -> bool {
+    if counts.high_import_files.is_empty() {
         println!("  ✅ 导入数: 全部文件 ≤ 30 个 import");
-        passed += 1;
+        true
     } else {
         println!("  ❌ 导入数（≤30）:");
-        for (path, count) in &high_import_files {
+        for (path, count) in &counts.high_import_files {
             println!("     {} ({} 个 import)", path.display(), count);
         }
+        false
     }
+}
 
-    if long_files.is_empty() {
+fn audit_file_lengths(counts: &MarkerCounts) -> bool {
+    if counts.long_files.is_empty() {
         println!("  ✅ 文件长度: 全部文件 ≤ 500 行");
-        passed += 1;
+        true
     } else {
         println!("  ❌ 超长文件（阈值 500 行）:");
-        for (path, line_count) in &long_files {
+        for (path, line_count) in &counts.long_files {
             println!("     {} ({} 行)", path.display(), line_count);
         }
+        false
     }
+}
 
-    match check_lint_for_langs(repo_path) {
-        Some(true) => {
-            println!("  ✅ 语法检查: 通过");
-            passed += 1;
-        }
-        Some(false) => println!("  ❌ 语法检查: 存在错误"),
-        None => {
-            println!("  ⚠ 语法检查: 跳过（不支持的语言）");
-            passed += 1;
-        }
-    }
-
+fn print_audit_summary(passed: u32, total: u32) {
     println!("\n{}", "-".repeat(50));
     if passed == total {
         println!("  ✅ 全部 {} 项检查通过", total);
@@ -182,16 +172,25 @@ pub fn audit(repo_path: &Path) {
     }
 }
 
-fn count_markers(
-    dir: &Path,
-    markers: &mut usize,
-    lines: &mut usize,
-    imports: &mut usize,
-    long_files: &mut Vec<(PathBuf, usize)>,
-    high_import_files: &mut Vec<(PathBuf, usize)>,
-) {
+fn audit_lint(repo_path: &Path) -> bool {
+    match check_lint_for_langs(repo_path) {
+        Some(true) => { println!("  ✅ 语法检查: 通过"); true }
+        Some(false) => { println!("  ❌ 语法检查: 存在错误"); false }
+        None => { println!("  ⚠ 语法检查: 跳过（不支持的语言）"); true }
+    }
+}
+
+#[derive(Default)]
+struct MarkerCounts {
+    markers: usize,
+    lines: usize,
+    imports: usize,
+    long_files: Vec<(PathBuf, usize)>,
+    high_import_files: Vec<(PathBuf, usize)>,
+}
+
+fn count_markers(dir: &Path, counts: &mut MarkerCounts) {
     const SRC_EXTENSIONS: &[&str] = &["rs", "py", "go", "ts", "tsx", "dart", "js", "jsx"];
-    // ponytail: 跳过 codegen 文件（freezed/gRPC/protobuf/json-serializable 等），它们过长是常态
     const GENERATED_SUFFIXES: &[&str] = &[
         ".freezed.dart",
         ".g.dart",
@@ -211,14 +210,7 @@ fn count_markers(
         if path.is_dir() {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if name != "target" && !name.starts_with('.') && name != "node_modules" {
-                count_markers(
-                    &path,
-                    markers,
-                    lines,
-                    imports,
-                    long_files,
-                    high_import_files,
-                );
+                count_markers(&path, counts);
             }
         } else if path
             .extension()
@@ -231,8 +223,8 @@ fn count_markers(
             }
             if let Ok(content) = std::fs::read_to_string(&path) {
                 let file_lines = content.lines().count();
-                *lines += file_lines;
-                *markers += content
+                counts.lines += file_lines;
+                counts.markers += content
                     .lines()
                     .filter(|l| {
                         let t = l.trim().to_lowercase();
@@ -246,12 +238,12 @@ fn count_markers(
                         t.starts_with("use ") || t.starts_with("import ")
                     })
                     .count();
-                *imports += import_count;
+                counts.imports += import_count;
                 if import_count > 30 {
-                    high_import_files.push((path.clone(), import_count));
+                    counts.high_import_files.push((path.clone(), import_count));
                 }
                 if file_lines > 500 {
-                    long_files.push((path, file_lines));
+                    counts.long_files.push((path, file_lines));
                 }
             }
         }

@@ -506,111 +506,116 @@ fn apply_rule_fixes(path: &Path, content: &str, scope: &str) -> Result<Vec<Issue
         let line_num = idx + 1;
         let trimmed = raw_line.trim();
 
-        // 0a. 检测非标准 ## 头（如 ## P0 — 阻塞）
-        if trimmed.starts_with("## ") && !is_version_line(trimmed).is_some() {
-            issues.push(Issue {
-                line: line_num,
-                scope: scope.to_string(),
-                message: format!("非标准版本头（应为 ## [X.Y.Z]）: {}", trimmed),
-            });
-            new_lines.push(raw_line.to_string());
-            continue;
+        let (new_line, opt_issue) = apply_rules_to_line(trimmed, raw_line, line_num, scope);
+        if let Some(issue) = opt_issue {
+            issues.push(issue);
         }
-
-        // 0b. 检测非标准 ### 分类（如 ### 0.1 xxx）
-
-        // 0b. 检测非标准 ### 分类（如 ### 0.1 xxx）
-        if trimmed.starts_with("### ")
-            && !CATEGORIES
-                .iter()
-                .any(|c| c.to_lowercase() == trimmed.to_lowercase())
-        {
-            issues.push(Issue {
-                line: line_num,
-                scope: scope.to_string(),
-                message: format!("非标准分类标题: {}", trimmed),
-            });
-            new_lines.push(raw_line.to_string());
-            continue;
-        }
-
-        // 1. 版本标题：去掉 v 前缀
-        if let Some(ver) = is_version_line(trimmed) {
-            let raw_ver = trimmed
-                .trim_start_matches("## [")
-                .split(']')
-                .next()
-                .unwrap_or("")
-                .trim();
-            if raw_ver.starts_with('v') {
-                issues.push(Issue {
-                    line: line_num,
-                    scope: scope.to_string(),
-                    message: format!("修复 v 前缀: {} → {}", raw_ver, ver),
-                });
-                let suffix = trimmed.split(']').nth(1).unwrap_or("");
-                new_lines.push(format!("## [{}]{}", ver, suffix));
-                continue;
-            }
-            new_lines.push(raw_line.to_string());
-            continue;
-        }
-
-        // 2. 分类标题：标准化大小写
-        if trimmed.starts_with("### ") {
-            let lowered = trimmed.to_lowercase();
-            if let Some(standard) = CATEGORIES.iter().find(|c| c.to_lowercase() == lowered) {
-                if trimmed != *standard {
-                    issues.push(Issue {
-                        line: line_num,
-                        scope: scope.to_string(),
-                        message: format!("修复大小写: {} → {}", trimmed, standard),
-                    });
-                    let indent = &raw_line[..raw_line.len() - raw_line.trim_start().len()];
-                    new_lines.push(format!("{}{}", indent, standard));
-                    continue;
-                }
-            }
-            new_lines.push(raw_line.to_string());
-            continue;
-        }
-
-        // 3. checkbox：修复异常格式
-        let has_any_box =
-            trimmed.contains("[x]") || trimmed.contains("[X]") || trimmed.contains("[ ]");
-        let is_standard = trimmed.starts_with("- [x] ")
-            || trimmed.starts_with("- [X] ")
-            || trimmed.starts_with("- [ ] ");
-        if has_any_box && !is_standard {
-            let content_start = trimmed.find(']').map(|p| p + 1).unwrap_or(trimmed.len());
-            let item_content = trimmed[content_start..].trim();
-            let is_done = trimmed.contains("[x]") || trimmed.contains("[X]");
-            let prefix = if is_done { "- [x]" } else { "- [ ]" };
-            issues.push(Issue {
-                line: line_num,
-                scope: scope.to_string(),
-                message: format!(
-                    "修复 checkbox 格式: {} → {} {}",
-                    trimmed, prefix, item_content
-                ),
-            });
-            new_lines.push(format!("{} {}", prefix, item_content));
-            continue;
-        }
-
-        new_lines.push(raw_line.to_string());
+        new_lines.push(new_line);
     }
 
     if !issues.is_empty() {
-        let mut output = String::new();
-        for line in &new_lines {
-            output.push_str(line);
-            output.push('\n');
-        }
-        std::fs::write(path, &output)?;
+        write_lines(path, &new_lines)?;
     }
-
     Ok(issues)
+}
+
+/// 对单行依次应用所有规则，返回(处理后的行, 可选问题)。
+fn apply_rules_to_line(trimmed: &str, raw_line: &str, line_num: usize, scope: &str) -> (String, Option<Issue>) {
+    if let Some(result) = rule_nonstandard_header(trimmed, raw_line, line_num, scope) {
+        return result;
+    }
+    if let Some(result) = rule_nonstandard_category(trimmed, raw_line, line_num, scope) {
+        return result;
+    }
+    if let Some(result) = rule_v_prefix(trimmed, raw_line, line_num, scope) {
+        return result;
+    }
+    if let Some(result) = rule_category_case(trimmed, raw_line, line_num, scope) {
+        return result;
+    }
+    if let Some(result) = rule_checkbox_format(trimmed, raw_line, line_num, scope) {
+        return result;
+    }
+    (raw_line.to_string(), None)
+}
+
+fn rule_nonstandard_header(trimmed: &str, raw_line: &str, line_num: usize, scope: &str) -> Option<(String, Option<Issue>)> {
+    if trimmed.starts_with("## ") && !is_version_line(trimmed).is_some() {
+        Some((raw_line.to_string(), Some(Issue {
+            line: line_num, scope: scope.to_string(),
+            message: format!("非标准版本头（应为 ## [X.Y.Z]）: {}", trimmed),
+        })))
+    } else { None }
+}
+
+fn rule_nonstandard_category(trimmed: &str, raw_line: &str, line_num: usize, scope: &str) -> Option<(String, Option<Issue>)> {
+    if trimmed.starts_with("### ")
+        && !CATEGORIES.iter().any(|c| c.to_lowercase() == trimmed.to_lowercase())
+    {
+        Some((raw_line.to_string(), Some(Issue {
+            line: line_num, scope: scope.to_string(),
+            message: format!("非标准分类标题: {}", trimmed),
+        })))
+    } else { None }
+}
+
+fn rule_v_prefix(trimmed: &str, raw_line: &str, _line_num: usize, scope: &str) -> Option<(String, Option<Issue>)> {
+    if let Some(ver) = is_version_line(trimmed) {
+        let raw_ver = trimmed.trim_start_matches("## [").split(']').next().unwrap_or("").trim();
+        return Some(if raw_ver.starts_with('v') {
+            let suffix = trimmed.split(']').nth(1).unwrap_or("");
+            (format!("## [{}]{}", ver, suffix), Some(Issue {
+                line: _line_num, scope: scope.to_string(),
+                message: format!("修复 v 前缀: {} → {}", raw_ver, ver),
+            }))
+        } else {
+            (raw_line.to_string(), None)
+        });
+    }
+    None
+}
+
+fn rule_category_case(trimmed: &str, raw_line: &str, line_num: usize, scope: &str) -> Option<(String, Option<Issue>)> {
+    if trimmed.starts_with("### ") {
+        let lowered = trimmed.to_lowercase();
+        if let Some(standard) = CATEGORIES.iter().find(|c| c.to_lowercase() == lowered) {
+            if trimmed != *standard {
+                let indent = &raw_line[..raw_line.len() - raw_line.trim_start().len()];
+                return Some((format!("{}{}", indent, standard), Some(Issue {
+                    line: line_num, scope: scope.to_string(),
+                    message: format!("修复大小写: {} → {}", trimmed, standard),
+                })));
+            }
+        }
+        return Some((raw_line.to_string(), None));
+    }
+    None
+}
+
+fn rule_checkbox_format(trimmed: &str, _raw_line: &str, line_num: usize, scope: &str) -> Option<(String, Option<Issue>)> {
+    let has_any_box = trimmed.contains("[x]") || trimmed.contains("[X]") || trimmed.contains("[ ]");
+    let is_standard = trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ") || trimmed.starts_with("- [ ] ");
+    if has_any_box && !is_standard {
+        let content_start = trimmed.find(']').map(|p| p + 1).unwrap_or(trimmed.len());
+        let item_content = trimmed[content_start..].trim();
+        let is_done = trimmed.contains("[x]") || trimmed.contains("[X]");
+        let prefix = if is_done { "- [x]" } else { "- [ ]" };
+        Some((format!("{} {}", prefix, item_content), Some(Issue {
+            line: line_num, scope: scope.to_string(),
+            message: format!("修复 checkbox 格式: {} → {} {}", trimmed, prefix, item_content),
+        })))
+    } else { None }
+}
+
+/// 将处理后的行写回文件。
+fn write_lines(path: &Path, lines: &[String]) -> Result<(), PlanError> {
+    let mut output = String::new();
+    for line in lines {
+        output.push_str(line);
+        output.push('\n');
+    }
+    std::fs::write(path, &output)?;
+    Ok(())
 }
 
 /// LLM 编辑：处理规则无法覆盖的复杂格式问题。
@@ -623,6 +628,26 @@ fn edit_llm(
 ) -> Result<Option<Vec<Issue>>, PlanError> {
     use quanttide_agent::{llm::CompleteOptions, Message, LLM};
 
+    let (_format_spec, system_role, prompt) = build_llm_prompt(content, path);
+
+    let llm = LLM::new(
+        &settings.llm_model,
+        &settings.llm_base_url,
+        &settings.llm_api_key,
+    );
+    let messages = vec![
+        Message::new("system", system_role),
+        Message::new("user", &prompt),
+    ];
+    let response = llm
+        .complete(&messages, CompleteOptions::default())
+        .map_err(|e| PlanError::Other(format!("LLM 调用失败: {}", e)))?;
+
+    apply_llm_response(path, content, &response.content)
+}
+
+/// 组装 LLM prompt：根据文件名选择格式规范。
+fn build_llm_prompt<'a>(content: &'a str, path: &Path) -> (&'static str, &'static str, String) {
     let file_name = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -650,22 +675,17 @@ c) 条目格式：- [x] 内容 或 - [ ] 内容",
         "{}\n\n以下 {} 可能存在格式问题，请按规范修复格式（只修格式，不增删条目）：\n\n{}",
         format_spec, file_name, content
     );
+    (format_spec, system_role, prompt)
+}
 
-    let llm = LLM::new(
-        &settings.llm_model,
-        &settings.llm_base_url,
-        &settings.llm_api_key,
-    );
-    let messages = vec![
-        Message::new("system", system_role),
-        Message::new("user", &prompt),
-    ];
-    let response = llm
-        .complete(&messages, CompleteOptions::default())
-        .map_err(|e| PlanError::Other(format!("LLM 调用失败: {}", e)))?;
-
-    let fixed = response.content.trim().to_string();
-    if fixed.is_empty() || fixed == content {
+/// 处理 LLM 响应：空或不变时跳过，否则写回文件。
+fn apply_llm_response(
+    path: &Path,
+    original: &str,
+    llm_output: &str,
+) -> Result<Option<Vec<Issue>>, PlanError> {
+    let fixed = llm_output.trim().to_string();
+    if fixed.is_empty() || fixed == original {
         return Ok(None);
     }
 
@@ -687,12 +707,34 @@ fn llm_audit_consistency(
     settings: &quanttide_agent::Settings,
 ) -> Result<Vec<String>, PlanError> {
     use quanttide_agent::{llm::CompleteOptions, Message, LLM};
+
+    let prompt = build_consistency_prompt(roadmap, todo);
+    let messages = vec![
+        Message::new(
+            "system",
+            "你是一个严格的规划审计工具。只输出 JSON 数组，不要额外内容。",
+        ),
+        Message::new("user", &prompt),
+    ];
+    let options = CompleteOptions {
+        response_format: Some(serde_json::json!({"type": "json_object"})),
+        ..Default::default()
+    };
+
     let llm = LLM::new(
         &settings.llm_model,
         &settings.llm_base_url,
         &settings.llm_api_key,
     );
-    let prompt = format!(
+    let resp = llm
+        .complete(&messages, options)
+        .map_err(|e| PlanError::Other(format!("LLM 调用失败: {}", e.0)))?;
+    parse_audit_json(&resp.content)
+}
+
+/// 构建一致性审计的 LLM prompt。
+fn build_consistency_prompt(roadmap: &str, todo: &str) -> String {
+    format!(
         r#"你是一个规划一致性审计专家。ROADMAP.md 是完整规划，TODO.md 是待办子集。
 
 要求：
@@ -709,22 +751,12 @@ ROADMAP.md:
 TODO.md:
 {}"#,
         roadmap, todo
-    );
-    let messages = vec![
-        Message::new(
-            "system",
-            "你是一个严格的规划审计工具。只输出 JSON 数组，不要额外内容。",
-        ),
-        Message::new("user", &prompt),
-    ];
-    let options = CompleteOptions {
-        response_format: Some(serde_json::json!({"type": "json_object"})),
-        ..Default::default()
-    };
-    let resp = llm
-        .complete(&messages, options)
-        .map_err(|e| PlanError::Other(format!("LLM 调用失败: {}", e.0)))?;
-    let findings: Vec<serde_json::Value> = serde_json::from_str(&resp.content)
+    )
+}
+
+/// 解析 LLM 输出的 JSON 审计结果。
+fn parse_audit_json(content: &str) -> Result<Vec<String>, PlanError> {
+    let findings: Vec<serde_json::Value> = serde_json::from_str(content)
         .map_err(|e| PlanError::Other(format!("LLM 输出解析失败: {}", e)))?;
     let mut result = Vec::new();
     for f in &findings {
@@ -763,6 +795,71 @@ fn extract_line_paths(line: &str) -> Vec<String> {
         .collect()
 }
 
+/// 格式审计：检查 ROADMAP.md 和 TODO.md 的格式合规性。
+fn audit_format(roadmap_path: &Path, todo_path: &Path) -> Result<bool, PlanError> {
+    let mut all_ok = true;
+    for (path, label) in &[(roadmap_path, "ROADMAP.md"), (todo_path, "TODO.md")] {
+        if !path.exists() { continue; }
+        let issues = edit_roadmap(path, "(root)")?;
+        if !issues.is_empty() {
+            all_ok = false;
+            println!("  ❌ {} 格式问题: {} 处", label, issues.len());
+            for i in &issues { println!("     L{}: {}", i.line, i.message); }
+        } else {
+            println!("  ✅ {} 格式规范", label);
+        }
+    }
+    Ok(all_ok)
+}
+
+/// 路径与粒度检查：扫描 TODO.md 条目中的路径引用是否有效。
+fn audit_todo_paths(todo_path: &Path, dir: &Path) -> Result<bool, PlanError> {
+    if !todo_path.exists() { return Ok(true); }
+    let content = std::fs::read_to_string(todo_path)?;
+    let mut path_missing_count = 0u32;
+    let mut no_path_count = 0u32;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("- [") { continue; }
+        let paths = extract_line_paths(trimmed);
+        if paths.is_empty() {
+            no_path_count += 1;
+            continue;
+        }
+        for p in &paths {
+            if !dir.join(p).exists() {
+                path_missing_count += 1;
+                println!("  ⚠ 路径不存在: {}", p);
+            }
+        }
+    }
+    if path_missing_count > 0 || no_path_count > 0 {
+        if no_path_count > 0 { println!("  ⚠ {} 条 TODO 条目未引用文件路径", no_path_count); }
+        Ok(false)
+    } else {
+        println!("  ✅ TODO.md 路径引用均有效");
+        Ok(true)
+    }
+}
+
+/// 孤儿 ROADMAP 条目检查：检测无路径引用的条目。
+fn audit_orphan_roadmap(roadmap_path: &Path, todo_path: &Path) -> Result<bool, PlanError> {
+    if let Ok(content) = std::fs::read_to_string(roadmap_path) {
+        let has_orphan = content.lines().any(|l| {
+            let t = l.trim();
+            t.starts_with("- [ ]") && !t.contains('`')
+        });
+        if has_orphan {
+            println!("  ⚠ ROADMAP.md 存在无路径引用的条目");
+            return Ok(false);
+        }
+    } else if todo_path.exists() {
+        println!("  ⚠ TODO.md 存在但无 ROADMAP.md（建议从 ROADMAP 派生）");
+        return Ok(false);
+    }
+    Ok(true)
+}
+
 /// 审计规划：ROADMAP 是完整规划，TODO 是待办。
 /// 检查格式合规、条目一致性、路径存在性、粒度。
 pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
@@ -779,83 +876,9 @@ pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
 
     let mut all_ok = true;
 
-    // ── 1. 格式审计 ───────────────────────────────────────────────
-    if roadmap_path.exists() {
-        let issues = edit_roadmap(&roadmap_path, "(root)")?;
-        if !issues.is_empty() {
-            all_ok = false;
-            println!("  ❌ ROADMAP.md 格式问题: {} 处", issues.len());
-            for i in &issues {
-                println!("     L{}: {}", i.line, i.message);
-            }
-        } else {
-            println!("  ✅ ROADMAP.md 格式规范");
-        }
-    }
-
-    if todo_path.exists() {
-        let issues = edit_roadmap(&todo_path, "(root)")?;
-        if !issues.is_empty() {
-            all_ok = false;
-            println!("  ❌ TODO.md 格式问题: {} 处", issues.len());
-            for i in &issues {
-                println!("     L{}: {}", i.line, i.message);
-            }
-        } else {
-            println!("  ✅ TODO.md 格式规范");
-        }
-    }
-
-    // ── 2. 路径与粒度检查（仅 TODO.md）────────────────────────
-    if todo_path.exists() {
-        let content = std::fs::read_to_string(&todo_path)?;
-        let mut path_missing_count = 0u32;
-        let mut no_path_count = 0u32;
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if !trimmed.starts_with("- [") {
-                continue;
-            }
-            let paths = extract_line_paths(trimmed);
-            if paths.is_empty() {
-                no_path_count += 1;
-                continue;
-            }
-            for p in &paths {
-                let abs = dir.join(p);
-                if !abs.exists() {
-                    path_missing_count += 1;
-                    println!("  ⚠ 路径不存在: {}", p);
-                }
-            }
-        }
-        if path_missing_count > 0 {
-            all_ok = false;
-        }
-        if no_path_count > 0 {
-            println!("  ⚠ {} 条 TODO 条目未引用文件路径", no_path_count);
-            all_ok = false;
-        }
-        if path_missing_count == 0 && no_path_count == 0 {
-            println!("  ✅ TODO.md 路径引用均有效");
-        }
-    }
-
-    // ── 3. 孤儿 ROADMAP 条目检查 ───────────────────────────────
-    if roadmap_path.exists() {
-        let content = std::fs::read_to_string(&roadmap_path)?;
-        let has_orphan = content.lines().any(|l| {
-            let t = l.trim();
-            t.starts_with("- [ ]") && !t.contains('`')
-        });
-        if has_orphan {
-            println!("  ⚠ ROADMAP.md 存在无路径引用的条目");
-            all_ok = false;
-        }
-    } else if todo_path.exists() {
-        println!("  ⚠ TODO.md 存在但无 ROADMAP.md（建议从 ROADMAP 派生）");
-        all_ok = false;
-    }
+    all_ok &= audit_format(&roadmap_path, &todo_path)?;
+    all_ok &= audit_todo_paths(&todo_path, &dir)?;
+    all_ok &= audit_orphan_roadmap(&roadmap_path, &todo_path)?;
 
     // ── 4. LLM 语义审计 ─────────────────────────────────────────
     if roadmap_path.exists() && todo_path.exists() {

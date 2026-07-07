@@ -211,194 +211,185 @@ fn repo_path() -> PathBuf {
 
 fn main() {
     let cli = Cli::parse();
-
-    let result = match cli.command {
-        Commands::Code { action } => run_code(action),
-        Commands::Build { action } => match action {
-            BuildAction::Status => {
-                qtcloud_devops_cli::build::status(&repo_path());
-                Ok(())
-            }
-            BuildAction::Clean => {
-                qtcloud_devops_cli::build::clean(&repo_path());
-                Ok(())
-            }
-            BuildAction::Audit => {
-                qtcloud_devops_cli::build::audit(&repo_path());
-                Ok(())
-            }
-        },
-        Commands::Test { action } => match action {
-            TestAction::Status => {
-                let c = qtcloud_devops_cli::contract::load(&repo_path());
-                qtcloud_devops_cli::test::status(&repo_path(), &c);
-                Ok(())
-            }
-            TestAction::Clean => {
-                qtcloud_devops_cli::test::clear_cache(&repo_path());
-                Ok(())
-            }
-            TestAction::Audit { all, verbose } => {
-                let c = qtcloud_devops_cli::contract::load(&repo_path());
-                qtcloud_devops_cli::test::audit(&repo_path(), &c, all, verbose)
-                    .map_err(|e| format!("{}", e))
-            }
-        },
-        Commands::Release { action } => match action {
-            ReleaseAction::Audit { version, scope } => {
-                let rp = repo_path();
-                let results = if let Some(v) = version {
-                    qtcloud_devops_cli::release::audit(Some(&v), &rp)
-                        .map(|items| vec![("".to_string(), items)])
-                } else {
-                    qtcloud_devops_cli::release::audit_all(&rp, scope.as_deref())
-                };
-                match results {
-                    Ok(all_items) => {
-                        let (all_passed, all_total) =
-                            all_items.iter().fold((0u32, 0u32), |(p, t), (_, items)| {
-                                let sp = items.iter().filter(|i| i.passed).count() as u32;
-                                (p + sp, t + items.len() as u32)
-                            });
-                        for (scope_name, items) in &all_items {
-                            if !scope_name.is_empty() {
-                                println!("发布审计 — {}\n{}", scope_name, "-".repeat(50));
-                            } else {
-                                println!("发布审计\n{}", "-".repeat(50));
-                            }
-                            let mut passed = 0u32;
-                            for item in items {
-                                let icon = if item.passed { "✅" } else { "❌" };
-                                println!("  {} {}", icon, item.name);
-                                println!("        {}", item.detail);
-                                if item.passed {
-                                    passed += 1;
-                                }
-                            }
-                            let total = items.len() as u32;
-                            println!("{}\n  {}/{} 项通过\n", "-".repeat(50), passed, total);
-                        }
-                        let total = all_items.len() as u32;
-                        if all_passed == all_total {
-                            println!("  全部 {} 项检查通过 ({} scope)", all_total, total);
-                            Ok(())
-                        } else {
-                            Err(format!(
-                                "{}/{} 项未通过 ({} scope)",
-                                all_total - all_passed,
-                                all_total,
-                                total
-                            ))
-                        }
-                    }
-                    Err(e) => Err(format!("审计失败: {}", e)),
-                }
-            }
-            ReleaseAction::Publish {
-                version,
-                yes,
-                force,
-                dry_run,
-                registry,
-            } => qtcloud_devops_cli::release::publish(
-                version.as_deref(),
-                &repo_path(),
-                yes,
-                force,
-                dry_run,
-                registry,
-            )
-            .map_err(|e| format!("{}", e)),
-            ReleaseAction::Status => {
-                qtcloud_devops_cli::release::status(&repo_path());
-                Ok(())
-            }
-        },
-        Commands::Plan { action } => match action {
-            PlanAction::Status { scope } => {
-                qtcloud_devops_cli::plan::print_status(&repo_path(), scope.as_deref())
-                    .map_err(|e| format!("{}", e))
-            }
-            PlanAction::Clean { scope } => run_plan_clean(scope),
-            PlanAction::Doctor { scope } => run_plan_doctor(scope),
-            PlanAction::Audit => {
-                let rp = repo_path();
-                qtcloud_devops_cli::plan::plan_audit(&rp).map_err(|e| format!("{}", e))
-            }
-        },
-        Commands::Contract { action } => match action {
-            ContractAction::Status => {
-                qtcloud_devops_cli::contract::status(&repo_path());
-                Ok(())
-            }
-        },
-        Commands::Help => {
-            println!("qtcloud-devops — 量潮DevOps命令行工具");
-            println!();
-            println!("Development lifecycle (stages):");
-            println!("  build → test → release");
-            println!();
-            println!("  build status / clean / audit");
-            println!("  test  status / clean / audit");
-            println!("        release status / audit / publish");
-            println!();
-            println!("Cross-stage:");
-            println!("  code status / audit");
-            println!("  plan  status / clean / doctor / audit");
-            println!("  contract status");
-            println!("  source status");
-            println!();
-            println!("Overview:");
-            println!("  status    聚合所有 status");
-            println!("  audit     聚合所有 audit");
-            println!();
-            println!("Use `--help` on any command for detailed options.");
-            Ok(())
-        }
-        Commands::Status => {
-            let rp = repo_path();
-            qtcloud_devops_cli::contract::status(&rp);
-            println!();
-            qtcloud_devops_cli::source::status(&rp);
-            println!();
-            qtcloud_devops_cli::plan::print_status(&rp, None).ok();
-            println!();
-            if let Ok(report) = qtcloud_devops_cli::code::status(rp.clone(), true) {
-                print_report(&report);
-            }
-            println!();
-            qtcloud_devops_cli::build::status(&rp);
-            println!();
-            let c = qtcloud_devops_cli::contract::load(&rp);
-            qtcloud_devops_cli::test::status(&rp, &c);
-            println!();
-            qtcloud_devops_cli::release::status(&rp);
-            Ok(())
-        }
-        Commands::Audit => {
-            let rp = repo_path();
-            let c = qtcloud_devops_cli::contract::load(&rp);
-            println!("概览审计\n{}", "-".repeat(50));
-            qtcloud_devops_cli::build::audit(&rp);
-            println!();
-            qtcloud_devops_cli::test::audit(&rp, &c, true, false).ok();
-            println!();
-            qtcloud_devops_cli::release::audit_all(&rp, None).ok();
-            Ok(())
-        }
-        Commands::Source { action } => match action {
-            SourceAction::Status => {
-                let rp = repo_path();
-                qtcloud_devops_cli::source::status(&rp);
-                Ok(())
-            }
-        },
-    };
-
-    if let Err(e) = result {
+    if let Err(e) = dispatch(cli) {
         eprintln!("错误: {}", e);
         process::exit(1);
     }
+}
+
+fn dispatch(cli: Cli) -> Result<(), String> {
+    match cli.command {
+        Commands::Code { action } => run_code(action),
+        Commands::Build { action } => run_build(action),
+        Commands::Test { action } => run_test(action),
+        Commands::Release { action } => run_release(action),
+        Commands::Plan { action } => run_plan(action),
+        Commands::Contract { action } => run_contract(action),
+        Commands::Help => run_help(),
+        Commands::Status => run_overall_status(),
+        Commands::Audit => run_overall_audit(),
+        Commands::Source { action } => run_source(action),
+    }
+}
+
+fn run_build(action: BuildAction) -> Result<(), String> {
+    match action {
+        BuildAction::Status => { qtcloud_devops_cli::build::status(&repo_path()); Ok(()) }
+        BuildAction::Clean => { qtcloud_devops_cli::build::clean(&repo_path()); Ok(()) }
+        BuildAction::Audit => { qtcloud_devops_cli::build::audit(&repo_path()); Ok(()) }
+    }
+}
+
+fn run_test(action: TestAction) -> Result<(), String> {
+    match action {
+        TestAction::Status => {
+            let c = qtcloud_devops_cli::contract::load(&repo_path());
+            qtcloud_devops_cli::test::status(&repo_path(), &c);
+            Ok(())
+        }
+        TestAction::Clean => { qtcloud_devops_cli::test::clear_cache(&repo_path()); Ok(()) }
+        TestAction::Audit { all, verbose } => {
+            let c = qtcloud_devops_cli::contract::load(&repo_path());
+            qtcloud_devops_cli::test::audit(&repo_path(), &c, all, verbose)
+                .map_err(|e| format!("{}", e))
+        }
+    }
+}
+
+fn run_release(action: ReleaseAction) -> Result<(), String> {
+    match action {
+        ReleaseAction::Audit { version, scope } => run_release_audit(version, scope),
+        ReleaseAction::Publish { version, yes, force, dry_run, registry } =>
+            qtcloud_devops_cli::release::publish(
+                version.as_deref(), &repo_path(), yes, force, dry_run, registry,
+            ).map_err(|e| format!("{}", e)),
+        ReleaseAction::Status => { qtcloud_devops_cli::release::status(&repo_path()); Ok(()) }
+    }
+}
+
+fn run_release_audit(version: Option<String>, scope: Option<String>) -> Result<(), String> {
+    let rp = repo_path();
+    let results = if let Some(v) = version {
+        qtcloud_devops_cli::release::audit(Some(&v), &rp)
+            .map(|items| vec![("".to_string(), items)])
+    } else {
+        qtcloud_devops_cli::release::audit_all(&rp, scope.as_deref())
+    };
+    match results {
+        Ok(all_items) => {
+            let (all_passed, all_total) =
+                all_items.iter().fold((0u32, 0u32), |(p, t), (_, items)| {
+                    let sp = items.iter().filter(|i| i.passed).count() as u32;
+                    (p + sp, t + items.len() as u32)
+                });
+            for (scope_name, items) in &all_items {
+                if !scope_name.is_empty() {
+                    println!("发布审计 — {}\n{}", scope_name, "-".repeat(50));
+                } else {
+                    println!("发布审计\n{}", "-".repeat(50));
+                }
+                let mut passed = 0u32;
+                for item in items {
+                    let icon = if item.passed { "✅" } else { "❌" };
+                    println!("  {} {}", icon, item.name);
+                    println!("        {}", item.detail);
+                    if item.passed { passed += 1; }
+                }
+                let total = items.len() as u32;
+                println!("{}\n  {}/{} 项通过\n", "-".repeat(50), passed, total);
+            }
+            let total = all_items.len() as u32;
+            if all_passed == all_total {
+                println!("  全部 {} 项检查通过 ({} scope)", all_total, total);
+                Ok(())
+            } else {
+                Err(format!("{}/{} 项未通过 ({} scope)", all_total - all_passed, all_total, total))
+            }
+        }
+        Err(e) => Err(format!("审计失败: {}", e)),
+    }
+}
+
+fn run_plan(action: PlanAction) -> Result<(), String> {
+    match action {
+        PlanAction::Status { scope } =>
+            qtcloud_devops_cli::plan::print_status(&repo_path(), scope.as_deref())
+                .map_err(|e| format!("{}", e)),
+        PlanAction::Clean { scope } => run_plan_clean(scope),
+        PlanAction::Doctor { scope } => run_plan_doctor(scope),
+        PlanAction::Audit => {
+            qtcloud_devops_cli::plan::plan_audit(&repo_path()).map_err(|e| format!("{}", e))
+        }
+    }
+}
+
+fn run_contract(action: ContractAction) -> Result<(), String> {
+    match action {
+        ContractAction::Status => { qtcloud_devops_cli::contract::status(&repo_path()); Ok(()) }
+    }
+}
+
+fn run_source(action: SourceAction) -> Result<(), String> {
+    match action {
+        SourceAction::Status => { qtcloud_devops_cli::source::status(&repo_path()); Ok(()) }
+    }
+}
+
+fn run_help() -> Result<(), String> {
+    println!("qtcloud-devops — 量潮DevOps命令行工具");
+    println!();
+    println!("Development lifecycle (stages):");
+    println!("  build → test → release");
+    println!();
+    println!("  build status / clean / audit");
+    println!("  test  status / clean / audit");
+    println!("        release status / audit / publish");
+    println!();
+    println!("Cross-stage:");
+    println!("  code status / audit");
+    println!("  plan  status / clean / doctor / audit");
+    println!("  contract status");
+    println!("  source status");
+    println!();
+    println!("Overview:");
+    println!("  status    聚合所有 status");
+    println!("  audit     聚合所有 audit");
+    println!();
+    println!("Use `--help` on any command for detailed options.");
+    Ok(())
+}
+
+fn run_overall_status() -> Result<(), String> {
+    let rp = repo_path();
+    qtcloud_devops_cli::contract::status(&rp);
+    println!();
+    qtcloud_devops_cli::source::status(&rp);
+    println!();
+    qtcloud_devops_cli::plan::print_status(&rp, None).ok();
+    println!();
+    if let Ok(report) = qtcloud_devops_cli::code::status(rp.clone(), true) {
+        print_report(&report);
+    }
+    println!();
+    qtcloud_devops_cli::build::status(&rp);
+    println!();
+    let c = qtcloud_devops_cli::contract::load(&rp);
+    qtcloud_devops_cli::test::status(&rp, &c);
+    println!();
+    qtcloud_devops_cli::release::status(&rp);
+    Ok(())
+}
+
+fn run_overall_audit() -> Result<(), String> {
+    let rp = repo_path();
+    let c = qtcloud_devops_cli::contract::load(&rp);
+    println!("概览审计\n{}", "-".repeat(50));
+    qtcloud_devops_cli::build::audit(&rp);
+    println!();
+    qtcloud_devops_cli::test::audit(&rp, &c, true, false).ok();
+    println!();
+    qtcloud_devops_cli::release::audit_all(&rp, None).ok();
+    Ok(())
 }
 
 fn run_code(action: CodeAction) -> Result<(), String> {

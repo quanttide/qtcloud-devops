@@ -123,91 +123,93 @@ pub fn audit(repo_path: &Path, c: &contract::Contract, all: bool, verbose: bool)
 
 /// 扫描单个 scope 的测试质量。
 fn scan_scope(dir: &Path, c: &contract::Contract, scope_name: &str) -> Result<AuditReport, String> {
-    let mut report = AuditReport::default();
-
-    // 收集所有 .rs 文件（排除 target/）
-    let mut rs_files = Vec::new();
-    collect_rs_files(dir, &mut rs_files);
-    // 也包括 tests/ 目录（不嵌套在 src/ 中的集成测试）
-    let tests_dir = dir.join("tests");
-    if tests_dir.is_dir() {
-        collect_rs_files(&tests_dir, &mut rs_files);
-    }
-
-    // 分离测试文件（包含 #[cfg(test)]）和生产文件
+    let rs_files = collect_source_files(dir);
     let mut test_fns = Vec::new();
     let mut pub_fns = Vec::new();
     let mut error_enums: Vec<(String, Vec<String>)> = Vec::new();
     let mut test_body = String::new();
 
-    for f in &rs_files {
-        let content = std::fs::read_to_string(f).unwrap_or_default();
+    parse_source_files(&rs_files, &mut test_fns, &mut pub_fns, &mut error_enums, &mut test_body);
 
-        // 收集当前文件中的测试函数
-        collect_test_fns(&content, &mut test_fns);
-        // 收集当前文件中的 pub fn
-        collect_pub_fns(&content, &mut pub_fns, f);
-        // 收集错误枚举变体
-        collect_error_variants(&content, &mut error_enums);
-        // 收集测试文件内容用于引用检查（#[cfg(test)] + tests/ 目录）
+    let report = compute_coverage_report(&pub_fns, &error_enums, &test_body, &test_fns);
+    Ok(evaluate_gates(report, dir, c, scope_name))
+}
+
+fn collect_source_files(dir: &Path) -> Vec<PathBuf> {
+    let mut rs_files = Vec::new();
+    collect_rs_files(dir, &mut rs_files);
+    let tests_dir = dir.join("tests");
+    if tests_dir.is_dir() { collect_rs_files(&tests_dir, &mut rs_files); }
+    rs_files
+}
+
+fn parse_source_files(
+    rs_files: &[PathBuf],
+    test_fns: &mut Vec<String>,
+    pub_fns: &mut Vec<(String, String)>,
+    error_enums: &mut Vec<(String, Vec<String>)>,
+    test_body: &mut String,
+) {
+    for f in rs_files {
+        let content = std::fs::read_to_string(f).unwrap_or_default();
+        collect_test_fns(&content, test_fns);
+        collect_pub_fns(&content, pub_fns, f);
+        collect_error_variants(&content, error_enums);
         if content.contains("#[cfg(test)]") || f.to_string_lossy().contains("/tests/") {
             test_body.push_str(&content);
             test_body.push('\n');
         }
     }
+}
 
+fn compute_coverage_report(
+    pub_fns: &[(String, String)],
+    error_enums: &[(String, Vec<String>)],
+    test_body: &str,
+    test_fns: &[String],
+) -> AuditReport {
+    let mut report = AuditReport::default();
     report.total_tests = test_fns.len();
     report.total_pub_fns = pub_fns.len();
+    report.pure_pub_fns = pub_fns.iter().filter(|(name, _)| !is_io_fn(name)).count();
+    report.tested_pub_fns = pub_fns.iter().filter(|(name, _)| test_body.contains(name.as_str())).count();
 
-    // 分纯函数和 I/O 函数
-    let pure_fns: Vec<_> = pub_fns.iter().filter(|(name, _)| !is_io_fn(name)).collect();
-    report.pure_pub_fns = pure_fns.len();
+    report.uncovered_fns = pub_fns.iter()
+        .filter(|(name, _)| !test_body.contains(name.as_str()))
+        .map(|(name, path)| {
+            let kind = if is_io_fn(name) { "I/O" } else { "纯函数" };
+            (format!("{}::{}", path, name), kind.into())
+        })
+        .collect();
 
-    // 所有 pub fn：函数名出现在测试代码中即视为覆盖
-    report.tested_pub_fns = pub_fns.iter().filter(|(name, _)| {
-        test_body.contains(name.as_str())
-    }).count();
-
-    // 未覆盖：按类别标记
-    report.uncovered_fns = Vec::new();
-    for (name, path) in pub_fns.iter().filter(|(name, _)| {
-        !test_body.contains(name.as_str())
-    }) {
-        let kind = if is_io_fn(name) { "I/O" } else { "纯函数" };
-        report.uncovered_fns.push((format!("{}::{}", path, name), kind.into()));
-    }
-
-    // 计算错误变体覆盖：用 EnumName::Variant 精确匹配
     report.error_variants = error_enums.iter().map(|(_, vs)| vs.len()).sum();
     report.tested_variants = 0;
     report.uncovered_variants.clear();
-    for (enum_name, variants) in &error_enums {
+    for (enum_name, variants) in error_enums {
         for v in variants {
-            // 测试中应引用 ErrorName::VariantName
             let qualified = format!("{}::{}", enum_name, v);
-            if test_body.contains(&qualified) {
-                report.tested_variants += 1;
-            } else {
-                report.uncovered_variants.push(qualified);
-            }
+            if test_body.contains(&qualified) { report.tested_variants += 1; }
+            else { report.uncovered_variants.push(qualified); }
         }
     }
     report.uncovered_variants.sort();
+    report
+}
 
-    // 读取覆盖率（沿用现有逻辑）
-    let threshold = c.scopes.iter().find(|s| s.name == scope_name).map(|s| c.scope_test_threshold(s)).unwrap_or(c.stages.test.threshold);
+fn evaluate_gates(mut report: AuditReport, dir: &Path, c: &contract::Contract, scope_name: &str) -> AuditReport {
+    let threshold = c.scopes.iter().find(|s| s.name == scope_name)
+        .map(|s| c.scope_test_threshold(s)).unwrap_or(c.stages.test.threshold);
     report.coverage_threshold = threshold;
-    let lang = contract::detect_languages(dir).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
+    let lang = contract::detect_languages(dir).into_iter().next()
+        .unwrap_or(contract::Language::Unknown(String::new()));
     let coverage = collect_coverage(dir, &lang, threshold);
     report.coverage_pct = coverage.percentage;
 
-    // 评估门禁
     let fn_ok = report.total_pub_fns == 0 || report.tested_pub_fns as f64 / report.total_pub_fns as f64 >= 0.5;
     let err_ok = report.error_variants == 0 || report.tested_variants as f64 / report.error_variants as f64 >= 0.5;
     let cov_ok = report.coverage_pct == 0.0 || report.coverage_pct >= report.coverage_threshold;
     report.gates_met = fn_ok && err_ok && cov_ok;
-
-    Ok(report)
+    report
 }
 
 /// 收集目录下所有 .rs 文件（排除 target/）。

@@ -119,8 +119,7 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, DetectError> {
 
     let new_version = build_version_from_decision(
         has_tag,
-        major, minor, patch,
-        pre_stage.as_deref(), pre_num,
+        &VersionParts { major, minor, patch, pre_stage: pre_stage.clone(), pre_num },
         &decision,
     )?;
 
@@ -145,11 +144,19 @@ fn parse_commit_messages(log_output: &str) -> Vec<String> {
         .collect()
 }
 
+/// 版本号组成部分，用于 `build_version_from_decision` / `build_version` 替代长参数列表。
+struct VersionParts {
+    major: u32,
+    minor: u32,
+    patch: u32,
+    pre_stage: Option<String>,
+    pre_num: Option<u32>,
+}
+
 /// 根据 LLM 决策构建版本号（不含 scope 前缀）。
 fn build_version_from_decision(
     has_tag: bool,
-    major: u32, minor: u32, patch: u32,
-    pre_stage: Option<&str>, pre_num: Option<u32>,
+    parts: &VersionParts,
     decision: &LlmDecision,
 ) -> Result<String, DetectError> {
     if !has_tag {
@@ -165,12 +172,7 @@ fn build_version_from_decision(
         return Err(DetectError::Other(format!("需要人类判断: {}", decision.reason)));
     }
     let increment = decision.increment.as_deref().unwrap_or("patch");
-    Ok(build_version(
-        major, minor, patch,
-        pre_stage, pre_num,
-        increment,
-        decision.prerelease.as_deref(),
-    ))
+    Ok(build_version(parts, increment, decision.prerelease.as_deref()))
 }
 
 /// 给版本号添加 scope 前缀。
@@ -202,20 +204,15 @@ fn llm_decide(
         return Ok(fallback_heuristic(commits));
     }
 
-    let llm = LLM::new(
-        &settings.llm_model,
-        &settings.llm_base_url,
-        &settings.llm_api_key,
-    );
+    let prompt = build_version_prompt(commits, latest_tag, project_type, scope);
+    call_llm_decision(&prompt, &settings)
+}
 
-    let commits_text = commits
-        .iter()
-        .enumerate()
+fn build_version_prompt(commits: &[String], latest_tag: &str, project_type: &str, scope: &str) -> String {
+    let commits_text = commits.iter().enumerate()
         .map(|(i, c)| format!("{}. {}", i + 1, c))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let prompt = format!(
+        .collect::<Vec<_>>().join("\n");
+    format!(
         r#"你是一个版本号推断专家。根据以下信息，决定下一个版本号策略。
 
 ## 约束
@@ -236,8 +233,8 @@ fn llm_decide(
 - `fix: / refactor: / test:` → patch（修问题）
 
 **内容/文档项目：**
-- **绝大多数变更都是 patch**。新增文档、更新内容、格式规范化、目录结构调整都是日常工作。
-- minor 仅限全新内容品类上线的程度（例如从零搭建了一整套新手册），极少发生。
+- **绝大多数变更都是 patch**。
+- minor 仅限全新内容品类上线的程度，极少发生。
 - 不确定时就 patch。
 
 ## 当前版本
@@ -251,33 +248,25 @@ scope: {scope}
 ## 输出格式（仅 JSON）
 {{"action": "release"|"skip"|"human", "increment": "minor"|"patch"|null, "prerelease": "alpha"|"beta"|"rc"|null, "reason": "判断理由"}}
 "#,
-        tag = latest_tag,
-        scope = scope,
-        project_type = project_type,
-        commits = commits_text,
-    );
+        tag = latest_tag, scope = scope, project_type = project_type, commits = commits_text,
+    )
+}
 
+fn call_llm_decision(prompt: &str, settings: &Settings) -> Result<LlmDecision, DetectError> {
+    use quanttide_agent::{llm::CompleteOptions, Message, LLM};
+    let llm = LLM::new(&settings.llm_model, &settings.llm_base_url, &settings.llm_api_key);
     let messages = vec![
-        Message::new(
-            "system",
-            "你是一个严格的版本号推断工具。只输出 JSON，不要额外内容。",
-        ),
-        Message::new("user", &prompt),
+        Message::new("system", "你是一个严格的版本号推断工具。只输出 JSON，不要额外内容。"),
+        Message::new("user", prompt),
     ];
-
     let options = CompleteOptions {
         response_format: Some(serde_json::json!({"type": "json_object"})),
         ..Default::default()
     };
-
-    let resp = llm
-        .complete(&messages, options)
+    let resp = llm.complete(&messages, options)
         .map_err(|e| DetectError::Llm(format!("LLM 调用失败: {}", e.0)))?;
-
-    let decision: LlmDecision = serde_json::from_str(&resp.content)
-        .map_err(|e| DetectError::Llm(format!("LLM 输出解析失败: {} — 原始输出: {}", e, resp.content)))?;
-
-    Ok(decision)
+    serde_json::from_str(&resp.content)
+        .map_err(|e| DetectError::Llm(format!("LLM 输出解析失败: {} — 原始输出: {}", e, resp.content)))
 }
 
 /// 启发式回退规则。
@@ -305,6 +294,11 @@ fn fallback_heuristic(commits: &[String]) -> LlmDecision {
         }
     }
 
+    build_decision_from_flags(has_feat, has_breaking, has_logic_change)
+}
+
+/// 根据启发式标记构建决策。
+fn build_decision_from_flags(has_feat: bool, has_breaking: bool, has_logic_change: bool) -> LlmDecision {
     if !has_logic_change {
         return LlmDecision {
             action: "skip".into(),
@@ -339,23 +333,19 @@ fn fallback_heuristic(commits: &[String]) -> LlmDecision {
 
 /// 根据决策构建版本字符串（不含 scope 前缀）。
 fn build_version(
-    major: u32,
-    minor: u32,
-    patch: u32,
-    pre_stage: Option<&str>,
-    pre_num: Option<u32>,
+    parts: &VersionParts,
     increment: &str,
     prerelease: Option<&str>,
 ) -> String {
-    if let Some(stage) = pre_stage {
-        let next = pre_num.unwrap_or(0) + 1;
-        return format!("v{}.{}.{}-{}.{}", major, minor, patch, stage, next);
+    if let Some(stage) = &parts.pre_stage {
+        let next = parts.pre_num.unwrap_or(0) + 1;
+        return format!("v{}.{}.{}-{}.{}", parts.major, parts.minor, parts.patch, stage, next);
     }
 
     match (increment, prerelease) {
-        ("minor", Some(pr)) => format!("v{}.{}.{}-{}.1", major, minor + 1, 0, pr),
-        ("minor", None) => format!("v{}.{}.{}", major, minor + 1, 0),
-        _ => format!("v{}.{}.{}", major, minor, patch + 1),
+        ("minor", Some(pr)) => format!("v{}.{}.{}-{}.1", parts.major, parts.minor + 1, 0, pr),
+        ("minor", None) => format!("v{}.{}.{}", parts.major, parts.minor + 1, 0),
+        _ => format!("v{}.{}.{}", parts.major, parts.minor, parts.patch + 1),
     }
 }
 
@@ -537,13 +527,13 @@ mod tests {
 
     #[test]
     fn test_build_version_patch() {
-        assert_eq!(build_version(0, 8, 4, None, None, "patch", None), "v0.8.5");
+        assert_eq!(build_version(&VersionParts { major: 0, minor: 8, patch: 4, pre_stage: None, pre_num: None }, "patch", None), "v0.8.5");
     }
 
     #[test]
     fn test_build_version_minor_rc() {
         assert_eq!(
-            build_version(0, 8, 4, None, None, "minor", Some("rc")),
+            build_version(&VersionParts { major: 0, minor: 8, patch: 4, pre_stage: None, pre_num: None }, "minor", Some("rc")),
             "v0.9.0-rc.1"
         );
     }
@@ -551,14 +541,14 @@ mod tests {
     #[test]
     fn test_build_version_prerelease_increment() {
         assert_eq!(
-            build_version(0, 9, 0, Some("rc"), Some(1), "patch", None),
+            build_version(&VersionParts { major: 0, minor: 9, patch: 0, pre_stage: Some("rc".into()), pre_num: Some(1) }, "patch", None),
             "v0.9.0-rc.2"
         );
     }
 
     #[test]
     fn test_build_version_minor_formal() {
-        assert_eq!(build_version(0, 8, 4, None, None, "minor", None), "v0.9.0");
+        assert_eq!(build_version(&VersionParts { major: 0, minor: 8, patch: 4, pre_stage: None, pre_num: None }, "minor", None), "v0.9.0");
     }
 
     #[test]
@@ -646,7 +636,7 @@ mod tests {
     #[test]
     fn test_build_version_patch_with_same_stage() {
         assert_eq!(
-            build_version(1, 0, 0, Some("beta"), Some(3), "patch", None),
+            build_version(&VersionParts { major: 1, minor: 0, patch: 0, pre_stage: Some("beta".into()), pre_num: Some(3) }, "patch", None),
             "v1.0.0-beta.4"
         );
     }
@@ -654,7 +644,7 @@ mod tests {
     #[test]
     fn test_build_version_minor_with_alpha() {
         assert_eq!(
-            build_version(0, 1, 0, None, None, "minor", Some("alpha")),
+            build_version(&VersionParts { major: 0, minor: 1, patch: 0, pre_stage: None, pre_num: None }, "minor", Some("alpha")),
             "v0.2.0-alpha.1"
         );
     }
@@ -662,7 +652,7 @@ mod tests {
     #[test]
     fn test_build_version_no_prerelease_info() {
         // prerelease 为 None 但 increment 不是 patch → 直发正式
-        assert_eq!(build_version(1, 0, 0, None, None, "patch", None), "v1.0.1");
+        assert_eq!(build_version(&VersionParts { major: 1, minor: 0, patch: 0, pre_stage: None, pre_num: None }, "patch", None), "v1.0.1");
     }
 
     // ── fallback_heuristic 更多模式 ───────────────────────────
@@ -735,7 +725,7 @@ mod tests {
             prerelease: None,
             reason: "".into(),
         };
-        let v = build_version_from_decision(false, 0, 0, 0, None, None, &d).unwrap();
+        let v = build_version_from_decision(false, &VersionParts { major: 0, minor: 0, patch: 0, pre_stage: None, pre_num: None }, &d).unwrap();
         assert_eq!(v, "v0.1.0");
     }
 
@@ -747,7 +737,7 @@ mod tests {
             prerelease: Some("alpha".into()),
             reason: "".into(),
         };
-        let v = build_version_from_decision(false, 0, 0, 0, None, None, &d).unwrap();
+        let v = build_version_from_decision(false, &VersionParts { major: 0, minor: 0, patch: 0, pre_stage: None, pre_num: None }, &d).unwrap();
         assert_eq!(v, "v0.1.0-alpha.1");
     }
 
@@ -759,7 +749,7 @@ mod tests {
             prerelease: None,
             reason: "".into(),
         };
-        assert!(build_version_from_decision(true, 1, 0, 0, None, None, &d).is_err());
+        assert!(build_version_from_decision(true, &VersionParts { major: 1, minor: 0, patch: 0, pre_stage: None, pre_num: None }, &d).is_err());
     }
 
     #[test]
@@ -770,7 +760,7 @@ mod tests {
             prerelease: None,
             reason: "breaking change".into(),
         };
-        assert!(build_version_from_decision(true, 1, 0, 0, None, None, &d).is_err());
+        assert!(build_version_from_decision(true, &VersionParts { major: 1, minor: 0, patch: 0, pre_stage: None, pre_num: None }, &d).is_err());
     }
 
     #[test]
@@ -781,7 +771,7 @@ mod tests {
             prerelease: None,
             reason: "".into(),
         };
-        let v = build_version_from_decision(true, 0, 8, 4, None, None, &d).unwrap();
+        let v = build_version_from_decision(true, &VersionParts { major: 0, minor: 8, patch: 4, pre_stage: None, pre_num: None }, &d).unwrap();
         assert_eq!(v, "v0.8.5");
     }
 

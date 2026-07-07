@@ -44,9 +44,9 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
             }
         });
         let release = c.scope_release(&root_scope);
-        o.push_str(&build_scope_str(
-            "(root)", repo_path, &lang, &c, &vs, &release,
-        ));
+        o.push_str(&build_scope_str(&ScopeInfo {
+            name: "(root)", dir: repo_path, lang: &lang, c: &c, vs: &vs, release: &release,
+        }));
     } else {
         for scope in &c.scopes {
             let scope_dir = repo_path.join(&scope.dir);
@@ -68,14 +68,9 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
                 }
             });
             let release = c.scope_release(scope);
-            o.push_str(&build_scope_str(
-                &scope.name,
-                &scope_dir,
-                &lang,
-                &c,
-                &vs,
-                &release,
-            ));
+            o.push_str(&build_scope_str(&ScopeInfo {
+                name: &scope.name, dir: &scope_dir, lang: &lang, c: &c, vs: &vs, release: &release,
+            }));
         }
     }
 
@@ -91,25 +86,27 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
     write!(writer, "{}", o)
 }
 
-fn build_scope_str(
-    name: &str,
-    dir: &Path,
-    lang: &contract::Language,
-    c: &contract::Contract,
-    vs: &contract::VersionState,
-    release: &contract::StageRelease,
-) -> String {
-    let version_line = match (&vs.tag_version, &vs.config_version) {
-        (Some(t), Some(_)) if vs.consistent => format!("    version:    ✅ {}（一致）", t),
+struct ScopeInfo<'a> {
+    name: &'a str,
+    dir: &'a Path,
+    lang: &'a contract::Language,
+    c: &'a contract::Contract,
+    vs: &'a contract::VersionState,
+    release: &'a contract::StageRelease,
+}
+
+fn build_scope_str(info: &ScopeInfo) -> String {
+    let version_line = match (&info.vs.tag_version, &info.vs.config_version) {
+        (Some(t), Some(_)) if info.vs.consistent => format!("    version:    ✅ {}（一致）", t),
         (Some(t), Some(_)) => format!("    version:    ⚠ {}（配置不一致）", t),
         (Some(t), None) => format!("    version:    tag {}（无配置文件）", t),
         (None, Some(_)) => "    version:    有配置版本（无 tag）".into(),
         (None, None) => "    version:    暂无发布".into(),
     };
-    let config_lines: String = vs
+    let config_lines: String = info.vs
         .config_files
         .iter()
-        .map(|(fname, ver)| match (ver, &vs.tag_version) {
+        .map(|(fname, ver)| match (ver, &info.vs.tag_version) {
             (Some(v), Some(t)) if v == t => {
                 format!("      {:<15} {} ✅\n", format!("{}:", fname), v)
             }
@@ -117,7 +114,7 @@ fn build_scope_str(
                 "      {:<15} {} ❌（期望 {})\n",
                 format!("{}:", fname),
                 v,
-                vs.tag_version.as_deref().unwrap_or("?")
+                info.vs.tag_version.as_deref().unwrap_or("?")
             ),
             (Some(v), None) => format!("      {:<15} {}（无 tag）\n", format!("{}:", fname), v),
             (None, _) => format!("      {:<15} （未找到版本字段）\n", format!("{}:", fname)),
@@ -126,14 +123,14 @@ fn build_scope_str(
 
     format!(
         "  [{:<12}] {}\n    CI:         {}\n    build:      {}\n{}\n{}    registry:   {:?}\n    deps:       {}\n    changelog:  {}\n",
-        name, lang.as_str(),
-        check_ci(name, None),
-        check_syntax(lang, dir),
+        info.name, info.lang.as_str(),
+        check_ci(info.name, None),
+        check_syntax(info.lang, info.dir),
         version_line,
         config_lines,
-        c.platform.artifact_registry,
-        check_dependencies(dir),
-        release.changelog,
+        info.c.platform.artifact_registry,
+        check_dependencies(info.dir),
+        info.release.changelog,
     )
 }
 
@@ -400,6 +397,10 @@ pub fn audit(repo_path: &Path) {
     println!("  {} 依赖来源: {}", if deps_ok { "✅" } else { "❌" }, deps);
     if deps_ok { passed += 1; }
 
+    print_audit_summary(passed, total);
+}
+
+fn print_audit_summary(passed: u32, total: u32) {
     println!("\n{}", "-".repeat(50));
     if passed == total {
         println!("  ✅ 全部 {} 项检查通过", total);
@@ -423,14 +424,9 @@ mod tests {
             config_files: vec![("Cargo.toml".into(), Some("0.1.0".into()))],
         };
         let release = contract::StageRelease::default();
-        let s = build_scope_str(
-            "test",
-            d.path(),
-            &contract::Language::Rust,
-            &c,
-            &vs,
-            &release,
-        );
+        let s = build_scope_str(&ScopeInfo {
+            name: "test", dir: d.path(), lang: &contract::Language::Rust, c: &c, vs: &vs, release: &release,
+        });
         assert!(s.contains("✅"), "一致状态应显示 ✅");
     }
 
@@ -444,14 +440,9 @@ mod tests {
         };
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
-        let s = build_scope_str(
-            "test",
-            Path::new("/tmp"),
-            &contract::Language::Rust,
-            &c,
-            &vs,
-            &release,
-        );
+        let s = build_scope_str(&ScopeInfo {
+            name: "test", dir: Path::new("/tmp"), lang: &contract::Language::Rust, c: &c, vs: &vs, release: &release,
+        });
         assert!(s.contains("配置不一致"), "应显示不一致");
     }
 
@@ -465,14 +456,9 @@ mod tests {
         };
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
-        let s = build_scope_str(
-            "test",
-            Path::new("/tmp"),
-            &contract::Language::Rust,
-            &c,
-            &vs,
-            &release,
-        );
+        let s = build_scope_str(&ScopeInfo {
+            name: "test", dir: Path::new("/tmp"), lang: &contract::Language::Rust, c: &c, vs: &vs, release: &release,
+        });
         assert!(s.contains("无配置文件"), "有 tag 无配置应提示无配置文件");
     }
 
@@ -486,14 +472,9 @@ mod tests {
         };
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
-        let s = build_scope_str(
-            "test",
-            Path::new("/tmp"),
-            &contract::Language::Rust,
-            &c,
-            &vs,
-            &release,
-        );
+        let s = build_scope_str(&ScopeInfo {
+            name: "test", dir: Path::new("/tmp"), lang: &contract::Language::Rust, c: &c, vs: &vs, release: &release,
+        });
         assert!(s.contains("有配置版本"), "有配置无 tag 应提示");
     }
 
@@ -507,14 +488,9 @@ mod tests {
         };
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
-        let s = build_scope_str(
-            "test",
-            Path::new("/tmp"),
-            &contract::Language::Rust,
-            &c,
-            &vs,
-            &release,
-        );
+        let s = build_scope_str(&ScopeInfo {
+            name: "test", dir: Path::new("/tmp"), lang: &contract::Language::Rust, c: &c, vs: &vs, release: &release,
+        });
         assert!(s.contains("暂无发布"), "无 tag 无配置应显示暂无发布");
     }
 

@@ -56,6 +56,30 @@ pub struct RepoState {
     pub needs_attention: Vec<String>,
 }
 
+/// 子模块状态快照，用于 `determine_submodule_status` 入参。
+struct SubmoduleState {
+    is_uninitialized: bool,
+    is_dirty: bool,
+    is_detached: bool,
+    is_orphaned: bool,
+    remote_unreachable: bool,
+    ahead_count: usize,
+    behind_count: usize,
+    local_head: gix::ObjectId,
+    parent_pointer: gix::ObjectId,
+}
+
+impl Default for SubmoduleState {
+    fn default() -> Self {
+        let null = gix::ObjectId::null(gix::hash::Kind::Sha1);
+        Self {
+            is_uninitialized: false, is_dirty: false, is_detached: false, is_orphaned: false,
+            remote_unreachable: false, ahead_count: 0, behind_count: 0,
+            local_head: null, parent_pointer: null,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct AggregateStatus {
     pub total: usize,
@@ -247,17 +271,10 @@ impl RepoState {
                 is_dirty,
             ) = Self::scan_single_submodule(&full_sm_path, branch, &parent_pointer, offline);
 
-            let status = Self::determine_submodule_status(
-                is_uninitialized,
-                is_dirty,
-                is_detached,
-                is_orphaned,
-                remote_unreachable,
-                ahead_count,
-                behind_count,
-                &local_head,
-                &parent_pointer,
-            );
+            let status = Self::determine_submodule_status(&SubmoduleState {
+                is_uninitialized, is_dirty, is_detached, is_orphaned, remote_unreachable,
+                ahead_count, behind_count, local_head, parent_pointer,
+            });
 
             submodules.push(Submodule {
                 name: name.clone(),
@@ -274,6 +291,10 @@ impl RepoState {
             });
         }
 
+        Ok(Self::build_repo_state(root, submodules))
+    }
+
+    fn build_repo_state(root: &Path, mut submodules: Vec<Submodule>) -> RepoState {
         submodules.sort_by(|a, b| a.name.cmp(&b.name));
         let total = submodules.len();
         let clean_count = submodules
@@ -286,13 +307,62 @@ impl RepoState {
             .map(|s| s.name.clone())
             .collect();
 
-        Ok(RepoState {
+        RepoState {
             root_path: root.to_path_buf(),
             submodules,
             total,
             clean_count,
             needs_attention,
-        })
+        }
+    }
+
+    fn default_uninitialized_result() -> (gix::ObjectId, gix::ObjectId, bool, usize, usize, bool, bool, bool, bool) {
+        let null = gix::ObjectId::null(gix::hash::Kind::Sha1);
+        (null, null, false, 0, 0, false, false, true, false)
+    }
+
+    fn read_local_head(sm_repo: &Option<gix::Repository>) -> gix::ObjectId {
+        sm_repo.as_ref()
+            .and_then(|r| r.head_commit().ok().map(|c| c.id().into()))
+            .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1))
+    }
+
+    fn check_detached(sm_repo: &Option<gix::Repository>) -> bool {
+        sm_repo.as_ref()
+            .map(|r| r.head().ok().map(|h| h.is_detached()).unwrap_or(false))
+            .unwrap_or(false)
+    }
+
+    fn check_dirty(full_sm_path: &Path) -> bool {
+        git2::Repository::open(full_sm_path)
+            .map(|r| r.statuses(Some(git2::StatusOptions::new().include_untracked(true)))
+                .map(|s| s.len() > 0).unwrap_or(false))
+            .unwrap_or(false)
+    }
+
+    fn try_fetch_remote(full_sm_path: &Path, offline: bool) {
+        if offline { return; }
+        if let Ok(repo) = git2::Repository::open(full_sm_path) {
+            if let Ok(mut remote) = repo.find_remote("origin") {
+                let _ = remote.fetch(&[] as &[&str], None, None);
+            }
+        }
+    }
+
+    fn read_remote_state(sm_repo: &Option<gix::Repository>, branch: &str) -> (gix::ObjectId, bool) {
+        let remote_ref = format!("refs/remotes/origin/{}", branch);
+        sm_repo.as_ref()
+            .and_then(|r| r.find_reference(&remote_ref).ok())
+            .map(|r| {
+                let target = r.target();
+                let id: gix::ObjectId = (*target.id()).into();
+                if id.is_null() {
+                    (gix::ObjectId::null(gix::hash::Kind::Sha1), true)
+                } else {
+                    (id, false)
+                }
+            })
+            .unwrap_or((gix::ObjectId::null(gix::hash::Kind::Sha1), true))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -312,82 +382,21 @@ impl RepoState {
         bool,
         bool,
     ) {
-        if !full_sm_path.exists() {
-            return (
-                gix::ObjectId::null(gix::hash::Kind::Sha1),
-                gix::ObjectId::null(gix::hash::Kind::Sha1),
-                false,
-                0,
-                0,
-                false,
-                false,
-                true,
-                false,
-            );
-        }
-        if !full_sm_path.join(".git").exists() {
-            return (
-                gix::ObjectId::null(gix::hash::Kind::Sha1),
-                gix::ObjectId::null(gix::hash::Kind::Sha1),
-                false,
-                0,
-                0,
-                false,
-                false,
-                true,
-                false,
-            );
+        if !full_sm_path.exists() || !full_sm_path.join(".git").exists() {
+            return Self::default_uninitialized_result();
         }
 
         let sm_repo = gix::open(full_sm_path).ok();
+        let local_head = Self::read_local_head(&sm_repo);
+        let is_detached = Self::check_detached(&sm_repo);
+        let is_dirty = Self::check_dirty(full_sm_path);
+        Self::try_fetch_remote(full_sm_path, offline);
 
-        let local_head: gix::ObjectId = sm_repo
-            .as_ref()
-            .and_then(|r| r.head_commit().ok().map(|c| c.id().into()))
-            .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1));
-
-        let is_detached = sm_repo
-            .as_ref()
-            .map(|r| r.head().ok().map(|h| h.is_detached()).unwrap_or(false))
-            .unwrap_or(false);
-
-        let is_dirty = git2::Repository::open(full_sm_path)
-            .map(|r| {
-                r.statuses(Some(git2::StatusOptions::new().include_untracked(true)))
-                    .map(|s| s.len() > 0)
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
-
-        if !offline {
-            if let Ok(repo) = git2::Repository::open(full_sm_path) {
-                if let Ok(mut remote) = repo.find_remote("origin") {
-                    let _ = remote.fetch(&[] as &[&str], None, None);
-                }
-            }
-        }
-
-        let remote_ref = format!("refs/remotes/origin/{}", branch);
-        let (remote_head, remote_unreachable) = sm_repo
-            .as_ref()
-            .and_then(|r| r.find_reference(&remote_ref).ok())
-            .map(|r| {
-                let target = r.target();
-                let oid = target.id();
-                let id: gix::ObjectId = (*oid).into();
-                if id.is_null() {
-                    (gix::ObjectId::null(gix::hash::Kind::Sha1), true)
-                } else {
-                    (id, false)
-                }
-            })
-            .unwrap_or((gix::ObjectId::null(gix::hash::Kind::Sha1), true));
-
+        let (remote_head, remote_unreachable) = Self::read_remote_state(&sm_repo, branch);
         let ahead = sm_repo
             .as_ref()
             .map(|r| gix_count_between(r, *parent_pointer, local_head))
             .unwrap_or(0);
-
         let behind = if remote_unreachable {
             0
         } else {
@@ -396,10 +405,8 @@ impl RepoState {
                 .map(|r| gix_count_between(r, local_head, remote_head))
                 .unwrap_or(0)
         };
-
         let is_orphaned = !remote_unreachable
             && remote_head != gix::ObjectId::null(gix::hash::Kind::Sha1)
-            && parent_pointer != &remote_head
             && *parent_pointer != remote_head;
 
         (
@@ -415,37 +422,15 @@ impl RepoState {
         )
     }
 
-    fn determine_submodule_status(
-        is_uninitialized: bool,
-        is_dirty: bool,
-        is_detached: bool,
-        is_orphaned: bool,
-        remote_unreachable: bool,
-        ahead_count: usize,
-        behind_count: usize,
-        local_head: &gix::ObjectId,
-        parent_pointer: &gix::ObjectId,
-    ) -> SubmoduleStatus {
-        if is_uninitialized {
-            return SubmoduleStatus::Uninitialized;
-        }
-        if is_dirty {
-            return SubmoduleStatus::Dirty;
-        }
-        if is_detached {
-            return SubmoduleStatus::Detached;
-        }
-        if is_orphaned && !remote_unreachable {
-            return SubmoduleStatus::Orphaned;
-        }
-        if (remote_unreachable && local_head != parent_pointer)
-            || (ahead_count > 0 && behind_count == 0)
-        {
-            return SubmoduleStatus::AheadOfParent;
-        }
-        if behind_count > 0 && !remote_unreachable {
-            return SubmoduleStatus::BehindRemote;
-        }
+    fn determine_submodule_status(state: &SubmoduleState) -> SubmoduleStatus {
+        if state.is_uninitialized { return SubmoduleStatus::Uninitialized; }
+        if state.is_dirty { return SubmoduleStatus::Dirty; }
+        if state.is_detached { return SubmoduleStatus::Detached; }
+        if state.is_orphaned && !state.remote_unreachable { return SubmoduleStatus::Orphaned; }
+        if (state.remote_unreachable && state.local_head != state.parent_pointer)
+            || (state.ahead_count > 0 && state.behind_count == 0)
+        { return SubmoduleStatus::AheadOfParent; }
+        if state.behind_count > 0 && !state.remote_unreachable { return SubmoduleStatus::BehindRemote; }
         SubmoduleStatus::Clean
     }
 
@@ -713,66 +698,40 @@ mod tests {
     }
 
     // ---- determine_submodule_status ----
+    fn ds(state: SubmoduleState) -> SubmoduleStatus {
+        RepoState::determine_submodule_status(&state)
+    }
+
     #[test]
     fn test_determine_status_uninitialized() {
-        assert_eq!(
-            RepoState::determine_submodule_status(true, false, false, false, false, 0, 0, &dh(), &dh()),
-            SubmoduleStatus::Uninitialized
-        );
+        assert_eq!(ds(SubmoduleState { is_uninitialized: true, ..SubmoduleState::default() }), SubmoduleStatus::Uninitialized);
     }
     #[test]
     fn test_determine_status_dirty() {
-        assert_eq!(
-            RepoState::determine_submodule_status(false, true, false, false, false, 0, 0, &dh(), &dh()),
-            SubmoduleStatus::Dirty
-        );
+        assert_eq!(ds(SubmoduleState { is_dirty: true, ..SubmoduleState::default() }), SubmoduleStatus::Dirty);
     }
     #[test]
     fn test_determine_status_detached() {
-        assert_eq!(
-            RepoState::determine_submodule_status(false, false, true, false, false, 0, 0, &dh(), &dh()),
-            SubmoduleStatus::Detached
-        );
+        assert_eq!(ds(SubmoduleState { is_detached: true, ..SubmoduleState::default() }), SubmoduleStatus::Detached);
     }
     #[test]
     fn test_determine_status_orphaned() {
-        assert_eq!(
-            RepoState::determine_submodule_status(false, false, false, true, false, 0, 0, &dh(), &dh()),
-            SubmoduleStatus::Orphaned
-        );
+        assert_eq!(ds(SubmoduleState { is_orphaned: true, ..SubmoduleState::default() }), SubmoduleStatus::Orphaned);
     }
     #[test]
     fn test_determine_status_ahead_of_parent() {
-        assert_eq!(
-            RepoState::determine_submodule_status(false, false, false, false, true, 0, 0, &h("abc"), &dh()),
-            SubmoduleStatus::AheadOfParent
-        );
-        assert_eq!(
-            RepoState::determine_submodule_status(false, false, false, false, false, 5, 0, &dh(), &dh()),
-            SubmoduleStatus::AheadOfParent
-        );
-        assert_eq!(
-            RepoState::determine_submodule_status(false, false, false, false, false, 5, 3, &dh(), &dh()),
-            SubmoduleStatus::BehindRemote
-        );
+        assert_eq!(ds(SubmoduleState { remote_unreachable: true, local_head: h("abc"), ..SubmoduleState::default() }), SubmoduleStatus::AheadOfParent);
+        assert_eq!(ds(SubmoduleState { ahead_count: 5, ..SubmoduleState::default() }), SubmoduleStatus::AheadOfParent);
+        assert_eq!(ds(SubmoduleState { ahead_count: 5, behind_count: 3, ..SubmoduleState::default() }), SubmoduleStatus::BehindRemote);
     }
     #[test]
     fn test_determine_status_behind_remote() {
-        assert_eq!(
-            RepoState::determine_submodule_status(false, false, false, false, false, 0, 3, &dh(), &dh()),
-            SubmoduleStatus::BehindRemote
-        );
-        assert_eq!(
-            RepoState::determine_submodule_status(false, false, false, false, true, 0, 3, &dh(), &dh()),
-            SubmoduleStatus::Clean
-        );
+        assert_eq!(ds(SubmoduleState { behind_count: 3, ..SubmoduleState::default() }), SubmoduleStatus::BehindRemote);
+        assert_eq!(ds(SubmoduleState { behind_count: 3, remote_unreachable: true, ..SubmoduleState::default() }), SubmoduleStatus::Clean);
     }
     #[test]
     fn test_determine_status_clean() {
-        assert_eq!(
-            RepoState::determine_submodule_status(false, false, false, false, false, 0, 0, &dh(), &dh()),
-            SubmoduleStatus::Clean
-        );
+        assert_eq!(ds(SubmoduleState::default()), SubmoduleStatus::Clean);
     }
 
     // ---- gix_count_between ----

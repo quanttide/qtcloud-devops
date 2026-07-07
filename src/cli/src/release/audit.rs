@@ -52,6 +52,40 @@ fn detect_candidate_version(repo_path: &Path, scope_name: &str) -> String {
     }
 }
 
+/// 审计 GitHub Release 与 CHANGELOG 的一致性。
+fn audit_github_release(items: &mut Vec<AuditItem>, tag_exists: bool, remote_name: Option<&str>, version: &str, changelog_path: &Path) {
+    if !tag_exists {
+        items.push(AuditItem { name: "GitHub Release", passed: true, detail: "标签未发布，无需检查".into() });
+        return;
+    }
+    let repo = match remote_name {
+        Some(r) => r,
+        None => { items.push(AuditItem { name: "GitHub Release", passed: true, detail: "无远程仓库，跳过".into() }); return; }
+    };
+    let gh_ok = std::process::Command::new("gh").args(["--version"]).output().map(|o| o.status.success()).unwrap_or(false);
+    if !gh_ok {
+        items.push(AuditItem { name: "GitHub Release", passed: false, detail: "gh CLI 未安装或不可用".into() });
+        return;
+    }
+    let out = std::process::Command::new("gh")
+        .args(["release", "view", version, "--repo", repo, "--json", "body", "--jq", ".body"])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => {
+            let body = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            let notes = super::extract_notes(version, changelog_path);
+            let synced = body == notes.as_deref().unwrap_or("");
+            items.push(AuditItem {
+                name: "GitHub Release",
+                passed: synced,
+                detail: if synced { "body 与 CHANGELOG 一致".into() } else { "body 与 CHANGELOG 不同步".into() },
+            });
+        }
+        Ok(_) => items.push(AuditItem { name: "GitHub Release", passed: false, detail: "GitHub Release 不存在或访问失败".into() }),
+        Err(e) => items.push(AuditItem { name: "GitHub Release", passed: false, detail: format!("gh CLI 执行失败: {}", e) }),
+    }
+}
+
 /// 发布预检审计：不执行任何实际发布操作，仅检查是否具备发布条件。
 pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, String> {
     let mut items: Vec<AuditItem> = Vec::new();
@@ -107,45 +141,7 @@ pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, 
     let remote_name = super::get_remote_repo(repo_path);
     items.push(AuditItem { name: "远程仓库", passed: remote_name.is_some(), detail: if let Some(ref r) = remote_name { format!("origin ({})", r) } else { "未配置 origin".into() } });
 
-    // ── 7. GitHub Release 同步 ─────────────────────────────────────
-    if tag_exists {
-        if let Some(ref repo) = remote_name {
-            let gh_ok = std::process::Command::new("gh")
-                .args(["--version"])
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
-            if !gh_ok {
-                items.push(AuditItem { name: "GitHub Release", passed: false, detail: "gh CLI 未安装或不可用".into() });
-            } else {
-                let out = std::process::Command::new("gh")
-                    .args(["release", "view", &version, "--repo", repo, "--json", "body", "--jq", ".body"])
-                    .output();
-                match out {
-                    Ok(o) if o.status.success() => {
-                        let body = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                        let notes = super::extract_notes(&version, &changelog_path);
-                        let synced = body == notes.as_deref().unwrap_or("");
-                        items.push(AuditItem {
-                            name: "GitHub Release",
-                            passed: synced,
-                            detail: if synced { "body 与 CHANGELOG 一致".into() } else { "body 与 CHANGELOG 不同步".into() },
-                        });
-                    }
-                    Ok(_) => {
-                        items.push(AuditItem { name: "GitHub Release", passed: false, detail: "GitHub Release 不存在或访问失败".into() });
-                    }
-                    Err(e) => {
-                        items.push(AuditItem { name: "GitHub Release", passed: false, detail: format!("gh CLI 执行失败: {}", e) });
-                    }
-                }
-            }
-        } else {
-            items.push(AuditItem { name: "GitHub Release", passed: true, detail: "无远程仓库，跳过".into() });
-        }
-    } else {
-        items.push(AuditItem { name: "GitHub Release", passed: true, detail: "标签未发布，无需检查".into() });
-    }
+    audit_github_release(&mut items, tag_exists, remote_name.as_deref(), &version, &changelog_path);
 
     Ok(items)
 }
