@@ -10,7 +10,55 @@
 
 ## [0.10.0] - 2026-07-07
 
-阶段晋级至 cli/v0.10.0
+### Added
+
+- `plan audit` 命令：路径存在性检查、粒度达标检查、孤儿 ROADMAP 条目检查
+- `plan doctor` / `plan edit`：ROADMAP + TODO 格式修复（规则修复 + LLM 修复）
+- `plan clean` 同时清理 ROADMAP 和 TODO 已完成条目
+- `code audit`：代码质量静态分析（import 计数、hotspot 检测）
+- `build clean`、`build audit` 命令
+- `release audit`：发布前预检审计（6+1 项检查）
+- `test review` / `test audit`：质量审查命令
+- 顶层 `audit` 命令：聚合 build/test/release 审计
+- `help` 命令：按 stage 分组的快速导览
+- CHANGELOG LLM 自动生成
+- CATEGORIES 新增 `### Refactor` 支持
+- `extract_line_paths` 支持 `:N` 行号后缀剥离
+- 集成测试覆盖：plan audit、plan status、build audit
+
+### Changed
+
+- `code.rs` 合并为单文件
+- `release audit` 拆分为独立模块
+- `detect_all_languages` / `auto_detect_contract` / `infer_build_tool` 手写代码委托给 `quanttide-devops` 库
+- `status_to` 重构：从 `writeln!` 改为 `push_str` + 多行字符串
+- `collect_git_log` / `append_entry` / tag 操作统一为 `Changelog` API
+- 升级 `quanttide-devops` 0.2.2 → 0.3.0
+- `main()` 拆出 `dispatch()`（190 行 → 41 行）
+- `git.rs` 长函数拆分：`scan_single_submodule`（117→54 行）等
+- `plan_audit` 路径/粒度/孤儿检查各抽函数（126→52 行）
+- `determine_submodule_status` 参数结构化（9 参数 → struct 传参）
+- `release/publish.rs` 校验/构建/发布三步拆分（165→52 行）
+- 测试覆盖 `contract.rs`、`release/audit.rs` 缺失测试
+- 所有 🔴 MUST 级别代码质量问题已解决（10→0）
+- 测试覆盖率 ≥ 80%
+
+### Fixed
+
+- `release publish` 从 monorepo root 执行误检测 scope
+- `gh release create` 超时无重试
+- `plan clean/status` scope 路径解析：无 contract 时只搜索 scope 子目录
+- release 后主仓库子模组指针未自动更新
+- CHANGELOG 生成：无新提交时（阶段晋级）自动生成占位条目而非报错
+- LLM 调用前检查 `base_url` 非空
+- `code audit` 移除非 actionable 的 hotspots 指标
+- `code audit` 跳过自动生成的 codegen 文件
+
+### Removed
+
+- `test run` / `test clean`（本地测试清理由 cargo 管理）
+- `code sync` / `git editor` 命令
+- 未用依赖：`regex`、`uuid`
 ## [0.10.0-rc.2] - 2026-07-07
 
 Fixed:
