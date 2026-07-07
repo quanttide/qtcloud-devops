@@ -1,6 +1,6 @@
-# TODO — plan 命令升级
+# TODO — v0.10.0 plan 命令统一
 
-> 由 `ROADMAP.md` 的 [0.11.0] 版本分解而来。
+> 由 `ROADMAP.md` 的 [0.10.0] 分解而来。
 
 ## plan clean 扩展
 
