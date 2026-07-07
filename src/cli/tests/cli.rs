@@ -415,3 +415,80 @@ fn test_cli_release_help() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("publish"));
 }
+
+// ── plan audit ─────────────────────────────────────────────────
+
+#[test]
+fn test_cli_plan_audit_ok() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(
+        d.path().join("ROADMAP.md"),
+        "## [0.1.0]\n### Added\n- [ ] `src/main.rs` 功能\n",
+    )
+    .unwrap();
+    std::fs::write(
+        d.path().join("TODO.md"),
+        "- [ ] `src/main.rs` 实现功能\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(d.path().join("src")).unwrap();
+    std::fs::write(d.path().join("src/main.rs"), "").unwrap();
+    let output = cli()
+        .args(["plan", "audit"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // 路径引用有效 + TODO 条目不含格式问题 → 路径检查通过
+    assert!(stdout.contains("路径引用均有效"), "路径检查应通过: {}", stdout);
+}
+
+#[test]
+fn test_cli_plan_audit_path_missing() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("ROADMAP.md"), "## [0.1.0]\n### Added\n- [ ] 无路径条目\n").unwrap();
+    std::fs::write(d.path().join("TODO.md"), "- [ ] `missing.rs` 路径不存在\n").unwrap();
+    let output = cli()
+        .args(["plan", "audit"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("路径不存在"), "应检测路径缺失: {}", stdout);
+}
+
+// ── build audit ────────────────────────────────────────────────
+
+#[test]
+fn test_cli_build_audit() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("Cargo.toml"), "[package]\nname = \"test\"\nversion = \"0.1.0\"\n").unwrap();
+    let output = cli()
+        .args(["build", "audit"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("编译器"), "应显示编译器检查: {}", stdout);
+}
+
+// ── plan status with data ──────────────────────────────────────
+
+#[test]
+fn test_cli_plan_status_with_roadmap() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(
+        d.path().join("ROADMAP.md"),
+        "## [0.1.0]\n- [x] done\n- [ ] todo\n",
+    )
+    .unwrap();
+    let output = cli()
+        .args(["plan", "status"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("0.1.0"), "应显示版本号");
+    assert!(stdout.contains("1/2"), "应显示进度 1/2");
+}
