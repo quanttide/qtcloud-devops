@@ -4,6 +4,17 @@
 
 
 
+
+## [0.10.0-beta.7] - 2026-07-07
+
+Fixed:
+- 修复计划审计工具中发现的问题。
+- 修正 ROADMAP 中 plan edit 与 plan doctor 的错误命名。
+
+Changed:
+- 根据代码审查与手动审计结果更新 ROADMAP 和 TODO 文档。
+- 优化 v0.10.0 计划项，完善 TODO.md 内容。
+- 将 plan upgrade 内容合并至 v0.10.0 的 ROADMAP 与 TODO 中。
 ## [0.10.0-beta.6] - 2026-07-07
 
 - **Added**: 新增对 GitHub 认证状态的检查，用于聚合状态判断。
