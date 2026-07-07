@@ -353,22 +353,53 @@ const CATEGORIES: &[&str] = &[
     "### Security",
 ];
 
-/// 删除 ROADMAP.md 中所有已完成条目。
-///
-/// 只删 `- [x]` 行，级联清理空分类和空版本标题。
-pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
+/// 删除规划文件中所有已完成条目（`- [x]` / `- [X]`）。
+/// 通用函数，可用于 ROADMAP.md 和 TODO.md。
+pub fn clean_done_items(path: &Path) -> Result<usize, PlanError> {
     let content = std::fs::read_to_string(path)?;
     let original_len = content.len();
 
     let mut lines: Vec<&str> = content.lines().collect();
-
-    // 第一遍：删除 done item 行
     lines.retain(|l| {
         let t = l.trim();
         !t.starts_with("- [x]") && !t.starts_with("- [X]")
     });
 
-    // 第二遍：删除空的分类标题（跳过空行看后面是否真有内容）
+    if lines.is_empty() {
+        std::fs::write(path, "")?;
+        return Ok(original_len);
+    }
+
+    // 清理尾部空行
+    while let Some(last) = lines.last() {
+        if last.trim().is_empty() {
+            lines.pop();
+        } else {
+            break;
+        }
+    }
+
+    let mut output = String::new();
+    for line in &lines {
+        output.push_str(line);
+        output.push('\n');
+    }
+    std::fs::write(path, &output)?;
+    Ok(original_len.saturating_sub(output.len()))
+}
+
+/// 删除 ROADMAP.md 中所有已完成条目，并级联清理空分类和空版本标题。
+pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
+    let removed = clean_done_items(path)?;
+
+    let content = std::fs::read_to_string(path)?;
+    let original_len = content.len();
+    let mut lines: Vec<&str> = content.lines().collect();
+    if lines.is_empty() {
+        return Ok(removed);
+    }
+
+    // 删除空的分类标题（跳过空行看后面是否真有内容）
     let mut i = 0;
     while i < lines.len() {
         if CATEGORIES.iter().any(|c| {
@@ -427,7 +458,7 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
 
     if lines.is_empty() {
         std::fs::write(path, "")?;
-        return Ok(original_len);
+        return Ok(removed + original_len);
     }
 
     let mut output = String::new();
@@ -436,7 +467,7 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
         output.push('\n');
     }
     std::fs::write(path, &output)?;
-    Ok(original_len.saturating_sub(output.len()))
+    Ok(removed + original_len.saturating_sub(output.len()))
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -582,6 +613,7 @@ fn apply_rule_fixes(path: &Path, content: &str, scope: &str) -> Result<Vec<Issue
 }
 
 /// LLM 编辑：处理规则无法覆盖的复杂格式问题。
+/// 支持 ROADMAP.md 和 TODO.md 两种格式，根据文件名切换 prompt。
 fn edit_llm(
     content: &str,
     _scope: &str,
@@ -590,14 +622,32 @@ fn edit_llm(
 ) -> Result<Option<Vec<Issue>>, PlanError> {
     use quanttide_agent::{llm::CompleteOptions, Message, LLM};
 
-    let format_spec = "ROADMAP.md 格式规范：
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("ROADMAP.md");
+
+    let (format_spec, system_role) = if file_name == "TODO.md" {
+        (
+            "TODO.md 格式规范：
+a) 章节标题：## 标题（描述性 prose 标题，不含版本号）
+b) 条目格式：- [ ] `文件路径` 操作描述：说明
+c) 所有 TODO 条目必须引用文件路径（如 `src/main.rs`），缺少路径的条目请根据描述推断并补充路径",
+            "你是 TODO.md 格式修复助手。确保每个条目引用文件路径，缺少路径时推断补充，不增删无关联条目。",
+        )
+    } else {
+        (
+            "ROADMAP.md 格式规范：
 a) 版本标题：## [X.Y.Z]，可选后缀如 — 已发布
 b) 分类标题：### Added / Changed / Fixed / Removed / Deprecated / Security
-c) 条目格式：- [x] 内容 或 - [ ] 内容
-";
+c) 条目格式：- [x] 内容 或 - [ ] 内容",
+            "你是 ROADMAP.md 格式修复助手。只修格式，不增删条目内容。",
+        )
+    };
+
     let prompt = format!(
-        "{}\n\n以下 ROADMAP.md 可能存在格式问题，请按规范修复格式（只修格式，不增删条目）：\n\n{}",
-        format_spec, content
+        "{}\n\n以下 {} 可能存在格式问题，请按规范修复格式（只修格式，不增删条目）：\n\n{}",
+        format_spec, file_name, content
     );
 
     let llm = LLM::new(
@@ -606,10 +656,7 @@ c) 条目格式：- [x] 内容 或 - [ ] 内容
         &settings.llm_api_key,
     );
     let messages = vec![
-        Message::new(
-            "system",
-            "你是 ROADMAP.md 格式修复助手。只修格式，不增删条目内容。",
-        ),
+        Message::new("system", system_role),
         Message::new("user", &prompt),
     ];
     let response = llm
@@ -690,8 +737,23 @@ TODO.md:
     Ok(result)
 }
 
+/// 从 TODO 条目行中提取反引号包裹的文件路径。
+/// 只提取包含 `/` 或以常见扩展名结尾的 token（如 `src/main.rs`、`packages/foo`）。
+fn extract_line_paths(line: &str) -> Vec<&str> {
+    line.split('`')
+        .skip(1)
+        .step_by(2)
+        .filter(|s| {
+            let s = s.trim();
+            (s.contains('/') || s.ends_with(".rs") || s.ends_with(".md") || s.ends_with(".toml"))
+                && !s.starts_with('-')
+                && !s.starts_with('[')
+        })
+        .collect()
+}
+
 /// 审计规划：ROADMAP 是完整规划，TODO 是待办。
-/// 检查格式合规、条目一致性（TODO 不应包含 ROADMAP 未规划的工作）。
+/// 检查格式合规、条目一致性、路径存在性、粒度。
 pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
     let dir = resolve_plan_dir(repo_path, None);
     let roadmap_path = dir.join("ROADMAP.md");
@@ -733,7 +795,58 @@ pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
         }
     }
 
-    // ── 2. LLM 语义审计 ─────────────────────────────────────────
+    // ── 2. 路径与粒度检查（仅 TODO.md）────────────────────────
+    if todo_path.exists() {
+        let content = std::fs::read_to_string(&todo_path)?;
+        let mut path_missing_count = 0u32;
+        let mut no_path_count = 0u32;
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("- [") {
+                continue;
+            }
+            let paths = extract_line_paths(trimmed);
+            if paths.is_empty() {
+                no_path_count += 1;
+                continue;
+            }
+            for p in &paths {
+                let abs = dir.join(p);
+                if !abs.exists() {
+                    path_missing_count += 1;
+                    println!("  ⚠ 路径不存在: {}", p);
+                }
+            }
+        }
+        if path_missing_count > 0 {
+            all_ok = false;
+        }
+        if no_path_count > 0 {
+            println!("  ⚠ {} 条 TODO 条目未引用文件路径", no_path_count);
+            all_ok = false;
+        }
+        if path_missing_count == 0 && no_path_count == 0 {
+            println!("  ✅ TODO.md 路径引用均有效");
+        }
+    }
+
+    // ── 3. 孤儿 ROADMAP 条目检查 ───────────────────────────────
+    if roadmap_path.exists() {
+        let content = std::fs::read_to_string(&roadmap_path)?;
+        let has_orphan = content.lines().any(|l| {
+            let t = l.trim();
+            t.starts_with("- [ ]") && !t.contains('`')
+        });
+        if has_orphan {
+            println!("  ⚠ ROADMAP.md 存在无路径引用的条目");
+            all_ok = false;
+        }
+    } else if todo_path.exists() {
+        println!("  ⚠ TODO.md 存在但无 ROADMAP.md（建议从 ROADMAP 派生）");
+        all_ok = false;
+    }
+
+    // ── 4. LLM 语义审计 ─────────────────────────────────────────
     if roadmap_path.exists() && todo_path.exists() {
         let roadmap_content = std::fs::read_to_string(&roadmap_path)?;
         let todo_content = std::fs::read_to_string(&todo_path)?;
@@ -754,9 +867,6 @@ pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
                 Err(e) => println!("  ⚠ LLM 语义审计失败: {}", e),
             }
         }
-    } else if todo_path.exists() && !roadmap_path.exists() {
-        println!("  ⚠ TODO.md 存在但无 ROADMAP.md（建议从 ROADMAP 派生）");
-        all_ok = false;
     }
 
     println!("\n{}", "-".repeat(50));
@@ -1144,5 +1254,71 @@ mod tests {
         assert!(output.contains("0.1.0"));
         assert!(output.contains("3/4"));
         assert!(output.contains("总计"));
+    }
+
+    // ── extract_line_paths ───────────────────────────────────────
+
+    #[test]
+    fn test_extract_line_paths_simple() {
+        let paths = extract_line_paths("- [ ] `src/main.rs` `run_plan_clean`：重构");
+        assert_eq!(paths, vec!["src/main.rs"]);
+    }
+
+    #[test]
+    fn test_extract_line_paths_multiple() {
+        let paths = extract_line_paths("- [ ] `src/plan.rs` `plan_audit`：新增路径检查");
+        assert_eq!(paths, vec!["src/plan.rs"]);
+    }
+
+    #[test]
+    fn test_extract_line_paths_no_path_returns_empty() {
+        let paths = extract_line_paths("- [ ] 修复登录页面样式");
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_extract_line_paths_skip_non_path_backtick() {
+        let paths = extract_line_paths("- [ ] `clean` 命令支持 `--all` 参数");
+        assert!(paths.is_empty());
+    }
+
+    // ── plan_audit path checks ───────────────────────────────────
+
+    fn write_todo(content: &str) -> tempfile::TempDir {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("TODO.md"), content).unwrap();
+        d
+    }
+
+    #[test]
+    fn test_audit_path_missing() {
+        let d = write_todo("- [ ] `nonexistent/module.rs`：待实现\n");
+        // 创建空 ROADMAP.md 避免提前退出
+        let _ = std::fs::write(d.path().join("ROADMAP.md"), "");
+        let result = plan_audit(d.path());
+        assert!(result.is_err(), "路径不存在应使审计失败");
+    }
+
+    #[test]
+    fn test_audit_granularity_warn() {
+        let d = write_todo("- [ ] 缺少文件路径的条目\n");
+        let _ = std::fs::write(d.path().join("ROADMAP.md"), "");
+        let result = plan_audit(d.path());
+        assert!(result.is_err(), "无路径条目应使审计失败");
+    }
+
+    #[test]
+    fn test_audit_path_exists() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("src")).unwrap();
+        std::fs::write(d.path().join("src/main.rs"), "").unwrap();
+        std::fs::write(
+            d.path().join("TODO.md"),
+            "- [ ] `src/main.rs` 实现功能\n",
+        )
+        .unwrap();
+        let _ = std::fs::write(d.path().join("ROADMAP.md"), "");
+        let result = plan_audit(d.path());
+        assert!(result.is_ok(), "路径存在应通过审计: {:?}", result);
     }
 }

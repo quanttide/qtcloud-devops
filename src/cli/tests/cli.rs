@@ -359,8 +359,37 @@ fn test_cli_plan_clean() {
         .unwrap();
     assert!(output.status.success());
     let content = std::fs::read_to_string(d.path().join("ROADMAP.md")).unwrap_or_default();
-    assert!(!content.contains("done"), "done 条目应被清理");
-    assert!(content.contains("todo"), "todo 条目应保留");
+    assert!(!content.contains("done"), "ROADMAP: done 条目应被清理");
+    assert!(content.contains("todo"), "ROADMAP: todo 条目应保留");
+}
+
+#[test]
+fn test_cli_plan_clean_both_files() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(
+        d.path().join("ROADMAP.md"),
+        "## [0.1.0]\n- [x] done\n- [ ] todo\n",
+    )
+    .unwrap();
+    std::fs::write(
+        d.path().join("TODO.md"),
+        "## plan clean\n- [x] `src/main.rs` 完成\n- [ ] `src/plan.rs` 待办\n",
+    )
+    .unwrap();
+    let output = cli()
+        .args(["plan", "clean"])
+        .current_dir(d.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let roadmap = std::fs::read_to_string(d.path().join("ROADMAP.md")).unwrap_or_default();
+    assert!(!roadmap.contains("done"), "ROADMAP: done 应被清理");
+    assert!(roadmap.contains("todo"), "ROADMAP: todo 应保留");
+
+    let todo = std::fs::read_to_string(d.path().join("TODO.md")).unwrap_or_default();
+    assert!(!todo.contains("src/main.rs"), "TODO: 已完成条目应被清理");
+    assert!(todo.contains("src/plan.rs"), "TODO: 待办应保留");
 }
 
 #[test]

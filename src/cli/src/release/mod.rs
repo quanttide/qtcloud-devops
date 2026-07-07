@@ -162,9 +162,13 @@ pub fn get_remote_repo(repo_path: &Path) -> Option<String> {
 }
 
 pub fn parse_github_repo(url: &str) -> Option<String> {
-    let re = regex::Regex::new(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?$").ok()?;
-    let caps = re.captures(url)?;
-    Some(caps.get(1)?.as_str().to_string())
+    let after = url.split("github.com").nth(1)?;
+    let path = after.strip_prefix('/').or_else(|| after.strip_prefix(':'))?;
+    let repo = path.strip_suffix(".git").unwrap_or(path);
+    if repo.is_empty() || repo.contains('/') && repo.split('/').last()?.is_empty() {
+        return None;
+    }
+    Some(repo.to_string())
 }
 
 pub fn create_release(version: &str, notes: &str, repo: &str) -> bool {

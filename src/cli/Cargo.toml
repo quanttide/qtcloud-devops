@@ -10,7 +10,8 @@ repository = "https://github.com/quanttide/qtcloud-devops"
 [lib]
 name = "qtcloud_devops_cli"
 path = "src/lib.rs"
-crate-type = ["cdylib", "lib"]
+# cdylib 仅在 python feature 下需要，但因为 Cargo 不支持条件 crate-type，保留 lib 即可
+crate-type = ["lib"]
 
 [[bin]]
 name = "qtcloud-devops"
@@ -23,8 +24,6 @@ git2 = "0.19"
 quanttide-devops = "0.3.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-regex = "1"
-uuid = { version = "1", features = ["v4"] }
 jiff = "0.1"
 thiserror = "2"
 semver = "1"

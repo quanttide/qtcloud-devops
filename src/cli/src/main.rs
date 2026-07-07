@@ -421,39 +421,60 @@ fn run_code_status(path: PathBuf, offline: bool) -> Result<(), String> {
 
 fn run_plan_clean(scope: Option<String>) -> Result<(), String> {
     let repo_path = repo_path();
-    let roadmap_path = qtcloud_devops_cli::plan::resolve_roadmap_path(&repo_path, scope.as_deref());
-    if !roadmap_path.exists() {
-        println!("  未找到规划文件: {}", roadmap_path.display());
+    let dir = qtcloud_devops_cli::plan::resolve_roadmap_dir(&repo_path, scope.as_deref());
+    let cleaned_files: Vec<String> = ["ROADMAP.md", "TODO.md"]
+        .iter()
+        .filter_map(|name| {
+            let path = dir.join(name);
+            if !path.exists() {
+                return None;
+            }
+            match qtcloud_devops_cli::plan::clean_done_items(&path) {
+                Ok(removed) if removed > 0 => {
+                    println!("  ✓ 已清理 {} 字节，文件: {}", removed, path.display());
+                    let rel = path
+                        .strip_prefix(&repo_path)
+                        .unwrap_or(&path)
+                        .to_str()
+                        .unwrap_or(name)
+                        .to_string();
+                    Some(rel)
+                }
+                Ok(_) => {
+                    None
+                }
+                Err(e) => {
+                    eprintln!("  ✗ 清理失败 {}: {}", name, e);
+                    None
+                }
+            }
+        })
+        .collect();
+
+    if cleaned_files.is_empty() {
+        println!("  无已完成条目可清理");
         return Ok(());
     }
-    let removed =
-        qtcloud_devops_cli::plan::clean_roadmap(&roadmap_path).map_err(|e| format!("{}", e))?;
-    if removed > 0 {
-        println!(
-            "  ✓ 已清理 {} 字节，文件: {}",
-            removed,
-            roadmap_path.display()
-        );
-        // 自动提交
-        let rel = roadmap_path
-            .strip_prefix(&repo_path)
-            .unwrap_or(&roadmap_path)
-            .to_str()
-            .unwrap_or("ROADMAP.md");
+
+    // 自动提交
+    for rel in &cleaned_files {
         std::process::Command::new("git")
             .args(["add", rel])
             .current_dir(&repo_path)
             .output()
             .map_err(|e| format!("git add 失败: {}", e))?;
-        std::process::Command::new("git")
-            .args(["commit", "-m", "chore: clean completed roadmap items"])
-            .current_dir(&repo_path)
-            .output()
-            .map_err(|e| format!("git commit 失败: {}", e))?;
-        println!("  ✓ 已提交");
-    } else {
-        println!("  无已完成条目可清理");
     }
+    let files_str = cleaned_files.join(", ");
+    std::process::Command::new("git")
+        .args([
+            "commit",
+            "-m",
+            &format!("chore: clean completed items from {}", files_str),
+        ])
+        .current_dir(&repo_path)
+        .output()
+        .map_err(|e| format!("git commit 失败: {}", e))?;
+    println!("  ✓ 已提交 ({})", files_str);
     Ok(())
 }
 
