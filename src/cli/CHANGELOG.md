@@ -6,6 +6,14 @@
 
 
 
+
+## [0.10.0-rc.2] - 2026-07-07
+
+Fixed:
+- 修复 release publish 中 stage promotion 时 CHANGELOG 生成的问题
+
+Added:
+- 在 TODO 中添加关于 release publish CHANGELOG 改进的条目
 ## [0.10.0-rc.1] - 2026-07-07
 
 **Changed**
