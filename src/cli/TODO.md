@@ -72,3 +72,9 @@
 
 - [ ] `ROADMAP.md:8` 条目 `code 命令重新设计：简化 status/sync 接口` 缺少反引号路径引用（孤儿条目）
 - [ ] `ROADMAP.md:22` 条目 `release 后主仓库子模组指针未自动更新` 缺少反引号路径引用（孤儿条目）
+
+## 发布流程改进
+
+> 来自 v0.10.0-beta.8 → rc.1 晋级时的自举绕路记录。
+
+- [ ] `src/release/publish.rs` CHANGELOG 生成逻辑：`collect_git_log` 返回空时，若仅为预发布阶段晋级（base 版本相同、prerelease 不同），则自动生成占位条目并继续，而非报错退出
