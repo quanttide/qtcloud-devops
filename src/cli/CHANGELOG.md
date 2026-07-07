@@ -61,60 +61,70 @@
 - 未用依赖：`regex`、`uuid`
 ## [0.10.0-rc.2] - 2026-07-07
 
-Fixed:
+### Fixed
 - 修复 release publish 中 stage promotion 时 CHANGELOG 生成的问题
 
-Added:
+### Added
 - 在 TODO 中添加关于 release publish CHANGELOG 改进的条目
+
 ## [0.10.0-rc.1] - 2026-07-07
 
-**Changed**
-
+### Changed
 - 阶段晋级：beta → rc，代码质量评审通过（🔴 MUST 清零），覆盖率 ≥ 80%
 
 ## [0.10.0-beta.8] - 2026-07-07
 
-**Added**
-
+### Added
 - 为计划审计、构建审计、计划状态等模块添加 CLI 集成测试和覆盖率测试
 
-**Changed**
-
+### Changed
 - 对计划编辑功能进行批量清理与重构优化
+
 ## [0.10.0-beta.7] - 2026-07-07
 
-Fixed:
-- 修复计划审计工具中发现的问题。
-- 修正 ROADMAP 中 plan edit 与 plan doctor 的错误命名。
+### Fixed
+- 修复计划审计工具中发现的问题
+- 修正 ROADMAP 中 plan edit 与 plan doctor 的错误命名
 
-Changed:
-- 根据代码审查与手动审计结果更新 ROADMAP 和 TODO 文档。
-- 优化 v0.10.0 计划项，完善 TODO.md 内容。
-- 将 plan upgrade 内容合并至 v0.10.0 的 ROADMAP 与 TODO 中。
+### Changed
+- 根据代码审查与手动审计结果更新 ROADMAP 和 TODO 文档
+- 优化 v0.10.0 计划项，完善 TODO.md 内容
+- 将 plan upgrade 内容合并至 v0.10.0 的 ROADMAP 与 TODO 中
+
 ## [0.10.0-beta.6] - 2026-07-07
 
-- **Added**: 新增对 GitHub 认证状态的检查，用于聚合状态判断。
-- **Changed**: 将 `plan edit` 命令重命名为 `plan doctor`，并扩展其处理范围至 ROADMAP 和 TODO 文件；移除了代码中不必要的 `unwrap`/`expect` 密度检查。
-- **Fixed**: 使用离线模式处理聚合状态，修复相关逻辑问题。
+### Added
+- 新增对 GitHub 认证状态的检查，用于聚合状态判断
+
+### Changed
+- 将 `plan edit` 命令重命名为 `plan doctor`，并扩展其处理范围至 ROADMAP 和 TODO 文件
+- 移除了代码中不必要的 `unwrap`/`expect` 密度检查
+
+### Fixed
+- 使用离线模式处理聚合状态，修复相关逻辑问题
+
 ## [0.10.0-beta.5] - 2026-07-06
 
-Fixed: 使用 Git CLI 进行网络操作，修复发布流程中的相关问题。
+### Fixed
+- 使用 Git CLI 进行网络操作，修复发布流程中的相关问题
+
 ## [0.10.0-beta.4] - 2026-07-06
 
-Added
+### Added
 - 审计功能新增导入计数和热点检查
 
-Changed
+### Changed
 - 在 AGENTS.md 和 audit.md 中记录 DevOps 与代码的边界
 
-Fixed
+### Fixed
 - 跳过生成的代码生成文件，避免审计误报
 - 移除不可操作的代码热点指标
+
 ## [0.10.0-beta.3] - 2026-07-06
 
 ### Changed
+- 整合 Git 模块与 release/util 相关工具，并扩展代码审计功能
 
-- 整合 Git 模块与 release/util 相关工具，并扩展代码审计功能。
 ## [0.10.0-beta.2] - 2026-07-06
 
 ### Fixed
