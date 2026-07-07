@@ -77,4 +77,4 @@
 
 > 来自 v0.10.0-beta.8 → rc.1 晋级时的自举绕路记录。
 
-- [ ] `src/release/publish.rs` CHANGELOG 生成逻辑：`collect_git_log` 返回空时，若仅为预发布阶段晋级（base 版本相同、prerelease 不同），则自动生成占位条目并继续，而非报错退出
+- [x] `src/release/changelog.rs` CHANGELOG 生成逻辑：`collect_git_log` 返回空时，若仅为预发布阶段晋级（base 版本相同、prerelease 不同），则自动生成占位条目并继续，而非报错退出
