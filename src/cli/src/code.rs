@@ -468,4 +468,74 @@ mod tests {
         git_commit(d.path(), "init");
         assert!(status(d.path().to_path_buf(), true).is_ok());
     }
+
+    // ── lint_command ─────────────────────────────────────────────
+
+    #[test]
+    fn test_lint_command_rust() {
+        let result = lint_command(&contract::Language::Rust);
+        assert_eq!(result, Some(("cargo", vec!["check", "--quiet"], "cargo check")));
+    }
+
+    #[test]
+    fn test_lint_command_python() {
+        let result = lint_command(&contract::Language::Python);
+        assert_eq!(result, Some(("uv", vec!["check"], "uv check")));
+    }
+
+    #[test]
+    fn test_lint_command_unknown() {
+        let result = lint_command(&contract::Language::Unknown("x".into()));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_lint_command_typescript() {
+        let result = lint_command(&contract::Language::TypeScript);
+        assert_eq!(result, Some(("npx", vec!["tsc", "--noEmit"], "tsc --noEmit")));
+    }
+
+    // ── audit helper functions ──────────────────────────────────
+
+    #[test]
+    fn test_audit_marker_density_below_threshold() {
+        let counts = MarkerCounts { markers: 2, lines: 1000, ..Default::default() };
+        assert!(audit_marker_density(&counts));
+    }
+
+    #[test]
+    fn test_audit_marker_density_above_threshold() {
+        let counts = MarkerCounts { markers: 10, lines: 1000, ..Default::default() };
+        assert!(!audit_marker_density(&counts));
+    }
+
+    #[test]
+    fn test_audit_marker_density_zero_lines() {
+        let counts = MarkerCounts::default();
+        assert!(audit_marker_density(&counts));
+    }
+
+    #[test]
+    fn test_audit_imports_all_ok() {
+        let counts = MarkerCounts::default();
+        assert!(audit_imports(&counts));
+    }
+
+    #[test]
+    fn test_audit_imports_high() {
+        let counts = MarkerCounts { high_import_files: vec![("x.rs".into(), 35)], ..Default::default() };
+        assert!(!audit_imports(&counts));
+    }
+
+    #[test]
+    fn test_audit_file_lengths_all_ok() {
+        let counts = MarkerCounts::default();
+        assert!(audit_file_lengths(&counts));
+    }
+
+    #[test]
+    fn test_audit_file_lengths_long() {
+        let counts = MarkerCounts { long_files: vec![("x.rs".into(), 600)], ..Default::default() };
+        assert!(!audit_file_lengths(&counts));
+    }
 }

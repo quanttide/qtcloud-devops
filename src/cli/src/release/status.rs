@@ -279,4 +279,52 @@ mod tests {
         assert!(out.contains("发布状态"), "应包含标题");
         assert!(out.contains("v1.0.0"), "应包含 tag 信息");
     }
+
+    // ── status_to edge cases ─────────────────────────────────────
+
+    #[test]
+    fn test_status_to_no_tags() {
+        let d = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "t@t"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "t"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::fs::write(d.path().join("f"), "").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        let mut buf = Vec::new();
+        let result = status_to(&mut buf, d.path());
+        assert!(result.is_ok());
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("(无)"), "无 tag 应显示 (无)");
+    }
+
+    #[test]
+    fn test_status_to_non_git_dir() {
+        let d = tempfile::tempdir().unwrap();
+        let mut buf = Vec::new();
+        let result = status_to(&mut buf, d.path());
+        assert!(result.is_ok());
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("(无)"), "非 git 目录应显示 (无)");
+    }
 }

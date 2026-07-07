@@ -229,4 +229,58 @@ mod tests {
         assert!(remote.is_some());
         assert!(!remote.unwrap().passed, "无远程应标记为失败");
     }
+
+    #[test]
+    fn test_audit_all_no_scopes() {
+        let d = tmpdir();
+        let result = audit_all(d.path(), None);
+        assert!(result.is_err(), "无 scope 应失败");
+    }
+
+    #[test]
+    fn test_audit_all_with_scope_filter_empty() {
+        let d = tmpdir();
+        let contract_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&contract_dir).unwrap();
+        std::fs::write(
+            contract_dir.join("contract.yaml"),
+            "stages:\n  test:\n    threshold: 80\nscopes:\n  cli:\n    dir: .\n",
+        )
+        .unwrap();
+        let result = audit_all(d.path(), Some("nonexistent"));
+        assert!(result.is_err(), "不存在的 scope 应失败");
+    }
+
+    #[test]
+    fn test_audit_all_found_scope() {
+        let d = tmpdir();
+        let contract_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&contract_dir).unwrap();
+        std::fs::write(
+            contract_dir.join("contract.yaml"),
+            "stages:\n  test:\n    threshold: 80\nscopes:\n  cli:\n    dir: .\n",
+        )
+        .unwrap();
+        let result = audit_all(d.path(), Some("cli"));
+        assert!(result.is_ok(), "存在的 scope 应通过: {:?}", result.err());
+        let items = result.unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].0, "cli");
+    }
+
+    // ── audit_github_release ─────────────────────────────────────
+
+    #[test]
+    fn test_audit_github_release_no_tag() {
+        let mut items = Vec::new();
+        audit_github_release(&mut items, false, Some("owner/repo"), "v1.0.0", Path::new("CHANGELOG.md"));
+        assert!(items.iter().any(|i| i.passed && i.name == "GitHub Release"));
+    }
+
+    #[test]
+    fn test_audit_github_release_no_remote() {
+        let mut items = Vec::new();
+        audit_github_release(&mut items, true, None, "v1.0.0", Path::new("CHANGELOG.md"));
+        assert!(items.iter().any(|i| i.passed && i.name == "GitHub Release"));
+    }
 }

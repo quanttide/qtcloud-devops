@@ -1,6 +1,4 @@
 /// 版本号自动检测 — 为 release publish 提供自动版本推断。
-use quanttide_agent::llm::{CompleteOptions, LLM};
-use quanttide_agent::message::Message;
 use quanttide_agent::Settings;
 use std::collections::HashMap;
 use std::path::Path;
