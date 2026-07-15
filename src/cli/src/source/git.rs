@@ -30,10 +30,9 @@ pub fn git_check(args: &[&str], cwd: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// 检查路径是否为 git 仓库（存在 `.git` 目录或文件）。
+/// 检查路径是否为 git 仓库。
 pub fn is_git_repo(path: &Path) -> bool {
-    let git_dir = path.join(".git");
-    git_dir.is_dir() || git_dir.is_file()
+    quanttide_devops::source::git_repo::is_git_repo(path)
 }
 
 /// 统计 `tag..HEAD` 之间的提交数。

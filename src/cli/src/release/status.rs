@@ -50,15 +50,14 @@ pub fn collect_all(repo_path: &Path) -> Vec<ReleaseState> {
             Some(n) => (ReleaseStatus::Latest, n),
         };
 
-        states.push(ReleaseState {
+        states.push(ReleaseState::new(
             status,
-            scope: scope.clone(),
+            scope.clone(),
             scope_path,
-            current_version: Some(tag.clone()),
+            Some(tag.clone()),
             pending_commits,
-            changelog: "CHANGELOG.md".into(),
             version_consistent,
-        });
+        ));
     }
 
     // 2) 配置中定义但无 tag 的 scope → Unreleased
@@ -69,15 +68,14 @@ pub fn collect_all(repo_path: &Path) -> Vec<ReleaseState> {
             } else {
                 dir.clone()
             };
-            states.push(ReleaseState {
-                status: ReleaseStatus::Unreleased,
-                scope: scope.clone(),
+            states.push(ReleaseState::new(
+                ReleaseStatus::Unreleased,
+                scope.clone(),
                 scope_path,
-                current_version: None,
-                pending_commits: 0,
-                changelog: "CHANGELOG.md".into(),
-                version_consistent: None,
-            });
+                None,
+                0,
+                None,
+            ));
         }
     }
 
@@ -124,21 +122,7 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
     writeln!(writer, "{}", "─".repeat(40))?;
 
     for s in &states {
-        writeln!(writer, "  [{}]", s.scope)?;
-        writeln!(writer, "    状态:         {}", s.status)?;
-        writeln!(writer, "    路径:         {}", s.scope_path)?;
-        match &s.current_version {
-            Some(v) => writeln!(writer, "    最新标签:     {}", v)?,
-            None => writeln!(writer, "    最新标签:     (无)")?,
-        }
-        writeln!(writer, "    未发布提交:   {}", s.pending_commits)?;
-        writeln!(writer, "    变更日志:     {}", s.changelog)?;
-        match s.version_consistent {
-            Some(true) => writeln!(writer, "    版本一致:     是")?,
-            Some(false) => writeln!(writer, "    版本一致:     否")?,
-            None => {}
-        }
-        writeln!(writer)?;
+        write!(writer, "{}", s)?;
     }
 
     Ok(())

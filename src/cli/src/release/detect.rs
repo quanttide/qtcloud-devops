@@ -586,22 +586,6 @@ mod tests {
     #[test]
     fn test_detect_project_type_code_with_src() {
         let d = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
-            .args(["init", "-b", "main"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::fs::write(d.path().join(".gitkeep"), "").unwrap();
-        std::process::Command::new("git")
-            .args(["add", "."])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
         std::fs::create_dir(d.path().join("src")).unwrap();
         assert_eq!(detect_project_type(d.path()), "code");
     }
