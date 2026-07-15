@@ -479,7 +479,7 @@ fn test_cli_plan_status_with_roadmap() {
     let d = tempfile::tempdir().unwrap();
     std::fs::write(
         d.path().join("ROADMAP.md"),
-        "## [0.1.0]\n- [x] done\n- [ ] todo\n",
+        "## [0.1.0]\n### Added\n- [x] done\n- [ ] todo\n",
     )
     .unwrap();
     let output = cli()
