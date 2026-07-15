@@ -20,6 +20,7 @@ pub use crate::source::tag::{create_tag, delete_local_tag, delete_remote_tag, pu
 // 业务逻辑（保留在 mod.rs）
 // ═══════════════════════════════════════════════════════════════════════
 
+use quanttide_devops::source::git_tag::{filter_latest_tag, filter_tags_by_scope, GixTagSource, TagSource};
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -94,13 +95,12 @@ pub fn load_scopes_map(repo_path: &Path) -> std::collections::HashMap<String, St
 /// 遍历仓库所有标签，按 `scope/version` 格式（或根 scope 的纯版本号）分组，
 /// 每组取语义版本最大的标签。返回 `(scope, 最新标签)` 列表。
 pub fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
-    use quanttide_devops::source::git_tag::{parse_semver_tag, GixTagSource, TagSource};
     let source = GixTagSource::new(repo_path);
     let all = match source.all_tags() {
         Ok(t) => t,
         Err(_) => return vec![],
     };
-    let mut result: Vec<(String, String)> = Vec::new();
+    let mut result = Vec::new();
     let mut seen: Vec<String> = Vec::new();
     for tag in &all {
         let scope = if let Some(slash) = tag.find('/') {
@@ -112,18 +112,14 @@ pub fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
             continue;
         }
         seen.push(scope.clone());
-        let latest = all
-            .iter()
-            .filter(|t| {
-                if scope == "(root)" {
-                    !t.contains('/')
-                } else {
-                    t.starts_with(&format!("{}/", scope))
-                }
-            })
-            .max_by(|a, b| parse_semver_tag(a).cmp(&parse_semver_tag(b)));
+        let latest = if scope == "(root)" {
+            filter_latest_tag(&all, "")
+        } else {
+            let scoped = filter_tags_by_scope(&all, &scope);
+            filter_latest_tag(&scoped, &scope)
+        };
         if let Some(t) = latest {
-            result.push((scope, t.clone()));
+            result.push((scope, t));
         }
     }
     result

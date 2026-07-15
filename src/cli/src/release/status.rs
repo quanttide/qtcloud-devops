@@ -179,42 +179,9 @@ mod tests {
     #[test]
     fn test_get_latest_tags_semver_v10_greater_than_v9() {
         let d = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
-            .args(["init", "-b", "main"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.email", "t@t"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.name", "t"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::fs::write(d.path().join("f"), "").unwrap();
-        std::process::Command::new("git")
-            .args(["add", "."])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["commit", "-m", "init"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["tag", "v9.0.0"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["tag", "v10.0.0"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
+        git_init_test(d.path());
+        git_tag_test(d.path(), "v9.0.0");
+        git_tag_test(d.path(), "v10.0.0");
         let tags = super::super::get_latest_tags_by_scope(d.path());
         assert_eq!(tags.len(), 1);
         assert_eq!(tags[0].1, "v10.0.0", "v10.0.0 应在 v9.0.0 之前");
@@ -265,37 +232,8 @@ mod tests {
     #[test]
     fn test_status_to_output() {
         let d = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
-            .args(["init", "-b", "main"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.email", "t@t"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.name", "t"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::fs::write(d.path().join("f"), "").unwrap();
-        std::process::Command::new("git")
-            .args(["add", "."])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["commit", "-m", "init"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["tag", "v1.0.0"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
+        git_init_test(d.path());
+        git_tag_test(d.path(), "v1.0.0");
         std::fs::write(
             d.path().join("CHANGELOG.md"),
             "# Changelog\n\n## [1.0.0]\n\ncontent\n",
@@ -317,38 +255,8 @@ mod tests {
     #[test]
     fn test_collect_all_inconsistent_when_changelog_mismatch() {
         let d = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
-            .args(["init", "-b", "main"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.email", "t@t"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.name", "t"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::fs::write(d.path().join("f"), "").unwrap();
-        std::process::Command::new("git")
-            .args(["add", "."])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["commit", "-m", "init"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["tag", "v1.0.0"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        // CHANGELOG 写入错误的版本号 → Inconsistent
+        git_init_test(d.path());
+        git_tag_test(d.path(), "v1.0.0");
         std::fs::write(d.path().join("CHANGELOG.md"), "# Changelog\n\n## [0.9.0]\n").unwrap();
 
         let states = collect_all(d.path());
@@ -363,32 +271,7 @@ mod tests {
     #[test]
     fn test_status_to_no_tags() {
         let d = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
-            .args(["init", "-b", "main"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.email", "t@t"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["config", "user.name", "t"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::fs::write(d.path().join("f"), "").unwrap();
-        std::process::Command::new("git")
-            .args(["add", "."])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["commit", "-m", "init"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
+        git_init_test(d.path());
         let mut buf = Vec::new();
         let result = status_to(&mut buf, d.path());
         assert!(result.is_ok());
