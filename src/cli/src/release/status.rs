@@ -13,6 +13,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use super::util;
 pub use quanttide_devops::stage::release::{ReleaseState, ReleaseStatus};
 
 /// 收集仓库中所有 scope 的发布状态。
@@ -151,38 +152,17 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
 /// [`count_unreleased_in_submodule`]；否则在 `repo_path` 主仓库中，
 /// 用 `git rev-list --count tag..HEAD -- scope_dir` 统计。
 fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> Option<usize> {
-    if is_git_repo(scope_dir) {
+    if util::git::is_git_repo(scope_dir) {
         return count_unreleased_in_submodule(scope_dir, tag);
     }
     let rel = scope_dir.strip_prefix(repo_path).unwrap_or(scope_dir);
     let rel_str = rel.to_string_lossy().trim_start_matches('/').to_string();
-    let range = format!("{}..HEAD", tag);
-    let mut args = vec!["rev-list", "--count", &range];
-    if !rel_str.is_empty() && rel_str != "." {
-        args.push("--");
-        args.push(rel_str.as_str());
-    }
-    std::process::Command::new("git")
-        .args(&args)
-        .current_dir(repo_path)
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                s.parse::<usize>().ok()
-            } else {
-                None
-            }
-        })
-}
-
-/// 判断路径是否为 git 仓库（存在 `.git` 目录或文件）。
-///
-/// `.git` 文件表示该目录是一个 git 子模块的工作树。
-fn is_git_repo(path: &Path) -> bool {
-    let git_dir = path.join(".git");
-    git_dir.is_dir() || git_dir.is_file()
+    let path_filter = if rel_str.is_empty() || rel_str == "." {
+        None
+    } else {
+        Some(rel_str.as_str())
+    };
+    util::git::rev_list_count(repo_path, tag, path_filter)
 }
 
 /// 统计子模块中自指定标签以来的未发布提交数。
@@ -190,19 +170,7 @@ fn is_git_repo(path: &Path) -> bool {
 /// 返回 `Some(n)` 表示成功，`None` 表示 git 命令失败。
 /// 直接在子模块目录中执行 `git rev-list --count tag..HEAD`。
 fn count_unreleased_in_submodule(submodule_path: &Path, tag: &str) -> Option<usize> {
-    std::process::Command::new("git")
-        .args(["rev-list", "--count", &format!("{}..HEAD", tag)])
-        .current_dir(submodule_path)
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                s.parse::<usize>().ok()
-            } else {
-                None
-            }
-        })
+    util::git::rev_list_count(submodule_path, tag, None)
 }
 
 #[cfg(test)]

@@ -2,32 +2,16 @@
 
 > 源自 `docs/release/refactoring-plan.md`，按阶段渐进推进。
 
-## 阶段一：提取 `util.rs`（低风险，纯搬移）
+## ~~阶段一：提取 `util.rs`（低风险，纯搬移）~~ ✅
 
-### 创建 `release/util/` 子模块
-
-- [ ] 创建 `release/util/mod.rs` — re-export 全部子模块
-- [ ] 创建 `release/util/tag.rs`，从 `mod.rs` 搬入：
-  - `create_tag`
-  - `delete_local_tag`
-  - `delete_remote_tag`
-  - `rollback_tag`
-  - `tag_push_refspec`
-  - `push_tag`
-- [ ] 创建 `release/util/gh.rs`，从各处搬入/提取：
-  - `create_release`（来自 `mod.rs`）
-  - `delete_release`（来自 `mod.rs`）
-  - `view_release_body`（从 `audit/audit_github_release` 提取 `gh release view`）
-  - `check_gh_installed`
-- [ ] 创建 `release/util/git.rs`，收敛分散的 git 命令调用：
-  - 统一入口 `git(args, cwd) → Result<String, String>`
-  - 替换 `mod.rs` 中的 `git rev-parse --git-dir`、`git remote get-url origin`、`git push`
-  - 替换 `audit.rs` 中的 `git status --porcelain`、`git rev-parse refs/tags/...`
-  - 替换 `status.rs` 中的 `git rev-list --count tag..HEAD`
-  - 替换 `detect.rs` 中的 `git tag --list`、`git rev-parse`、`git log --oneline`、`git diff --name-only`、`git rev-parse --show-toplevel`
-- [ ] 更新 `release/mod.rs`：仅保留 re-export + `resolve_scope_dir`、`load_scopes_map`、`get_latest_tags_by_scope`
-- [ ] 更新 `publish.md` 模块架构图（util.rs 落地后文案已准确）
-- [ ] 跑测试验证搬移不改变语义
+- [x] 创建 `release/util/mod.rs` — re-export 全部子模块
+- [x] 创建 `release/util/tag.rs`，从 `mod.rs` 搬入：`create_tag`、`delete_local_tag`、`delete_remote_tag`、`rollback_tag`、`tag_push_refspec`、`push_tag`
+- [x] 创建 `release/util/gh.rs`，从各处搬入/提取：`create_release`、`delete_release`、`view_release_body`、`check_gh_installed`
+- [x] 创建 `release/util/git.rs`，收敛分散的 git 命令调用：统一 `git()` + `git_check()` + `rev_list_count()` + `is_working_tree_dirty()` + `ref_exists()` + `is_git_repo()`
+- [x] 更新 `release/mod.rs`：保留业务函数 + re-export util
+- [x] 更新 `release/audit.rs`：改用 `util::gh::check_gh_installed` + `util::gh::view_release_body` + `util::git::is_working_tree_dirty` + `util::git::ref_exists`
+- [x] 更新 `release/status.rs`：改用 `util::git::is_git_repo` + `util::git::rev_list_count`，移除私有 `is_git_repo` 副本
+- [x] 更新 `release/detect.rs`：`git_output` 委托给 `util::git::git`
 
 ## 阶段二：消除审计与发布的预检重复
 

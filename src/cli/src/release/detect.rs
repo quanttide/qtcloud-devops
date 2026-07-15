@@ -2,7 +2,8 @@
 use quanttide_agent::Settings;
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
+
+use super::util;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DetectError {
@@ -24,20 +25,7 @@ impl From<String> for DetectError {
 
 /// 在 repo_path 下执行 git 命令，输出到 stdout（去尾空白）。
 fn git_output(args: &[&str], repo_path: &Path) -> Result<String, DetectError> {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| DetectError::Git(format!("git 无法执行: {}", e)))?;
-    if !out.status.success() {
-        let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(DetectError::Git(if msg.is_empty() {
-            "git 命令失败".into()
-        } else {
-            msg
-        }));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    util::git::git(args, repo_path).map_err(DetectError::Git)
 }
 
 /// 检测结果。
@@ -83,7 +71,8 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, DetectError> {
         // 检查 tag 是否就是 HEAD
         let tag_rev = git_output(&["rev-parse", &format!("refs/tags/{}", tag)], root)
             .map_err(|_| DetectError::Other("找不到标签引用".into()))?;
-        let head_rev = git_output(&["rev-parse", "HEAD"], root).map_err(|_| DetectError::Other("找不到 HEAD".into()))?;
+        let head_rev = git_output(&["rev-parse", "HEAD"], root)
+            .map_err(|_| DetectError::Other("找不到 HEAD".into()))?;
         if tag_rev == head_rev {
             return Err(DetectError::Other("上次标签后没有新提交".into()));
         }
@@ -117,7 +106,13 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, DetectError> {
 
     let new_version = build_version_from_decision(
         has_tag,
-        &VersionParts { major, minor, patch, pre_stage: pre_stage.clone(), pre_num },
+        &VersionParts {
+            major,
+            minor,
+            patch,
+            pre_stage: pre_stage.clone(),
+            pre_num,
+        },
         &decision,
     )?;
 
@@ -167,10 +162,17 @@ fn build_version_from_decision(
         return Err(DetectError::Other("无需发版".into()));
     }
     if decision.action == "human" {
-        return Err(DetectError::Other(format!("需要人类判断: {}", decision.reason)));
+        return Err(DetectError::Other(format!(
+            "需要人类判断: {}",
+            decision.reason
+        )));
     }
     let increment = decision.increment.as_deref().unwrap_or("patch");
-    Ok(build_version(parts, increment, decision.prerelease.as_deref()))
+    Ok(build_version(
+        parts,
+        increment,
+        decision.prerelease.as_deref(),
+    ))
 }
 
 /// 给版本号添加 scope 前缀。
@@ -206,10 +208,18 @@ fn llm_decide(
     call_llm_decision(&prompt, &settings)
 }
 
-fn build_version_prompt(commits: &[String], latest_tag: &str, project_type: &str, scope: &str) -> String {
-    let commits_text = commits.iter().enumerate()
+fn build_version_prompt(
+    commits: &[String],
+    latest_tag: &str,
+    project_type: &str,
+    scope: &str,
+) -> String {
+    let commits_text = commits
+        .iter()
+        .enumerate()
         .map(|(i, c)| format!("{}. {}", i + 1, c))
-        .collect::<Vec<_>>().join("\n");
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
         r#"你是一个版本号推断专家。根据以下信息，决定下一个版本号策略。
 
@@ -246,25 +256,40 @@ scope: {scope}
 ## 输出格式（仅 JSON）
 {{"action": "release"|"skip"|"human", "increment": "minor"|"patch"|null, "prerelease": "alpha"|"beta"|"rc"|null, "reason": "判断理由"}}
 "#,
-        tag = latest_tag, scope = scope, project_type = project_type, commits = commits_text,
+        tag = latest_tag,
+        scope = scope,
+        project_type = project_type,
+        commits = commits_text,
     )
 }
 
 fn call_llm_decision(prompt: &str, settings: &Settings) -> Result<LlmDecision, DetectError> {
     use quanttide_agent::{llm::CompleteOptions, Message, LLM};
-    let llm = LLM::new(&settings.llm_model, &settings.llm_base_url, &settings.llm_api_key);
+    let llm = LLM::new(
+        &settings.llm_model,
+        &settings.llm_base_url,
+        &settings.llm_api_key,
+    );
     let messages = vec![
-        Message::new("system", "你是一个严格的版本号推断工具。只输出 JSON，不要额外内容。"),
+        Message::new(
+            "system",
+            "你是一个严格的版本号推断工具。只输出 JSON，不要额外内容。",
+        ),
         Message::new("user", prompt),
     ];
     let options = CompleteOptions {
         response_format: Some(serde_json::json!({"type": "json_object"})),
         ..Default::default()
     };
-    let resp = llm.complete(&messages, options)
+    let resp = llm
+        .complete(&messages, options)
         .map_err(|e| DetectError::Llm(format!("LLM 调用失败: {}", e.0)))?;
-    serde_json::from_str(&resp.content)
-        .map_err(|e| DetectError::Llm(format!("LLM 输出解析失败: {} — 原始输出: {}", e, resp.content)))
+    serde_json::from_str(&resp.content).map_err(|e| {
+        DetectError::Llm(format!(
+            "LLM 输出解析失败: {} — 原始输出: {}",
+            e, resp.content
+        ))
+    })
 }
 
 /// 启发式回退规则。
@@ -296,7 +321,11 @@ fn fallback_heuristic(commits: &[String]) -> LlmDecision {
 }
 
 /// 根据启发式标记构建决策。
-fn build_decision_from_flags(has_feat: bool, has_breaking: bool, has_logic_change: bool) -> LlmDecision {
+fn build_decision_from_flags(
+    has_feat: bool,
+    has_breaking: bool,
+    has_logic_change: bool,
+) -> LlmDecision {
     if !has_logic_change {
         return LlmDecision {
             action: "skip".into(),
@@ -330,14 +359,13 @@ fn build_decision_from_flags(has_feat: bool, has_breaking: bool, has_logic_chang
 }
 
 /// 根据决策构建版本字符串（不含 scope 前缀）。
-fn build_version(
-    parts: &VersionParts,
-    increment: &str,
-    prerelease: Option<&str>,
-) -> String {
+fn build_version(parts: &VersionParts, increment: &str, prerelease: Option<&str>) -> String {
     if let Some(stage) = &parts.pre_stage {
         let next = parts.pre_num.unwrap_or(0) + 1;
-        return format!("v{}.{}.{}-{}.{}", parts.major, parts.minor, parts.patch, stage, next);
+        return format!(
+            "v{}.{}.{}-{}.{}",
+            parts.major, parts.minor, parts.patch, stage, next
+        );
     }
 
     match (increment, prerelease) {
@@ -401,7 +429,10 @@ fn detect_single_scope(root: &Path) -> Result<Option<String>, DetectError> {
     }
     if scoped.len() > 1 {
         let names: Vec<&str> = scoped.iter().map(|s| s.as_str()).collect();
-        return Err(DetectError::Other(format!("多个 scope 有变更: {:?}，请用 -v 指定", names)));
+        return Err(DetectError::Other(format!(
+            "多个 scope 有变更: {:?}，请用 -v 指定",
+            names
+        )));
     }
 
     Ok(None) // (root)
@@ -431,18 +462,30 @@ fn get_changed_paths_since_last_tag(root: &Path) -> Result<Vec<String>, DetectEr
 
 pub(crate) fn get_latest_tag_for_scope(root: &Path, scope: Option<&str>) -> Option<String> {
     let scope_name = scope.unwrap_or("");
-    quanttide_devops::source::git_tag::latest_tag(root, scope_name).ok().flatten()
+    quanttide_devops::source::git_tag::latest_tag(root, scope_name)
+        .ok()
+        .flatten()
 }
 
 fn collect_tags_with_scope(root: &Path) -> HashMap<String, Vec<String>> {
-    use quanttide_devops::source::git_tag::{GixTagSource, TagSource, parse_semver_tag};
+    use quanttide_devops::source::git_tag::{parse_semver_tag, GixTagSource, TagSource};
     let source = GixTagSource::new(root);
-    let all = match source.all_tags() { Ok(t) => t, Err(_) => return HashMap::new() };
+    let all = match source.all_tags() {
+        Ok(t) => t,
+        Err(_) => return HashMap::new(),
+    };
     let mut groups: HashMap<String, Vec<(Option<semver::Version>, String)>> = HashMap::new();
     for tag in &all {
         let (scope, _) = tag.split_once('/').unwrap_or(("", tag));
-        let scope_name = if scope.is_empty() { "(root)".to_string() } else { scope.to_string() };
-        groups.entry(scope_name).or_default().push((parse_semver_tag(tag), tag.clone()));
+        let scope_name = if scope.is_empty() {
+            "(root)".to_string()
+        } else {
+            scope.to_string()
+        };
+        groups
+            .entry(scope_name)
+            .or_default()
+            .push((parse_semver_tag(tag), tag.clone()));
     }
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
     for (scope, mut entries) in groups {
@@ -465,11 +508,20 @@ fn parse_version(s: &str) -> Result<(u32, u32, u32, Option<String>, Option<u32>)
     let (ver_part, pre_part) = s.split_once('-').unwrap_or((s, ""));
     let parts: Vec<&str> = ver_part.split('.').collect();
     if parts.len() != 3 {
-        return Err(DetectError::Version(format!("版本号格式错误: {}，需要 X.Y.Z", s)));
+        return Err(DetectError::Version(format!(
+            "版本号格式错误: {}，需要 X.Y.Z",
+            s
+        )));
     }
-    let major = parts[0].parse().map_err(|_| DetectError::Version("major 不是数字".into()))?;
-    let minor = parts[1].parse().map_err(|_| DetectError::Version("minor 不是数字".into()))?;
-    let patch: u32 = parts[2].parse().map_err(|_| DetectError::Version("patch 不是数字".into()))?;
+    let major = parts[0]
+        .parse()
+        .map_err(|_| DetectError::Version("major 不是数字".into()))?;
+    let minor = parts[1]
+        .parse()
+        .map_err(|_| DetectError::Version("minor 不是数字".into()))?;
+    let patch: u32 = parts[2]
+        .parse()
+        .map_err(|_| DetectError::Version("patch 不是数字".into()))?;
     let (pre_stage, pre_num) = if pre_part.is_empty() {
         (None, None)
     } else {
@@ -525,13 +577,36 @@ mod tests {
 
     #[test]
     fn test_build_version_patch() {
-        assert_eq!(build_version(&VersionParts { major: 0, minor: 8, patch: 4, pre_stage: None, pre_num: None }, "patch", None), "v0.8.5");
+        assert_eq!(
+            build_version(
+                &VersionParts {
+                    major: 0,
+                    minor: 8,
+                    patch: 4,
+                    pre_stage: None,
+                    pre_num: None
+                },
+                "patch",
+                None
+            ),
+            "v0.8.5"
+        );
     }
 
     #[test]
     fn test_build_version_minor_rc() {
         assert_eq!(
-            build_version(&VersionParts { major: 0, minor: 8, patch: 4, pre_stage: None, pre_num: None }, "minor", Some("rc")),
+            build_version(
+                &VersionParts {
+                    major: 0,
+                    minor: 8,
+                    patch: 4,
+                    pre_stage: None,
+                    pre_num: None
+                },
+                "minor",
+                Some("rc")
+            ),
             "v0.9.0-rc.1"
         );
     }
@@ -539,14 +614,37 @@ mod tests {
     #[test]
     fn test_build_version_prerelease_increment() {
         assert_eq!(
-            build_version(&VersionParts { major: 0, minor: 9, patch: 0, pre_stage: Some("rc".into()), pre_num: Some(1) }, "patch", None),
+            build_version(
+                &VersionParts {
+                    major: 0,
+                    minor: 9,
+                    patch: 0,
+                    pre_stage: Some("rc".into()),
+                    pre_num: Some(1)
+                },
+                "patch",
+                None
+            ),
             "v0.9.0-rc.2"
         );
     }
 
     #[test]
     fn test_build_version_minor_formal() {
-        assert_eq!(build_version(&VersionParts { major: 0, minor: 8, patch: 4, pre_stage: None, pre_num: None }, "minor", None), "v0.9.0");
+        assert_eq!(
+            build_version(
+                &VersionParts {
+                    major: 0,
+                    minor: 8,
+                    patch: 4,
+                    pre_stage: None,
+                    pre_num: None
+                },
+                "minor",
+                None
+            ),
+            "v0.9.0"
+        );
     }
 
     #[test]
@@ -634,7 +732,17 @@ mod tests {
     #[test]
     fn test_build_version_patch_with_same_stage() {
         assert_eq!(
-            build_version(&VersionParts { major: 1, minor: 0, patch: 0, pre_stage: Some("beta".into()), pre_num: Some(3) }, "patch", None),
+            build_version(
+                &VersionParts {
+                    major: 1,
+                    minor: 0,
+                    patch: 0,
+                    pre_stage: Some("beta".into()),
+                    pre_num: Some(3)
+                },
+                "patch",
+                None
+            ),
             "v1.0.0-beta.4"
         );
     }
@@ -642,7 +750,17 @@ mod tests {
     #[test]
     fn test_build_version_minor_with_alpha() {
         assert_eq!(
-            build_version(&VersionParts { major: 0, minor: 1, patch: 0, pre_stage: None, pre_num: None }, "minor", Some("alpha")),
+            build_version(
+                &VersionParts {
+                    major: 0,
+                    minor: 1,
+                    patch: 0,
+                    pre_stage: None,
+                    pre_num: None
+                },
+                "minor",
+                Some("alpha")
+            ),
             "v0.2.0-alpha.1"
         );
     }
@@ -650,7 +768,20 @@ mod tests {
     #[test]
     fn test_build_version_no_prerelease_info() {
         // prerelease 为 None 但 increment 不是 patch → 直发正式
-        assert_eq!(build_version(&VersionParts { major: 1, minor: 0, patch: 0, pre_stage: None, pre_num: None }, "patch", None), "v1.0.1");
+        assert_eq!(
+            build_version(
+                &VersionParts {
+                    major: 1,
+                    minor: 0,
+                    patch: 0,
+                    pre_stage: None,
+                    pre_num: None
+                },
+                "patch",
+                None
+            ),
+            "v1.0.1"
+        );
     }
 
     // ── fallback_heuristic 更多模式 ───────────────────────────
@@ -723,7 +854,18 @@ mod tests {
             prerelease: None,
             reason: "".into(),
         };
-        let v = build_version_from_decision(false, &VersionParts { major: 0, minor: 0, patch: 0, pre_stage: None, pre_num: None }, &d).unwrap();
+        let v = build_version_from_decision(
+            false,
+            &VersionParts {
+                major: 0,
+                minor: 0,
+                patch: 0,
+                pre_stage: None,
+                pre_num: None,
+            },
+            &d,
+        )
+        .unwrap();
         assert_eq!(v, "v0.1.0");
     }
 
@@ -735,7 +877,18 @@ mod tests {
             prerelease: Some("alpha".into()),
             reason: "".into(),
         };
-        let v = build_version_from_decision(false, &VersionParts { major: 0, minor: 0, patch: 0, pre_stage: None, pre_num: None }, &d).unwrap();
+        let v = build_version_from_decision(
+            false,
+            &VersionParts {
+                major: 0,
+                minor: 0,
+                patch: 0,
+                pre_stage: None,
+                pre_num: None,
+            },
+            &d,
+        )
+        .unwrap();
         assert_eq!(v, "v0.1.0-alpha.1");
     }
 
@@ -747,7 +900,18 @@ mod tests {
             prerelease: None,
             reason: "".into(),
         };
-        assert!(build_version_from_decision(true, &VersionParts { major: 1, minor: 0, patch: 0, pre_stage: None, pre_num: None }, &d).is_err());
+        assert!(build_version_from_decision(
+            true,
+            &VersionParts {
+                major: 1,
+                minor: 0,
+                patch: 0,
+                pre_stage: None,
+                pre_num: None
+            },
+            &d
+        )
+        .is_err());
     }
 
     #[test]
@@ -758,7 +922,18 @@ mod tests {
             prerelease: None,
             reason: "breaking change".into(),
         };
-        assert!(build_version_from_decision(true, &VersionParts { major: 1, minor: 0, patch: 0, pre_stage: None, pre_num: None }, &d).is_err());
+        assert!(build_version_from_decision(
+            true,
+            &VersionParts {
+                major: 1,
+                minor: 0,
+                patch: 0,
+                pre_stage: None,
+                pre_num: None
+            },
+            &d
+        )
+        .is_err());
     }
 
     #[test]
@@ -769,7 +944,18 @@ mod tests {
             prerelease: None,
             reason: "".into(),
         };
-        let v = build_version_from_decision(true, &VersionParts { major: 0, minor: 8, patch: 4, pre_stage: None, pre_num: None }, &d).unwrap();
+        let v = build_version_from_decision(
+            true,
+            &VersionParts {
+                major: 0,
+                minor: 8,
+                patch: 4,
+                pre_stage: None,
+                pre_num: None,
+            },
+            &d,
+        )
+        .unwrap();
         assert_eq!(v, "v0.8.5");
     }
 

@@ -2,19 +2,24 @@ mod audit;
 mod detect;
 mod publish;
 mod status;
+pub(crate) mod util;
 
 pub use crate::source::changelog::{ensure_changelog, ChangelogError};
 pub use audit::{audit, audit_all, AuditItem};
 pub use detect::DetectError;
 pub use publish::publish;
 pub use status::{collect_all, status, ReleaseState, ReleaseStatus};
+pub use util::gh::{check_gh_installed, create_release, delete_release};
+pub use util::git::{
+    git, git_check, is_git_repo, is_working_tree_dirty, ref_exists, rev_list_count,
+};
+pub use util::tag::{create_tag, delete_local_tag, delete_remote_tag, push_tag, rollback_tag};
 
 // ═══════════════════════════════════════════════════════════════════════
-// util (inlined)
+// 业务逻辑（保留在 mod.rs）
 // ═══════════════════════════════════════════════════════════════════════
 
 use std::path::Path;
-use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum PublishTarget {
@@ -66,64 +71,6 @@ pub fn confirm_release(version: &str, yes: bool) -> bool {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).ok();
     input.trim().to_lowercase() == "y" || input.trim().to_lowercase() == "yes"
-}
-
-/// 创建轻量 tag（`git tag <version>`）。已存在则跳过（幂等）。
-pub fn create_tag(version: &str, repo_path: &Path) -> bool {
-    let repo = match git2::Repository::open(repo_path) {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
-    let refname = format!("refs/tags/{}", version);
-    if repo.find_reference(&refname).is_ok() {
-        return true;
-    }
-    let head_id = match repo.head().ok().and_then(|h| h.target()) {
-        Some(id) => id,
-        None => return false,
-    };
-    let result = repo.reference(&refname, head_id, false, "");
-    result.is_ok()
-}
-
-fn tag_push_refspec(version: &str) -> String {
-    format!("refs/tags/{}", version)
-}
-
-/// 推送 tag 到远程（需要网络）。
-/// 使用系统 git 命令而非 git2，避免 git2 缺少 credential callback 导致的认证失败。
-pub fn push_tag(version: &str, repo_path: &Path) -> Result<(), String> {
-    // 先确认是 git 仓库
-    let is_repo = std::process::Command::new("git")
-        .args(["rev-parse", "--git-dir"])
-        .current_dir(repo_path)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !is_repo {
-        return Err("不是 git 仓库".into());
-    }
-    // 没有 origin 则跳过推送（测试仓库常见）
-    let has_origin = std::process::Command::new("git")
-        .args(["remote", "get-url", "origin"])
-        .current_dir(repo_path)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !has_origin {
-        return Ok(());
-    }
-    let output = std::process::Command::new("git")
-        .args(["push", "origin", &tag_push_refspec(version)])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| format!("执行 git push 失败: {}", e))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        Err(format!("推送标签失败: {}", stderr))
-    }
 }
 
 /// 从配置文件加载 scope 名称到路径的映射。
@@ -226,86 +173,6 @@ pub fn parse_github_repo(url: &str) -> Option<String> {
     Some(repo.to_string())
 }
 
-pub fn create_release(version: &str, notes: &str, repo: &str) -> bool {
-    let out = Command::new("gh")
-        .args([
-            "release", "create", version, "--title", version, "--notes", notes, "--repo", repo,
-        ])
-        .output();
-    match out {
-        Ok(out) if out.status.success() => true,
-        Ok(out) => {
-            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            if msg.contains("already exists") || msg.contains("已存在") {
-                return true;
-            }
-            eprintln!("创建 Release 失败: {}", msg);
-            false
-        }
-        Err(e) => {
-            eprintln!("创建 Release 失败: {}", e);
-            false
-        }
-    }
-}
-
-/// 回滚 tag：删除本地和远端 tag。
-pub fn rollback_tag(version: &str, repo_path: &Path) {
-    let local_ok = delete_local_tag(version, repo_path);
-    let remote_ok = delete_remote_tag(version, repo_path);
-    if local_ok && remote_ok {
-        eprintln!("已回滚标签 {}", version);
-    }
-}
-
-/// 删除本地 tag（`git tag -d <version>`）。不存在也算成功。
-pub fn delete_local_tag(version: &str, repo_path: &Path) -> bool {
-    let repo = match git2::Repository::open(repo_path) {
-        Ok(r) => r,
-        Err(_) => return true,
-    };
-    let refname = format!("refs/tags/{}", version);
-    repo.find_reference(&refname)
-        .ok()
-        .and_then(|mut r| r.delete().ok())
-        .is_some()
-}
-
-/// 删除远端 tag（等价于 `git push --delete origin <version>`）。
-/// 使用系统 git 命令而非 git2，避免 git2 缺少 credential callback 导致的认证失败。
-pub fn delete_remote_tag(version: &str, repo_path: &Path) -> bool {
-    let output = std::process::Command::new("git")
-        .args(["push", "--delete", "origin", version])
-        .current_dir(repo_path)
-        .output();
-    match output {
-        Ok(out) => out.status.success(),
-        Err(_) => false,
-    }
-}
-
-/// 删除 GitHub Release（等价于 `gh release delete <version> --yes`）。
-pub fn delete_release(version: &str, repo: &str) -> bool {
-    let out = Command::new("gh")
-        .args(["release", "delete", version, "--yes", "--repo", repo])
-        .output();
-    match out {
-        Ok(out) if out.status.success() => true,
-        Ok(out) => {
-            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            if msg.contains("not found") || msg.contains("404") {
-                return true;
-            }
-            eprintln!("删除 Release 失败: {}", msg);
-            false
-        }
-        Err(e) => {
-            eprintln!("删除 Release 失败: {}", e);
-            false
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     fn git_init(path: &std::path::Path) {
@@ -332,24 +199,6 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_parse_github_repo_https() {
-        assert_eq!(
-            parse_github_repo("https://github.com/owner/repo.git"),
-            Some("owner/repo".into())
-        );
-    }
-    #[test]
-    fn test_parse_github_repo_ssh() {
-        assert_eq!(
-            parse_github_repo("git@github.com:owner/repo.git"),
-            Some("owner/repo".into())
-        );
-    }
-    #[test]
-    fn test_parse_github_repo_not_github() {
-        assert_eq!(parse_github_repo("https://gitlab.com/owner/repo.git"), None);
-    }
     #[test]
     fn test_extract_notes_found() {
         let d = tempfile::tempdir().unwrap();
@@ -440,49 +289,8 @@ mod tests {
         assert_eq!(PublishTarget::PyPI, PublishTarget::PyPI);
     }
     #[test]
-    fn test_get_remote_repo_no_git_repo() {
+    fn test_get_remote_repo_no_git_repo
         assert_eq!(get_remote_repo(tempfile::tempdir().unwrap().path()), None);
-    }
-    #[test]
-    fn test_create_release_no_gh() {
-        assert!(!create_release("v0.0.0-test", "", "no/repo"));
-    }
-    #[test]
-    fn test_create_tag_in_non_git_dir() {
-        assert!(!create_tag(
-            "v0.0.0-test",
-            tempfile::tempdir().unwrap().path()
-        ));
-    }
-    #[test]
-    fn test_create_tag_idempotent() {
-        let d = tempfile::tempdir().unwrap();
-        git_init(d.path());
-        git_commit(d.path(), "init");
-        assert!(create_tag("v0.0.0-test", d.path()));
-        assert!(create_tag("v0.0.0-test", d.path()));
-    }
-    #[test]
-    fn test_push_tag_in_non_git_dir() {
-        assert!(push_tag("v0.0.0-test", tempfile::tempdir().unwrap().path()).is_err());
-    }
-    #[test]
-    fn test_push_tag_fails_with_non_existent_remote() {
-        let d = tempfile::tempdir().unwrap();
-        git_init(d.path());
-        git_commit(d.path(), "init");
-        assert!(create_tag("v0.0.0-test-remote", d.path()));
-        std::process::Command::new("git")
-            .args([
-                "remote",
-                "add",
-                "origin",
-                "https://nonexistent.invalid/repo.git",
-            ])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        assert!(push_tag("v0.0.0-test-remote", d.path()).is_err());
     }
     #[test]
     fn test_get_remote_repo_in_git_without_remote() {
@@ -493,54 +301,6 @@ mod tests {
             .output()
             .unwrap();
         assert_eq!(get_remote_repo(d.path()), None);
-    }
-    #[test]
-    fn test_tag_push_refspec_scoped() {
-        assert_eq!(tag_push_refspec("cli/v0.9.3"), "refs/tags/cli/v0.9.3");
-    }
-    #[test]
-    fn test_tag_push_refspec_simple() {
-        assert_eq!(tag_push_refspec("v0.9.3"), "refs/tags/v0.9.3");
-    }
-    #[test]
-    fn test_tag_push_refspec_root_tag() {
-        assert_eq!(tag_push_refspec("v0.1.0"), "refs/tags/v0.1.0");
-    }
-    #[test]
-    fn test_rollback_tag_removes_tag() {
-        let d = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
-            .args(["init", "-b", "main"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::fs::write(d.path().join("f"), "").unwrap();
-        std::process::Command::new("git")
-            .args(["add", "."])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args([
-                "-c",
-                "user.name=t",
-                "-c",
-                "user.email=t@t",
-                "commit",
-                "-m",
-                "x",
-            ])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        assert!(create_tag("v0.0.0-test-rollback", d.path()));
-        rollback_tag("v0.0.0-test-rollback", d.path());
-        let o = std::process::Command::new("git")
-            .args(["tag", "-l"])
-            .current_dir(d.path())
-            .output()
-            .unwrap();
-        assert!(!String::from_utf8_lossy(&o.stdout).contains("v0.0.0-test-rollback"));
     }
     #[test]
     fn test_resolve_scope_dir_with_contract() {
