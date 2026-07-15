@@ -2,6 +2,7 @@
 pub mod changelog;
 pub mod gh;
 pub mod git;
+pub mod roadmap;
 pub mod tag;
 
 use std::io::Write;
