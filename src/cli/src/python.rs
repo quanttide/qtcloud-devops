@@ -1,4 +1,4 @@
-use crate::git::RepoState;
+use crate::source::git::RepoState;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::path::PathBuf;
@@ -22,7 +22,7 @@ fn state_to_dict(state: &RepoState) -> PyResult<PyObject> {
 #[pyfunction]
 fn scan_repo(path: String) -> PyResult<PyObject> {
     let canonical = resolve_path(&path)?;
-    let state = crate::git::RepoState::scan(&canonical)
+    let state = crate::source::git::RepoState::scan(&canonical)
         .map_err(|e| PyRuntimeError::new_err(format!("扫描仓库失败: {}", e)))?;
     state_to_dict(&state)
 }

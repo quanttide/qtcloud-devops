@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::contract;
-use crate::git::{RepoState, SubmoduleStatus};
+use crate::source::git::{RepoState, SubmoduleStatus};
 
 // ═══════════════════════════════════════════════════════════════════════
 // 模型
@@ -95,14 +95,24 @@ pub fn audit(repo_path: &Path) {
     let mut passed = 0u32;
     let total = 5u32;
 
-    if audit_scope_dirs(&c, repo_path) { passed += 1; }
+    if audit_scope_dirs(&c, repo_path) {
+        passed += 1;
+    }
 
     let counts = collect_scope_markers(&c, repo_path);
-    if audit_marker_density(&counts) { passed += 1; }
-    if audit_imports(&counts) { passed += 1; }
-    if audit_file_lengths(&counts) { passed += 1; }
+    if audit_marker_density(&counts) {
+        passed += 1;
+    }
+    if audit_imports(&counts) {
+        passed += 1;
+    }
+    if audit_file_lengths(&counts) {
+        passed += 1;
+    }
 
-    if audit_lint(repo_path) { passed += 1; }
+    if audit_lint(repo_path) {
+        passed += 1;
+    }
 
     print_audit_summary(passed, total);
 }
@@ -110,10 +120,14 @@ pub fn audit(repo_path: &Path) {
 fn audit_scope_dirs(c: &contract::Contract, repo_path: &Path) -> bool {
     let all_ok = c.scopes.iter().all(|s| {
         let exists = repo_path.join(&s.dir).exists();
-        if !exists { println!("  ❌ scope {}: 目录不存在 ({})", s.name, s.dir); }
+        if !exists {
+            println!("  ❌ scope {}: 目录不存在 ({})", s.name, s.dir);
+        }
         exists
     });
-    if all_ok { println!("  ✅ Scope 目录: 全部 {} 个 scope 存在", c.scopes.len()); }
+    if all_ok {
+        println!("  ✅ Scope 目录: 全部 {} 个 scope 存在", c.scopes.len());
+    }
     all_ok
 }
 
@@ -126,13 +140,22 @@ fn collect_scope_markers(c: &contract::Contract, repo_path: &Path) -> MarkerCoun
 }
 
 fn audit_marker_density(counts: &MarkerCounts) -> bool {
-    if counts.lines == 0 { println!("  ⚠ TODO/FIXME: 无可扫描源码"); return true; }
+    if counts.lines == 0 {
+        println!("  ⚠ TODO/FIXME: 无可扫描源码");
+        return true;
+    }
     let density = counts.markers as f64 / counts.lines as f64 * 1000.0;
     if density < 5.0 {
-        println!("  ✅ TODO/FIXME: {} 处, 密度 {:.1}‰", counts.markers, density);
+        println!(
+            "  ✅ TODO/FIXME: {} 处, 密度 {:.1}‰",
+            counts.markers, density
+        );
         true
     } else {
-        println!("  ❌ TODO/FIXME: {} 处, 密度 {:.1}‰（阈值 5‰）", counts.markers, density);
+        println!(
+            "  ❌ TODO/FIXME: {} 处, 密度 {:.1}‰（阈值 5‰）",
+            counts.markers, density
+        );
         false
     }
 }
@@ -174,9 +197,18 @@ fn print_audit_summary(passed: u32, total: u32) {
 
 fn audit_lint(repo_path: &Path) -> bool {
     match check_lint_for_langs(repo_path) {
-        Some(true) => { println!("  ✅ 语法检查: 通过"); true }
-        Some(false) => { println!("  ❌ 语法检查: 存在错误"); false }
-        None => { println!("  ⚠ 语法检查: 跳过（不支持的语言）"); true }
+        Some(true) => {
+            println!("  ✅ 语法检查: 通过");
+            true
+        }
+        Some(false) => {
+            println!("  ❌ 语法检查: 存在错误");
+            false
+        }
+        None => {
+            println!("  ⚠ 语法检查: 跳过（不支持的语言）");
+            true
+        }
     }
 }
 
@@ -474,7 +506,10 @@ mod tests {
     #[test]
     fn test_lint_command_rust() {
         let result = lint_command(&contract::Language::Rust);
-        assert_eq!(result, Some(("cargo", vec!["check", "--quiet"], "cargo check")));
+        assert_eq!(
+            result,
+            Some(("cargo", vec!["check", "--quiet"], "cargo check"))
+        );
     }
 
     #[test]
@@ -492,20 +527,31 @@ mod tests {
     #[test]
     fn test_lint_command_typescript() {
         let result = lint_command(&contract::Language::TypeScript);
-        assert_eq!(result, Some(("npx", vec!["tsc", "--noEmit"], "tsc --noEmit")));
+        assert_eq!(
+            result,
+            Some(("npx", vec!["tsc", "--noEmit"], "tsc --noEmit"))
+        );
     }
 
     // ── audit helper functions ──────────────────────────────────
 
     #[test]
     fn test_audit_marker_density_below_threshold() {
-        let counts = MarkerCounts { markers: 2, lines: 1000, ..Default::default() };
+        let counts = MarkerCounts {
+            markers: 2,
+            lines: 1000,
+            ..Default::default()
+        };
         assert!(audit_marker_density(&counts));
     }
 
     #[test]
     fn test_audit_marker_density_above_threshold() {
-        let counts = MarkerCounts { markers: 10, lines: 1000, ..Default::default() };
+        let counts = MarkerCounts {
+            markers: 10,
+            lines: 1000,
+            ..Default::default()
+        };
         assert!(!audit_marker_density(&counts));
     }
 
@@ -523,7 +569,10 @@ mod tests {
 
     #[test]
     fn test_audit_imports_high() {
-        let counts = MarkerCounts { high_import_files: vec![("x.rs".into(), 35)], ..Default::default() };
+        let counts = MarkerCounts {
+            high_import_files: vec![("x.rs".into(), 35)],
+            ..Default::default()
+        };
         assert!(!audit_imports(&counts));
     }
 
@@ -535,7 +584,10 @@ mod tests {
 
     #[test]
     fn test_audit_file_lengths_long() {
-        let counts = MarkerCounts { long_files: vec![("x.rs".into(), 600)], ..Default::default() };
+        let counts = MarkerCounts {
+            long_files: vec![("x.rs".into(), 600)],
+            ..Default::default()
+        };
         assert!(!audit_file_lengths(&counts));
     }
 }
