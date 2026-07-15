@@ -9,6 +9,31 @@
 
 
 
+
+## [0.10.2] - 2026-07-15
+
+### Added
+
+- 新增 release 模块重构规划文档及模块依赖图
+- 新增 ROADMAP.md 并同步待办项
+
+### Changed
+
+- 重构 release 模块：完成四阶段重构，提取 util 子模块，将 detect 迁移至 source
+- 将 git.rs 子模块扫描合并到 source/git.rs
+- 用 toolkit 的 filter_latest_tag 替代手写逻辑，简化 status 模块实现并压缩测试样板
+- 升级 CI 中 checkout/upload-artifact Action 版本以消除 Node.js 20 废弃警告
+- 更新 release/publish.md 等文档以与实际代码状态一致
+
+### Fixed
+
+- 修复 tests/cli 中缺失 # ROADMAP header 及 gh_not_found 测试问题
+- 修复 tests/code.rs 和 tests/cli.rs 中 category header 缺失的问题
+
+### Removed
+
+- 删除已完成的 TODO.md 和过时的 ROADMAP.md
+- 删除旧模块 release/util 和 release/detect 文件
 ## [0.10.1] - 2026-07-15
 
 ### Added
