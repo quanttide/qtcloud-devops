@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{resolve_scope_dir, PublishTarget};
+use super::PublishTarget;
 use crate::contract;
 
 /// 发布版本。
@@ -54,7 +54,7 @@ pub fn publish(
     }
 
     let ver = super::normalize_version(&version);
-    let scope_dir = resolve_scope_dir(&version, repo_path);
+    let scope_dir = super::resolve_scope_dir(&version, repo_path);
 
     update_config_version(&scope_dir, &ver);
     prepare_force_release(force, &version, repo_path);

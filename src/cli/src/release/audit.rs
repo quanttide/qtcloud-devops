@@ -166,15 +166,16 @@ pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, 
         },
     };
 
-    let ver = super::normalize_version(&version);
-    let scope_dir = super::resolve_scope_dir(&version, repo_path);
+    let pre = super::run_precheck(&version, repo_path);
+    let ver = &pre.normalized;
+    let scope_dir = &pre.scope_dir;
 
     // ── 2. 配置文件版本一致性 ─────────────────────────────────────
-    let config_files = contract::read_config_versions(&scope_dir);
+    let config_files = contract::read_config_versions(scope_dir);
     let inconsistent: Vec<&(String, Option<String>)> = config_files
         .iter()
         .filter(|(_, v)| match v {
-            Some(cv) => cv != &ver,
+            Some(cv) => cv != ver,
             None => false,
         })
         .collect();
@@ -196,8 +197,8 @@ pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, 
     });
 
     // ── 3. CHANGELOG ──────────────────────────────────────────────
-    let changelog_path = scope_dir.join("CHANGELOG.md");
-    let changelog_errors = super::precheck_version_changelog(&version, &changelog_path);
+    let changelog_errors = &pre.changelog_errors;
+    let changelog_path = &pre.changelog_path;
     items.push(AuditItem {
         name: "CHANGELOG",
         passed: changelog_errors.is_empty(),
@@ -249,7 +250,7 @@ pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, 
         tag_exists,
         remote_name.as_deref(),
         &version,
-        &changelog_path,
+        changelog_path,
     );
 
     Ok(items)

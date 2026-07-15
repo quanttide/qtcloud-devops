@@ -267,20 +267,20 @@ mod tests {
     fn test_is_git_repo_dir() {
         let d = tempfile::tempdir().unwrap();
         std::fs::create_dir(d.path().join(".git")).unwrap();
-        assert!(is_git_repo(d.path()));
+        assert!(util::git::is_git_repo(d.path()));
     }
 
     #[test]
     fn test_is_git_repo_file() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join(".git"), "gitdir: ../.git/modules/foo").unwrap();
-        assert!(is_git_repo(d.path()));
+        assert!(util::git::is_git_repo(d.path()));
     }
 
     #[test]
     fn test_is_git_repo_false() {
         let d = tempfile::tempdir().unwrap();
-        assert!(!is_git_repo(d.path()));
+        assert!(!util::git::is_git_repo(d.path()));
     }
 
     #[test]

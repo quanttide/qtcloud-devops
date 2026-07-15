@@ -1,5 +1,6 @@
 mod audit;
 mod detect;
+mod precheck;
 mod publish;
 mod status;
 pub(crate) mod util;
@@ -7,6 +8,7 @@ pub(crate) mod util;
 pub use crate::source::changelog::{ensure_changelog, ChangelogError};
 pub use audit::{audit, audit_all, AuditItem};
 pub use detect::DetectError;
+pub use precheck::{run_precheck, PrecheckResult};
 pub use publish::publish;
 pub use status::{collect_all, status, ReleaseState, ReleaseStatus};
 pub use util::gh::{check_gh_installed, create_release, delete_release};
@@ -289,7 +291,7 @@ mod tests {
         assert_eq!(PublishTarget::PyPI, PublishTarget::PyPI);
     }
     #[test]
-    fn test_get_remote_repo_no_git_repo
+    fn test_get_remote_repo_no_git_repo() {
         assert_eq!(get_remote_repo(tempfile::tempdir().unwrap().path()), None);
     }
     #[test]
