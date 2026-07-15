@@ -13,7 +13,6 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use super::util;
 pub use quanttide_devops::stage::release::{ReleaseState, ReleaseStatus};
 
 /// 收集仓库中所有 scope 的发布状态。
@@ -152,7 +151,7 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
 /// [`count_unreleased_in_submodule`]；否则在 `repo_path` 主仓库中，
 /// 用 `git rev-list --count tag..HEAD -- scope_dir` 统计。
 fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> Option<usize> {
-    if util::git::is_git_repo(scope_dir) {
+    if crate::source::git::is_git_repo(scope_dir) {
         return count_unreleased_in_submodule(scope_dir, tag);
     }
     let rel = scope_dir.strip_prefix(repo_path).unwrap_or(scope_dir);
@@ -162,7 +161,7 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> Opt
     } else {
         Some(rel_str.as_str())
     };
-    util::git::rev_list_count(repo_path, tag, path_filter)
+    crate::source::git::rev_list_count(repo_path, tag, path_filter)
 }
 
 /// 统计子模块中自指定标签以来的未发布提交数。
@@ -170,7 +169,7 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> Opt
 /// 返回 `Some(n)` 表示成功，`None` 表示 git 命令失败。
 /// 直接在子模块目录中执行 `git rev-list --count tag..HEAD`。
 fn count_unreleased_in_submodule(submodule_path: &Path, tag: &str) -> Option<usize> {
-    util::git::rev_list_count(submodule_path, tag, None)
+    crate::source::git::rev_list_count(submodule_path, tag, None)
 }
 
 #[cfg(test)]
@@ -262,26 +261,6 @@ mod tests {
     }
 
     // ── is_git_repo ───────────────────────────────────────────
-
-    #[test]
-    fn test_is_git_repo_dir() {
-        let d = tempfile::tempdir().unwrap();
-        std::fs::create_dir(d.path().join(".git")).unwrap();
-        assert!(util::git::is_git_repo(d.path()));
-    }
-
-    #[test]
-    fn test_is_git_repo_file() {
-        let d = tempfile::tempdir().unwrap();
-        std::fs::write(d.path().join(".git"), "gitdir: ../.git/modules/foo").unwrap();
-        assert!(util::git::is_git_repo(d.path()));
-    }
-
-    #[test]
-    fn test_is_git_repo_false() {
-        let d = tempfile::tempdir().unwrap();
-        assert!(!util::git::is_git_repo(d.path()));
-    }
 
     #[test]
     fn test_status_to_output() {

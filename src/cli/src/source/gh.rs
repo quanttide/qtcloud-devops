@@ -1,8 +1,3 @@
-//! gh 操作：创建/删除/查看 GitHub Release。
-//!
-//! 所有操作通过系统 `gh` CLI 执行。
-
-use std::path::Path;
 use std::process::Command;
 
 /// 检查 gh CLI 是否已安装且可用。
@@ -81,7 +76,6 @@ mod tests {
 
     #[test]
     fn test_check_gh_installed_does_not_panic() {
-        // 只是确保函数不会 panic，不关心返回值
         let _ = check_gh_installed();
     }
 }

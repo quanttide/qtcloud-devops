@@ -1,7 +1,3 @@
-//! git 命令封装。
-//!
-//! 提供统一的 `git` 命令执行入口，收敛分散在各模块的 `std::process::Command::new("git")` 调用。
-
 use std::path::Path;
 use std::process::Command;
 
@@ -35,8 +31,6 @@ pub fn git_check(args: &[&str], cwd: &Path) -> bool {
 }
 
 /// 检查路径是否为 git 仓库（存在 `.git` 目录或文件）。
-///
-/// `.git` 文件表示该目录是一个 git 子模块的工作树。
 pub fn is_git_repo(path: &Path) -> bool {
     let git_dir = path.join(".git");
     git_dir.is_dir() || git_dir.is_file()
@@ -87,6 +81,39 @@ pub fn ref_exists(repo_path: &Path, refname: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 解析 git log --oneline 输出为提交消息列表。
+pub fn parse_commit_messages(log_output: &str) -> Vec<String> {
+    log_output
+        .lines()
+        .map(|l| {
+            if l.len() > 8 {
+                l[7..].trim().to_string()
+            } else {
+                l.to_string()
+            }
+        })
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// 获取自最新 tag 以来的变更文件列表。
+pub fn get_changed_paths_since_last_tag(root: &Path) -> Vec<String> {
+    let tags = crate::source::tag::collect_tags_with_scope(root);
+    let latest_tag = tags
+        .iter()
+        .filter(|(k, _)| *k != "(root)")
+        .find_map(|(_, v)| v.first())
+        .or_else(|| tags.get("(root)").and_then(|v| v.first()));
+
+    let range = match latest_tag {
+        Some(tag) => format!("{}..HEAD", tag),
+        None => return vec![],
+    };
+
+    let output = git(&["diff", "--name-only", &range], root).unwrap_or_default();
+    output.lines().map(|s| s.to_string()).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,11 +141,27 @@ mod tests {
     #[test]
     fn test_is_working_tree_dirty_in_empty_repo() {
         let d = tempfile::tempdir().unwrap();
-        // 非 git 目录视为 dirty（无法判断）
         let dirty = is_working_tree_dirty(d.path());
-        assert!(
-            !dirty,
-            "新目录的 git status --porcelain 应返回空（非 git 目录 git 命令失败）"
-        );
+        assert!(!dirty);
+    }
+
+    #[test]
+    fn test_parse_commit_messages_typical() {
+        let msgs = parse_commit_messages("abc1234 feat: add foo\ndef5678 fix: bar\n");
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0], "feat: add foo");
+        assert_eq!(msgs[1], "fix: bar");
+    }
+
+    #[test]
+    fn test_parse_commit_messages_empty() {
+        assert!(parse_commit_messages("").is_empty());
+    }
+
+    #[test]
+    fn test_parse_commit_messages_short_line() {
+        let msgs = parse_commit_messages("abc1234\n");
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0], "abc1234");
     }
 }

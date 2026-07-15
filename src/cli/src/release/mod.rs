@@ -3,7 +3,6 @@ mod detect;
 mod precheck;
 mod publish;
 mod status;
-pub(crate) mod util;
 
 pub use crate::source::changelog::{ensure_changelog, ChangelogError};
 pub use audit::{audit, audit_all, AuditItem};
@@ -11,11 +10,11 @@ pub use detect::DetectError;
 pub use precheck::{run_precheck, PrecheckResult};
 pub use publish::publish;
 pub use status::{collect_all, status, ReleaseState, ReleaseStatus};
-pub use util::gh::{check_gh_installed, create_release, delete_release};
-pub use util::git::{
+pub use crate::source::gh::{check_gh_installed, create_release, delete_release};
+pub use crate::source::git::{
     git, git_check, is_git_repo, is_working_tree_dirty, ref_exists, rev_list_count,
 };
-pub use util::tag::{create_tag, delete_local_tag, delete_remote_tag, push_tag, rollback_tag};
+pub use crate::source::tag::{create_tag, delete_local_tag, delete_remote_tag, push_tag, rollback_tag};
 
 // ═══════════════════════════════════════════════════════════════════════
 // 业务逻辑（保留在 mod.rs）

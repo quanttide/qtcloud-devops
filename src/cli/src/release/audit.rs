@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use super::util;
 use crate::contract;
 
 /// 发布审计结果项。
@@ -46,7 +45,7 @@ pub fn audit_all(
 /// 为 scope 生成候选版本（最新 tag 的 patch+1，无 tag 则 v0.1.0）。
 fn detect_candidate_version(repo_path: &Path, scope_name: &str) -> String {
     let root = std::path::Path::new(repo_path);
-    let latest = super::detect::get_latest_tag_for_scope(root, Some(scope_name));
+    let latest = crate::source::tag::get_latest_tag_for_scope(root, Some(scope_name));
     match latest {
         Some(tag) => {
             // tag 格式 "scope/vX.Y.Z[-pre.N]"
@@ -93,7 +92,7 @@ fn audit_github_release(
             return;
         }
     };
-    if !util::gh::check_gh_installed() {
+    if !crate::source::gh::check_gh_installed() {
         items.push(AuditItem {
             name: "GitHub Release",
             passed: false,
@@ -101,7 +100,7 @@ fn audit_github_release(
         });
         return;
     }
-    let body = util::gh::view_release_body(version, repo);
+    let body = crate::source::gh::view_release_body(version, repo);
     match body {
         Some(b) => {
             let notes = super::extract_notes(version, changelog_path);
@@ -210,7 +209,7 @@ pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, 
     });
 
     // ── 4. 工作区干净 ─────────────────────────────────────────────
-    let dirty = util::git::is_working_tree_dirty(repo_path);
+    let dirty = crate::source::git::is_working_tree_dirty(repo_path);
     items.push(AuditItem {
         name: "工作区状态",
         passed: !dirty,
@@ -222,7 +221,7 @@ pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, 
     });
 
     // ── 5. 本地 tag 不存在 ─────────────────────────────────────────
-    let tag_exists = util::git::ref_exists(repo_path, &format!("refs/tags/{}", version));
+    let tag_exists = crate::source::git::ref_exists(repo_path, &format!("refs/tags/{}", version));
     items.push(AuditItem {
         name: "标签冲突",
         passed: !tag_exists,
