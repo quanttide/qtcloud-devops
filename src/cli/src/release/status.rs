@@ -125,7 +125,7 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
 
     for s in &states {
         writeln!(writer, "  [{}]", s.scope)?;
-        writeln!(writer, "    状态:         {}", status_label(&s.status))?;
+        writeln!(writer, "    状态:         {}", s.status)?;
         writeln!(writer, "    路径:         {}", s.scope_path)?;
         match &s.current_version {
             Some(v) => writeln!(writer, "    最新标签:     {}", v)?,
@@ -142,17 +142,6 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
     }
 
     Ok(())
-}
-
-/// 返回状态枚举的中文标签，用于命令行输出。
-fn status_label(status: &ReleaseStatus) -> &'static str {
-    match status {
-        ReleaseStatus::Unreleased => "未发布",
-        ReleaseStatus::Latest => "已是最新",
-        ReleaseStatus::Pending => "待发布",
-        ReleaseStatus::Inconsistent => "版本冲突",
-        ReleaseStatus::Unknown => "状态未知",
-    }
 }
 
 /// 统计 scope 目录中自指定标签以来的未发布提交数。
@@ -468,17 +457,6 @@ mod tests {
         assert!(result.is_ok());
         let out = String::from_utf8_lossy(&buf);
         assert!(out.contains("未发布"), "非 git 目录的 scope 应显示 未发布");
-    }
-
-    // ── status_label ──────────────────────────────────────────────
-
-    #[test]
-    fn test_status_label_all_variants() {
-        assert_eq!(status_label(&ReleaseStatus::Unreleased), "未发布");
-        assert_eq!(status_label(&ReleaseStatus::Latest), "已是最新");
-        assert_eq!(status_label(&ReleaseStatus::Pending), "待发布");
-        assert_eq!(status_label(&ReleaseStatus::Inconsistent), "版本冲突");
-        assert_eq!(status_label(&ReleaseStatus::Unknown), "状态未知");
     }
 
     // ── collect_all: Pending ───────────────────────────────────────
