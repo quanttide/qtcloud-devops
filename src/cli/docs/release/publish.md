@@ -14,18 +14,21 @@ qtcloud-devops release publish -y                     跳过确认
 qtcloud-devops release publish -f                     强制重新发布
 qtcloud-devops release publish --registry crates      指定 CI 目标
 qtcloud-devops release status                         查看发布状态
+qtcloud-devops release audit                          发布预检审计
+qtcloud-devops release audit -v cli/v0.10.0           指定版本审计
+qtcloud-devops release audit --scope cli              按 scope 过滤审计
 ```
 
 ## 模块架构
 
 ```
 release/
-├── mod.rs         re-exports
+├── mod.rs         re-exports + 工具函数（tag/gh/release 操作）
 ├── publish.rs     发布主流程
+├── audit.rs       发布预检审计（版本/配置/CHANGELOG/工作区/tag/远程/GH Release）
 ├── detect.rs      版本自动检测（LLM + fallback heuristic）
 ├── status.rs      发布状态查看
-├── changelog.rs   CHANGELOG 生成与校验
-└── util.rs        工具函数（tag/gh/release 操作）
+└── (source/changelog.rs — CHANGELOG 生成与校验，位于外层 source 模块)
 ```
 
 ## release publish — 发布版本
@@ -103,28 +106,53 @@ release/
 
 ## release status — 查看发布状态
 
-展示当前仓库的发布状态：
+逐 scope 展示发布状态。调用 `collect_all()` 组合 scope 配置、git 标签、CHANGELOG 检查，产出各 scope 的 `ReleaseState` 快照。
 
 ```
 发布状态
-────────────────────────────────────────────────
-  tag:          cli/v0.9.3-alpha.3
-  version:      0.9.3-alpha.3
-  CHANGELOG:    ✅ 包含 0.9.3-alpha.3 条目
-  GitHub Release: ✅ 已发布
-  工作区:       ✅ 干净
+────────────────────────────────────────
+  [qtcloud-core]
+    状态:         待发布
+    路径:         apps/qtcloud-core
+    最新标签:     v2.1.0
+    未发布提交:   3
+    变更日志:     CHANGELOG.md
+    版本一致:     是
+
+  [(root)]
+    状态:         已是最新
+    路径:         .
+    最新标签:     v5.0.0
+    未发布提交:   0
+    变更日志:     CHANGELOG.md
+    版本一致:     是
+
+  [studio]
+    状态:         未发布
+    路径:         apps/studio
+    最新标签:     (无)
+    未发布提交:   0
+    变更日志:     CHANGELOG.md
 ```
 
-### 检查项
+### `ReleaseStatus` 枚举
 
-| 检查 | 来源 | 说明 |
+| 变体 | 标签 | 含义 |
 |------|------|------|
-| 最新 tag | `git tag --sort=-version:refname` | 按 scope 过滤 |
-| 版本一致性 | tag vs Cargo.toml | 自动去 v 前缀比较 |
-| CHANGELOG | 检查版本条目 | ✅/❌/⚠ 未找到 |
-| GitHub Release | `gh release view` | ✅/❌/⚠ gh 未安装 |
-| 工作区状态 | `git status --porcelain` | ✅ 干净 / ❌ 有未提交变更 |
-| CI 状态 | 依赖 build status | 仅展示 scope 名 |
+| `Unreleased` | 未发布 | scope 未匹配到 tag |
+| `Latest` | 已是最新 | tag 存在，无未发布提交，CHANGELOG 一致 |
+| `Pending` | 待发布 | 自 tag 以来有新提交 |
+| `Inconsistent` | 版本冲突 | CHANGELOG 中缺失对应版本条目 |
+| `Unknown` | 状态未知 | git 命令失败 |
+
+### 状态判定逻辑
+
+```
+有 tag → CHANGELOG 版本缺失 → Inconsistent
+       └── 有新提交 → Pending
+           └── 无新提交 → Latest
+无 tag → Unreleased
+```
 
 ## 公共 API
 
@@ -139,29 +167,60 @@ pub fn publish(
     registry: Option<PublishTarget>,
 ) -> Result<(), Box<dyn std::error::Error>>
 
+// publish
+pub fn publish(
+    version: Option<&str>,
+    repo_path: &Path,
+    yes: bool,
+    force: bool,
+    dry_run: bool,
+    registry: Option<PublishTarget>,
+) -> Result<(), Box<dyn std::error::Error>>
+
+// audit
+pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, String>
+pub fn audit_all(repo_path: &Path, scope_filter: Option<&str>)
+    -> Result<Vec<(String, Vec<AuditItem>)>, String>
+pub struct AuditItem {
+    pub name: &'static str,
+    pub passed: bool,
+    pub detail: String,
+}
+
 // detect
-pub fn detect_version(repo_path: &Path) -> Result<DetectResult, String>
+pub fn detect_version(repo_path: &Path) -> Result<DetectResult, DetectError>
 pub struct DetectResult { pub version: String }
+pub enum DetectError {
+    Git(String), Llm(String), Version(String), Other(String),
+}
 
 // status
 pub fn status(repo_path: &Path)
+pub fn collect_all(repo_path: &Path) -> Vec<ReleaseState>
+pub use quanttide_devops::stage::release::{ReleaseState, ReleaseStatus}
 
-// changelog
-pub fn ensure_changelog(repo_path: &Path, scope_dir: &Path, version: &str) -> Result<(), String>
+// changelog (位于 crate::source::changelog)
+pub fn ensure_changelog(repo_path: &Path, scope_dir: &Path, version: &str)
+    -> Result<Option<String>, ChangelogError>
 
-// util
+// mod.rs 公共函数
 pub fn validate_version(version: &str) -> bool
-pub fn create_tag(version: &str, repo_path: &Path) -> bool
-pub fn push_tag(version: &str, repo_path: &Path) -> bool
-pub fn create_release(version: &str, notes: &str, repo: &str) -> bool
-pub fn delete_local_tag(version: &str, repo_path: &Path)
-pub fn delete_remote_tag(version: &str, repo_path: &Path)
-pub fn delete_release(version: &str, repo: &str)
-pub fn rollback_tag(version: &str, repo_path: &Path)
+pub fn normalize_version(version: &str) -> String
+pub fn precheck_version_changelog(version: &str, changelog_path: &Path) -> Vec<String>
 pub fn extract_notes(version: &str, changelog_path: &Path) -> Option<String>
+pub fn confirm_release(version: &str, yes: bool) -> bool
+pub fn create_tag(version: &str, repo_path: &Path) -> bool
+pub fn push_tag(version: &str, repo_path: &Path) -> Result<(), String>
+pub fn create_release(version: &str, notes: &str, repo: &str) -> bool
+pub fn delete_local_tag(version: &str, repo_path: &Path) -> bool
+pub fn delete_remote_tag(version: &str, repo_path: &Path) -> bool
+pub fn delete_release(version: &str, repo: &str) -> bool
+pub fn rollback_tag(version: &str, repo_path: &Path)
 pub fn get_remote_repo(repo_path: &Path) -> Option<String>
 pub fn parse_github_repo(url: &str) -> Option<String>
-pub fn precheck_version_changelog(version: &str, changelog_path: &Path) -> Vec<String>
+pub fn load_scopes_map(repo_path: &Path) -> HashMap<String, String>
+pub fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)>
+pub fn resolve_scope_dir(version: &str, repo_path: &Path) -> PathBuf
 
-pub enum PublishTarget { Crates, PyPi, PubDev, GitHub }
+pub enum PublishTarget { Crates, PyPI, PubDev }
 ```
