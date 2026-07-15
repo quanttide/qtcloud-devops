@@ -208,7 +208,7 @@ fn test_cli_publish_gh_not_found_err_path() {
     assert!(out.status.success());
     // Add a dummy remote so publish's push_tag has a target
     std::process::Command::new("git")
-        .args(["remote", "add", "origin", "https://example.com/repo.git"])
+        .args(["remote", "add", "origin", "https://github.com/test/repo.git"])
         .current_dir(d.path())
         .output()
         .unwrap();
@@ -479,7 +479,7 @@ fn test_cli_plan_status_with_roadmap() {
     let d = tempfile::tempdir().unwrap();
     std::fs::write(
         d.path().join("ROADMAP.md"),
-        "## [0.1.0]\n### Added\n- [x] done\n- [ ] todo\n",
+        "# ROADMAP\n## [0.1.0]\n### Added\n- [x] done\n- [ ] todo\n",
     )
     .unwrap();
     let output = cli()
