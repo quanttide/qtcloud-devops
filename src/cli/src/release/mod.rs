@@ -1,15 +1,13 @@
 mod audit;
-mod changelog;
 mod detect;
 mod publish;
 mod status;
 
+pub use crate::source::changelog::{ensure_changelog, ChangelogError};
 pub use audit::{audit, audit_all, AuditItem};
-pub use changelog::ensure_changelog;
-pub use changelog::ChangelogError;
 pub use detect::DetectError;
 pub use publish::publish;
-pub use status::{status, ReleaseState, ReleaseStatus};
+pub use status::{collect_all, status, ReleaseState, ReleaseStatus};
 
 // ═══════════════════════════════════════════════════════════════════════
 // util (inlined)

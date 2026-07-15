@@ -87,7 +87,7 @@ pub fn ensure_changelog(
     let changelog_path = scope_dir.join("CHANGELOG.md");
     if changelog_path.exists() {
         if let Ok(cl) = Changelog::from_path(&changelog_path) {
-            let ver = super::normalize_version(version);
+            let ver = crate::release::normalize_version(version);
             if cl.contains_version(&ver) {
                 return Ok(None);
             }
@@ -281,7 +281,6 @@ mod tests {
     }
     #[test]
     fn test_write_changelog_creates_file() {
-        // 通过 ensure_changelog 间接测试 append_entry
         let d = tempfile::tempdir().unwrap();
         git_init(d.path());
         git_commit(d.path(), "init");

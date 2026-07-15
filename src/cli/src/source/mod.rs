@@ -1,4 +1,6 @@
 /// source 命令：检查系统依赖的外部命令状态。
+pub mod changelog;
+
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
@@ -38,11 +40,19 @@ fn detect_used_languages(repo_path: &Path) -> Vec<String> {
 
 fn build_tool_status_header(_used_langs: &[String]) -> String {
     let mut o = format!("系统诊断\n{}\n", "-".repeat(50));
-    o.push_str(&format!("  {:<12} {}\n", "git", check_command("git", &["--version"])));
+    o.push_str(&format!(
+        "  {:<12} {}\n",
+        "git",
+        check_command("git", &["--version"])
+    ));
     let gh_ver = check_command("gh", &["--version"]);
     o.push_str(&format!("  {:<12} {}\n", "gh", gh_ver));
     if gh_ver.starts_with("✅") {
-        o.push_str(&format!("    {:<10} {}\n", "auth", check_command("gh", &["auth", "status"])));
+        o.push_str(&format!(
+            "    {:<10} {}\n",
+            "auth",
+            check_command("gh", &["auth", "status"])
+        ));
     }
     o
 }
@@ -50,30 +60,52 @@ fn build_tool_status_header(_used_langs: &[String]) -> String {
 fn build_language_sections(used_langs: &[String]) -> String {
     let mut o = String::new();
     for lang in &["rust", "python", "go", "dart", "typescript"] {
-        if !used_langs.iter().any(|l| l == lang) { continue; }
+        if !used_langs.iter().any(|l| l == lang) {
+            continue;
+        }
         o.push_str(&match *lang {
             "rust" => format!(
                 "  {:<12} {}\n  {:<12} {}\n",
-                "cargo", check_command("cargo", &["--version"]),
-                "rustc", check_command("rustc", &["--version"]),
+                "cargo",
+                check_command("cargo", &["--version"]),
+                "rustc",
+                check_command("rustc", &["--version"]),
             ),
             "python" => {
-                let mut s = format!("  {:<12} {}\n", "python", check_command("python", &["--version"]));
+                let mut s = format!(
+                    "  {:<12} {}\n",
+                    "python",
+                    check_command("python", &["--version"])
+                );
                 for sub in &["uv", "pytest", "coverage"] {
-                    s.push_str(&format!("    {:<10} {}\n", sub, check_command(sub, &["--version"])));
+                    s.push_str(&format!(
+                        "    {:<10} {}\n",
+                        sub,
+                        check_command(sub, &["--version"])
+                    ));
                 }
                 s
             }
             "go" => format!("  {:<12} {}\n", "go", check_command("go", &["version"])),
             "dart" => format!(
                 "  {:<12} {}\n    {:<10} {}\n",
-                "flutter", check_command("flutter", &["--version"]),
-                "dart", check_command("dart", &["--version"]),
+                "flutter",
+                check_command("flutter", &["--version"]),
+                "dart",
+                check_command("dart", &["--version"]),
             ),
             "typescript" => {
-                let mut s = format!("  {:<12} {}\n", "node", check_command("node", &["--version"]));
+                let mut s = format!(
+                    "  {:<12} {}\n",
+                    "node",
+                    check_command("node", &["--version"])
+                );
                 for sub in &["npm", "npx"] {
-                    s.push_str(&format!("    {:<10} {}\n", sub, check_command(sub, &["--version"])));
+                    s.push_str(&format!(
+                        "    {:<10} {}\n",
+                        sub,
+                        check_command(sub, &["--version"])
+                    ));
                 }
                 s
             }
@@ -128,7 +160,6 @@ mod tests {
     #[test]
     fn test_status_to_python() {
         let d = tempfile::tempdir().unwrap();
-        // 创建 pyproject.toml 模拟 Python 项目
         std::fs::write(
             d.path().join("pyproject.toml"),
             "[project]\nname = \"test\"\n",
@@ -174,31 +205,24 @@ mod tests {
     #[test]
     fn test_status_to_no_lang() {
         let d = tempfile::tempdir().unwrap();
-        // 空目录，无项目文件
         let mut buf = Vec::new();
         status_to(&mut buf, d.path()).unwrap();
         let output = String::from_utf8(buf).expect("非 UTF-8 输出");
         assert!(output.contains("git"), "应始终显示 git");
         assert!(output.contains("gh"), "应始终显示 gh");
-        // 不应包含 cargo/python/go 等语言特定工具
-        // 空目录无法识别语言，只显示 git/gh
     }
 
     #[test]
     fn test_status_to_output() {
         let d = tempfile::tempdir().unwrap();
-        // 创建 Cargo.toml 让语言检测到 rust
         std::fs::write(d.path().join("Cargo.toml"), "[package]\n").unwrap();
         let mut buf = Vec::new();
         status_to(&mut buf, d.path()).unwrap();
         let output = String::from_utf8(buf).expect("非 UTF-8 输出");
-
-        // 检查始终存在的结构元素
         assert!(output.contains("系统诊断"), "应包含标题");
         assert!(output.contains(&"-".repeat(50)), "应包含分隔线");
         assert!(output.contains("git"), "应包含 git");
         assert!(output.contains("gh"), "应包含 gh");
-        // Rust 工具链（根据 Cargo.toml 检测）
         assert!(output.contains("cargo"), "应包含 cargo");
         assert!(output.contains("rustc"), "应包含 rustc");
     }

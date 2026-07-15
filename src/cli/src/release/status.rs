@@ -1,111 +1,87 @@
 //! 发布状态查询
 //!
-//! 提供查看仓库当前发布状态的能力：按 scope（组件/子模块）列出最新标签和
-//! 自上次发布以来的未发布提交数，帮助开发者快速了解各模块的发布进度。
+//! 提供查看仓库当前发布状态的能力：按 scope（组件/子模块）列出最新标签、
+//! 未发布提交数、CHANGELOG 版本一致性和发布生命周期阶段。
+//!
+//! 状态枚举 [`ReleaseStatus`] 和状态快照 [`ReleaseState`] 由
+//! `quanttide-devops` 工具箱 0.3.1 提供。本模块的 [`collect_all`]
+//! 组合 scope 配置、git 标签、CHANGELOG 检查等逻辑，产出各 scope 的
+//! [`ReleaseState`] 快照。
+//!
+//! 使用示例见 `quanttide-devops` 工具箱 `examples/release.rs`。
 
 use std::collections::HashSet;
 use std::path::Path;
 
-/// 发布阶段的状态枚举。
-///
-/// 描述一个 scope 当前所处的发布生命周期阶段。
-#[derive(Debug, Clone, PartialEq)]
-pub enum ReleaseStatus {
-    /// 从未发布过（无匹配的 git tag）。
-    Unreleased,
-    /// 已发布且为最新状态，无新的未发布变更。
-    Latest,
-    /// 有自上次发布以来的未发布提交。
-    Pending,
-    /// tag 与配置文件版本不一致。
-    Inconsistent,
-    /// 无法确定状态（如 git 命令失败）。
-    Unknown,
-}
+pub use quanttide_devops::stage::release::{ReleaseState, ReleaseStatus};
 
-/// 发布阶段状态快照。
-///
-/// 记录一个 scope 在某个时刻的发布状态。
-#[derive(Debug)]
-pub struct ReleaseState {
-    /// 发布生命周期状态。
-    pub status: ReleaseStatus,
-    /// scope 名称。
-    pub scope: String,
-    /// scope 相对路径。
-    pub scope_path: String,
-    /// 当前最新 tag 版本号（若有）。
-    pub current_version: Option<String>,
-    /// 自最新 tag 以来的未发布提交数。
-    pub pending_commits: usize,
-    /// 变更日志路径。
-    pub changelog: String,
-    /// 版本一致性检查结果（空表示未检查或不适用）。
-    pub version_consistent: Option<bool>,
-}
+/// 收集仓库中所有 scope 的发布状态。
+pub fn collect_all(repo_path: &Path) -> Vec<ReleaseState> {
+    let scopes_map = super::load_scopes_map(repo_path);
+    let latest_tags = super::get_latest_tags_by_scope(repo_path);
+    let tagged_scopes: HashSet<&str> = latest_tags.iter().map(|(s, _)| s.as_str()).collect();
 
-impl ReleaseState {
-    /// 收集仓库中所有 scope 的发布状态。
-    pub fn collect_all(repo_path: &Path) -> Vec<ReleaseState> {
-        let scopes_map = super::load_scopes_map(repo_path);
-        let latest_tags = super::get_latest_tags_by_scope(repo_path);
-        let tagged_scopes: HashSet<&str> = latest_tags.iter().map(|(s, _)| s.as_str()).collect();
+    let mut states: Vec<ReleaseState> = Vec::new();
 
-        let mut states: Vec<ReleaseState> = Vec::new();
+    // 1) 有 tag 的 scope：检查 changelog、计算未发布提交数 → 确定状态
+    for (scope, tag) in &latest_tags {
+        let scope_dir = super::resolve_scope_dir(tag, repo_path);
+        let scope_path = scope_dir
+            .strip_prefix(repo_path)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| ".".into());
+        let changelog_path = scope_dir.join("CHANGELOG.md");
+        let version_consistent = if !changelog_path.exists() {
+            Some(false)
+        } else {
+            match quanttide_devops::source::changelog::Changelog::from_path(&changelog_path) {
+                Ok(cl) => {
+                    let ver = super::normalize_version(tag);
+                    Some(cl.contains_version(&ver))
+                }
+                Err(_) => None,
+            }
+        };
 
-        // 1) 有 tag 的 scope：检查 changelog、计算未发布提交数 → 确定状态
-        for (scope, tag) in &latest_tags {
-            let scope_dir = super::resolve_scope_dir(tag, repo_path);
-            let scope_path = scope_dir
-                .strip_prefix(repo_path)
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| ".".into());
-            let changelog_path = scope_dir.join("CHANGELOG.md");
-            let version_consistent = check_changelog(&changelog_path, tag);
+        let (status, pending_commits) = match count_unreleased_in_dir(repo_path, tag, &scope_dir) {
+            None => (ReleaseStatus::Unknown, 0),
+            Some(n) if version_consistent == Some(false) => (ReleaseStatus::Inconsistent, n),
+            Some(n) if n > 0 => (ReleaseStatus::Pending, n),
+            Some(n) => (ReleaseStatus::Latest, n),
+        };
 
-            let (status, pending_commits) =
-                match count_unreleased_in_dir(repo_path, tag, &scope_dir) {
-                    None => (ReleaseStatus::Unknown, 0),
-                    Some(n) if version_consistent == Some(false) => {
-                        (ReleaseStatus::Inconsistent, n)
-                    }
-                    Some(n) if n > 0 => (ReleaseStatus::Pending, n),
-                    Some(n) => (ReleaseStatus::Latest, n),
-                };
+        states.push(ReleaseState {
+            status,
+            scope: scope.clone(),
+            scope_path,
+            current_version: Some(tag.clone()),
+            pending_commits,
+            changelog: "CHANGELOG.md".into(),
+            version_consistent,
+        });
+    }
 
+    // 2) 配置中定义但无 tag 的 scope → Unreleased
+    for (scope, dir) in &scopes_map {
+        if !tagged_scopes.contains(scope.as_str()) {
+            let scope_path = if scope == "(root)" {
+                "".into()
+            } else {
+                dir.clone()
+            };
             states.push(ReleaseState {
-                status,
+                status: ReleaseStatus::Unreleased,
                 scope: scope.clone(),
                 scope_path,
-                current_version: Some(tag.clone()),
-                pending_commits,
+                current_version: None,
+                pending_commits: 0,
                 changelog: "CHANGELOG.md".into(),
-                version_consistent,
+                version_consistent: None,
             });
         }
-
-        // 2) 配置中定义但无 tag 的 scope → Unreleased
-        for (scope, dir) in &scopes_map {
-            if !tagged_scopes.contains(scope.as_str()) {
-                let scope_path = if scope == "(root)" {
-                    "".into()
-                } else {
-                    dir.clone()
-                };
-                states.push(ReleaseState {
-                    status: ReleaseStatus::Unreleased,
-                    scope: scope.clone(),
-                    scope_path,
-                    current_version: None,
-                    pending_commits: 0,
-                    changelog: "CHANGELOG.md".into(),
-                    version_consistent: None,
-                });
-            }
-        }
-
-        states
     }
+
+    states
 }
 
 /// 打印发布状态到标准输出。
@@ -118,37 +94,38 @@ pub fn status(repo_path: &Path) {
 
 /// 向指定 writer 写入发布状态报告。
 ///
-/// 调用 [`ReleaseState::collect_all`] 获取数据后格式化输出。
+/// 调用 [`collect_all`] 获取数据后格式化输出。
 ///
 /// # 输出格式
 ///
 /// ```text
 /// 发布状态
 /// ────────────────────────────────────────
-///   [qtcloud-core]          Pending
+///   [qtcloud-core]
+///     状态:         待发布
 ///     路径:         apps/qtcloud-core
 ///     最新标签:     v2.1.0
 ///     未发布提交:   3
-///     状态:         待发布
-///   [(root)]                Latest
+///     变更日志:     CHANGELOG.md
+///     版本一致:     是
+///
+///   [(root)]
+///     状态:         已是最新
 ///     路径:         .
 ///     最新标签:     v5.0.0
 ///     未发布提交:   0
-///     状态:         已是最新
+///     变更日志:     CHANGELOG.md
+///     版本一致:     是
 /// ```
 pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io::Result<()> {
-    let states = ReleaseState::collect_all(repo_path);
+    let states = collect_all(repo_path);
 
     writeln!(writer, "发布状态")?;
     writeln!(writer, "{}", "─".repeat(40))?;
 
-    if states.is_empty() {
-        writeln!(writer, "  最新标签:     (无)")?;
-        return Ok(());
-    }
-
     for s in &states {
-        writeln!(writer, "  [{}]  {}", s.scope, s.status)?;
+        writeln!(writer, "  [{}]", s.scope)?;
+        writeln!(writer, "    状态:         {}", status_label(&s.status))?;
         writeln!(writer, "    路径:         {}", s.scope_path)?;
         match &s.current_version {
             Some(v) => writeln!(writer, "    最新标签:     {}", v)?,
@@ -161,20 +138,20 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
             Some(false) => writeln!(writer, "    版本一致:     否")?,
             None => {}
         }
+        writeln!(writer)?;
     }
 
     Ok(())
 }
 
-impl std::fmt::Display for ReleaseStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Unreleased => write!(f, "未发布"),
-            Self::Latest => write!(f, "已是最新"),
-            Self::Pending => write!(f, "待发布"),
-            Self::Inconsistent => write!(f, "版本冲突"),
-            Self::Unknown => write!(f, "状态未知"),
-        }
+/// 返回状态枚举的中文标签，用于命令行输出。
+fn status_label(status: &ReleaseStatus) -> &'static str {
+    match status {
+        ReleaseStatus::Unreleased => "未发布",
+        ReleaseStatus::Latest => "已是最新",
+        ReleaseStatus::Pending => "待发布",
+        ReleaseStatus::Inconsistent => "版本冲突",
+        ReleaseStatus::Unknown => "状态未知",
     }
 }
 
@@ -239,20 +216,6 @@ fn count_unreleased_in_submodule(submodule_path: &Path, tag: &str) -> Option<usi
         })
 }
 
-/// 检查 scope 的 CHANGELOG 文件是否包含指定版本号。
-///
-/// 返回：
-/// - `Some(true)` — 文件存在且内容包含版本号
-/// - `Some(false)` — 文件不存在或不包含版本号
-/// - `None` — 文件存在但无法读取
-fn check_changelog(path: &Path, version: &str) -> Option<bool> {
-    if !path.exists() {
-        return Some(false);
-    }
-    let content = std::fs::read_to_string(path).ok()?;
-    Some(content.contains(version))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,73 +267,6 @@ mod tests {
     // ── 测试辅助 ────────────────────────────────────────────────
 
     // ── ReleaseStatus ──────────────────────────────────────────
-
-    #[test]
-    fn test_release_status_variants() {
-        assert_ne!(ReleaseStatus::Unreleased, ReleaseStatus::Latest);
-        assert_ne!(ReleaseStatus::Latest, ReleaseStatus::Pending);
-        assert_ne!(ReleaseStatus::Pending, ReleaseStatus::Inconsistent);
-        assert_ne!(ReleaseStatus::Inconsistent, ReleaseStatus::Unknown);
-    }
-
-    #[test]
-    fn test_release_status_debug() {
-        assert_eq!(format!("{:?}", ReleaseStatus::Unreleased), "Unreleased");
-        assert_eq!(format!("{:?}", ReleaseStatus::Latest), "Latest");
-        assert_eq!(format!("{:?}", ReleaseStatus::Pending), "Pending");
-        assert_eq!(format!("{:?}", ReleaseStatus::Inconsistent), "Inconsistent");
-        assert_eq!(format!("{:?}", ReleaseStatus::Unknown), "Unknown");
-    }
-
-    // ── ReleaseState ───────────────────────────────────────────────
-
-    #[test]
-    fn test_release_state_unreleased() {
-        let state = ReleaseState {
-            status: ReleaseStatus::Unreleased,
-            scope: "cli".into(),
-            scope_path: "src/cli".into(),
-            current_version: None,
-            pending_commits: 0,
-            changelog: "CHANGELOG.md".into(),
-            version_consistent: None,
-        };
-        assert_eq!(state.status, ReleaseStatus::Unreleased);
-        assert!(state.current_version.is_none());
-        assert_eq!(state.pending_commits, 0);
-    }
-
-    #[test]
-    fn test_release_state_pending() {
-        let state = ReleaseState {
-            status: ReleaseStatus::Pending,
-            scope: "core".into(),
-            scope_path: "packages/core".into(),
-            current_version: Some("v1.2.3".into()),
-            pending_commits: 5,
-            changelog: "CHANGELOG.md".into(),
-            version_consistent: Some(true),
-        };
-        assert_eq!(state.status, ReleaseStatus::Pending);
-        assert_eq!(state.current_version.as_deref(), Some("v1.2.3"));
-        assert_eq!(state.pending_commits, 5);
-        assert_eq!(state.version_consistent, Some(true));
-    }
-
-    #[test]
-    fn test_release_state_latest() {
-        let state = ReleaseState {
-            status: ReleaseStatus::Latest,
-            scope: "(root)".into(),
-            scope_path: ".".into(),
-            current_version: Some("v5.0.0".into()),
-            pending_commits: 0,
-            changelog: "CHANGELOG.md".into(),
-            version_consistent: Some(true),
-        };
-        assert_eq!(state.status, ReleaseStatus::Latest);
-        assert_eq!(state.pending_commits, 0);
-    }
 
     fn git_init_test(path: &Path) {
         std::process::Command::new("git")
@@ -464,7 +360,11 @@ mod tests {
             .current_dir(d.path())
             .output()
             .unwrap();
-        std::fs::write(d.path().join("CHANGELOG.md"), "## v1.0.0\n\ncontent\n").unwrap();
+        std::fs::write(
+            d.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [1.0.0]\n\ncontent\n",
+        )
+        .unwrap();
 
         let mut buf = Vec::new();
         let result = status_to(&mut buf, d.path());
@@ -474,56 +374,6 @@ mod tests {
         assert!(out.contains("v1.0.0"), "应包含 tag 信息");
         assert!(out.contains("已是最新"), "CHANGELOG 一致时应为 Latest");
         assert!(out.contains("版本一致:     是"), "应显示版本一致性");
-    }
-
-    // ── check_changelog ────────────────────────────────────────────
-
-    #[test]
-    fn test_check_changelog_exists_and_contains() {
-        let d = tempfile::tempdir().unwrap();
-        std::fs::write(d.path().join("CHANGELOG.md"), "## v1.0.0\n\nfeatures\n").unwrap();
-        assert_eq!(
-            check_changelog(&d.path().join("CHANGELOG.md"), "v1.0.0"),
-            Some(true)
-        );
-    }
-
-    #[test]
-    fn test_check_changelog_exists_but_not_contains() {
-        let d = tempfile::tempdir().unwrap();
-        std::fs::write(d.path().join("CHANGELOG.md"), "## v1.0.0\n").unwrap();
-        assert_eq!(
-            check_changelog(&d.path().join("CHANGELOG.md"), "v2.0.0"),
-            Some(false)
-        );
-    }
-
-    #[test]
-    fn test_check_changelog_missing() {
-        let d = tempfile::tempdir().unwrap();
-        assert_eq!(
-            check_changelog(&d.path().join("CHANGELOG.md"), "v1.0.0"),
-            Some(false)
-        );
-    }
-
-    #[test]
-    fn test_check_changelog_unreadable() {
-        let d = tempfile::tempdir().unwrap();
-        let p = d.path().join("CHANGELOG.md");
-        std::fs::write(&p, "").unwrap();
-        // 在 Unix 上移除读权限使读取失败
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o200)).unwrap();
-            assert_eq!(check_changelog(&p, "v1.0.0"), None);
-        }
-        #[cfg(not(unix))]
-        {
-            // Windows 上权限模型不同，跳过该分支
-            assert_eq!(check_changelog(&p, "v1.0.0"), Some(false));
-        }
     }
 
     // ── Inconsistent ───────────────────────────────────────────────
@@ -563,9 +413,9 @@ mod tests {
             .output()
             .unwrap();
         // CHANGELOG 写入错误的版本号 → Inconsistent
-        std::fs::write(d.path().join("CHANGELOG.md"), "## v0.9.0\n").unwrap();
+        std::fs::write(d.path().join("CHANGELOG.md"), "# Changelog\n\n## [0.9.0]\n").unwrap();
 
-        let states = ReleaseState::collect_all(d.path());
+        let states = collect_all(d.path());
         assert_eq!(states.len(), 1);
         assert_eq!(states[0].status, ReleaseStatus::Inconsistent);
         assert_eq!(states[0].version_consistent, Some(false));
@@ -618,5 +468,284 @@ mod tests {
         assert!(result.is_ok());
         let out = String::from_utf8_lossy(&buf);
         assert!(out.contains("未发布"), "非 git 目录的 scope 应显示 未发布");
+    }
+
+    // ── status_label ──────────────────────────────────────────────
+
+    #[test]
+    fn test_status_label_all_variants() {
+        assert_eq!(status_label(&ReleaseStatus::Unreleased), "未发布");
+        assert_eq!(status_label(&ReleaseStatus::Latest), "已是最新");
+        assert_eq!(status_label(&ReleaseStatus::Pending), "待发布");
+        assert_eq!(status_label(&ReleaseStatus::Inconsistent), "版本冲突");
+        assert_eq!(status_label(&ReleaseStatus::Unknown), "状态未知");
+    }
+
+    // ── collect_all: Pending ───────────────────────────────────────
+
+    #[test]
+    fn test_collect_all_pending() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_test(d.path());
+        std::process::Command::new("git")
+            .args(["tag", "v1.0.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        // 新提交
+        std::fs::write(d.path().join("g"), "").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "post-release"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::fs::write(
+            d.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [1.0.0]\n\ncontent\n",
+        )
+        .unwrap();
+
+        let states = collect_all(d.path());
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].status, ReleaseStatus::Pending);
+        assert_eq!(states[0].pending_commits, 1);
+    }
+
+    // ── collect_all: tag 无 CHANGELOG → Inconsistent ──────────────
+
+    #[test]
+    fn test_collect_all_no_changelog() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_test(d.path());
+        std::process::Command::new("git")
+            .args(["tag", "v1.0.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        // 不创建 CHANGELOG.md
+
+        let states = collect_all(d.path());
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].status, ReleaseStatus::Inconsistent);
+        assert_eq!(states[0].version_consistent, Some(false));
+    }
+
+    // ── status() 便捷函数 ─────────────────────────────────────────
+
+    #[test]
+    fn test_status_function_does_not_panic() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_test(d.path());
+        // 无 tag，不 panic 即可
+        status(d.path());
+    }
+
+    // ── collect_all: 多 scope + Unreleased ───────────────────────
+
+    #[test]
+    fn test_collect_all_multiple_scopes() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_test(d.path());
+        // 创建第二个 scope 目录
+        std::fs::create_dir_all(d.path().join("packages/lib")).unwrap();
+        // 写 contract 配置两个 scope
+        let contract_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&contract_dir).unwrap();
+        std::fs::write(
+            contract_dir.join("contract.yaml"),
+            "scopes:\n  cli:\n    dir: .\n    language: rust\n    build_tool: cargo\n    registry: crate\n    release: {}\n  lib:\n    dir: packages/lib\n    language: rust\n    build_tool: cargo\n    registry: crate\n    release: {}\n",
+        )
+        .unwrap();
+
+        // 给 cli scope 打 tag
+        std::process::Command::new("git")
+            .args(["tag", "cli/v0.1.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::fs::write(
+            d.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [0.1.0]\n\ncontent\n",
+        )
+        .unwrap();
+
+        let states = collect_all(d.path());
+        // (root) + cli + lib = 3 个 scope
+        assert!(
+            states.iter().any(|s| s.scope == "(root)"),
+            "应包含 (root) scope"
+        );
+        // cli 有 tag → Latest, lib、root 无 tag → Unreleased
+        assert_eq!(states.len(), 3);
+        let cli = states.iter().find(|s| s.scope == "cli").unwrap();
+        assert_eq!(cli.status, ReleaseStatus::Latest);
+        let root = states.iter().find(|s| s.scope == "(root)").unwrap();
+        assert_eq!(root.status, ReleaseStatus::Unreleased);
+        let lib = states.iter().find(|s| s.scope == "lib").unwrap();
+        assert_eq!(lib.status, ReleaseStatus::Unreleased);
+        assert!(lib.current_version.is_none());
+    }
+
+    // ── status_to: Inconsistent 渲染 ──────────────────────────────
+
+    #[test]
+    fn test_status_to_with_inconsistent() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_test(d.path());
+        std::process::Command::new("git")
+            .args(["tag", "v1.0.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        // 不匹配的 CHANGELOG → Inconsistent
+        std::fs::write(
+            d.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [0.9.0]\n\nold\n",
+        )
+        .unwrap();
+
+        let mut buf = Vec::new();
+        status_to(&mut buf, d.path()).unwrap();
+        let out = String::from_utf8_lossy(&buf);
+        assert!(out.contains("版本冲突"), "Inconsistent 应显示 版本冲突");
+        assert!(out.contains("版本一致:     否"), "应显示 版本一致: 否");
+    }
+
+    // ── count_unreleased_in_dir: 子目录 scope ────────────────────
+
+    #[test]
+    fn test_collect_all_subdir_scope() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_test(d.path());
+        // scope 目录 = repo 子目录（非 git 仓库）
+        std::fs::create_dir_all(d.path().join("apps/core")).unwrap();
+        // 在该子目录中放一个文件触发 path filter
+        std::fs::write(d.path().join("apps/core/main.rs"), "fn main() {}").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "add core"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        // 注意：这个提交在 tag 之前，所以 pending_commits = 0
+        // scope 级别的 tag
+        std::process::Command::new("git")
+            .args(["tag", "core/v1.0.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        // 子目录 scope 的 CHANGELOG
+        std::fs::create_dir_all(d.path().join("apps/core")).unwrap();
+        std::fs::write(
+            d.path().join("apps/core/CHANGELOG.md"),
+            "# Changelog\n\n## [1.0.0]\n\ncontent\n",
+        )
+        .unwrap();
+
+        // 写 contract 定义 scope
+        let contract_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&contract_dir).unwrap();
+        std::fs::write(
+            contract_dir.join("contract.yaml"),
+            "scopes:\n  core:\n    dir: apps/core\n    language: rust\n    build_tool: cargo\n    registry: crate\n    release: {}\n",
+        )
+        .unwrap();
+
+        let states = collect_all(d.path());
+        let core = states.iter().find(|s| s.scope == "core").unwrap();
+        assert_eq!(core.status, ReleaseStatus::Latest);
+        assert_eq!(core.scope_path, "apps/core");
+    }
+
+    // ── CHANGELOG 解析失败 → version_consistent = None ───────────
+
+    #[test]
+    fn test_collect_all_unparseable_changelog() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_test(d.path());
+        std::process::Command::new("git")
+            .args(["tag", "v1.0.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        // 空文件 → Changelog::from_path 返回 Err
+        std::fs::write(d.path().join("CHANGELOG.md"), "").unwrap();
+
+        let states = collect_all(d.path());
+        assert_eq!(states[0].version_consistent, None);
+        // version_consistent 不确定时不降级为 Inconsistent，保持 Latest
+        assert_eq!(states[0].status, ReleaseStatus::Latest);
+    }
+
+    // ── count_unreleased_in_dir 失败 → Unknown ───────────────────
+
+    #[test]
+    fn test_collect_all_unknown() {
+        let d = tempfile::tempdir().unwrap();
+        git_init_test(d.path());
+        std::process::Command::new("git")
+            .args(["tag", "v1.0.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        // 在 scope 子目录创建空 git 仓库（有提交但无 tag）
+        std::fs::create_dir_all(d.path().join("broken-mod")).unwrap();
+        let sub_commit = std::process::Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(d.path().join("broken-mod"))
+            .output()
+            .unwrap();
+        // 在子仓库中创建一个提交
+        std::process::Command::new("git")
+            .args(["config", "user.email", "t@t"])
+            .current_dir(d.path().join("broken-mod"))
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "t"])
+            .current_dir(d.path().join("broken-mod"))
+            .output()
+            .unwrap();
+        std::fs::write(d.path().join("broken-mod/f"), "").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(d.path().join("broken-mod"))
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(d.path().join("broken-mod"))
+            .output()
+            .unwrap();
+        // 在主仓库打 scoped tag
+        std::process::Command::new("git")
+            .args(["tag", "broken/v1.0.0"])
+            .current_dir(d.path())
+            .output()
+            .unwrap();
+        // broken-mod 中有提交但没有 broken/v1.0.0 这个 tag
+        // count_unreleased_in_submodule 执行 git rev-list broken/v1.0.0..HEAD 会失败 → None → Unknown
+
+        // 写 contract 指向 broken-mod
+        let contract_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&contract_dir).unwrap();
+        std::fs::write(
+            contract_dir.join("contract.yaml"),
+            "scopes:\n  broken:\n    dir: broken-mod\n    language: rust\n    build_tool: cargo\n    registry: crate\n    release: {}\n",
+        )
+        .unwrap();
+
+        let states = collect_all(d.path());
+        let broken = states.iter().find(|s| s.scope == "broken").unwrap();
+        assert_eq!(broken.status, ReleaseStatus::Unknown);
     }
 }
