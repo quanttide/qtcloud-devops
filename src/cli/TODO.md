@@ -1,47 +1,59 @@
-# TODO — release 模块重构
+# TODO — `release/*` → `source/` 迁移 + `detect` 恢复单模块
 
-> 源自 `docs/release/refactoring-plan.md`，按阶段渐进推进。
+> 将 `release/` 内通用工具函数提升到 `source/`，之后 `detect/` 坍缩回单文件 `detect.rs`。
 
-## ~~阶段一：提取 `util.rs`（低风险，纯搬移）~~ ✅
+## 范围
 
-- [x] 创建 `release/util/mod.rs` — re-export 全部子模块
-- [x] 创建 `release/util/tag.rs`，从 `mod.rs` 搬入：`create_tag`、`delete_local_tag`、`delete_remote_tag`、`rollback_tag`、`tag_push_refspec`、`push_tag`
-- [x] 创建 `release/util/gh.rs`，从各处搬入/提取：`create_release`、`delete_release`、`view_release_body`、`check_gh_installed`
-- [x] 创建 `release/util/git.rs`，收敛分散的 git 命令调用：统一 `git()` + `git_check()` + `rev_list_count()` + `is_working_tree_dirty()` + `ref_exists()` + `is_git_repo()`
-- [x] 更新 `release/mod.rs`：保留业务函数 + re-export util
-- [x] 更新 `release/audit.rs`：改用 `util::gh::check_gh_installed` + `util::gh::view_release_body` + `util::git::is_working_tree_dirty` + `util::git::ref_exists`
-- [x] 更新 `release/status.rs`：改用 `util::git::is_git_repo` + `util::git::rev_list_count`，移除私有 `is_git_repo` 副本
-- [x] 更新 `release/detect.rs`：`git_output` 委托给 `util::git::git`
+| 来源 → 目标 | 函数 |
+|-------------|------|
+| → `source/git.rs` | `git` / `git_check` / `is_git_repo` / `rev_list_count` / `is_working_tree_dirty` / `ref_exists`（来自 `release/util/git.rs`） |
+| → `source/git.rs` | `get_changed_paths_since_last_tag`（来自 `detect/scope_util.rs`） |
+| → `source/git.rs` | `parse_commit_messages`（来自 `detect/inference.rs`） |
+| → `source/gh.rs` | `check_gh_installed` / `create_release` / `view_release_body` / `delete_release`（来自 `release/util/gh.rs`） |
+| → `source/tag.rs` | `create_tag` / `push_tag` / `rollback_tag` / `delete_local_tag` / `delete_remote_tag` / `tag_push_refspec`（来自 `release/util/tag.rs`） |
+| → `source/tag.rs` | `get_latest_tag_for_scope` / `collect_tags_with_scope` / `parse_tag` / `parse_version` / `build_version` / `apply_scope_prefix` + `VersionParts`（来自 `detect/tag_util.rs`） |
 
-## ~~阶段二：消除审计与发布的预检重复~~ ✅
+## 步骤
 
-> **注意：** `publish()` 在 changelog 生成后才检查 changelog，与 `audit()` 顺序不同，因此 publish 仍直接调用 `normalize_version` + `resolve_scope_dir`，不通过 `run_precheck`。
+### 1. 创建目标文件
 
-- [x] 抽取 `release/precheck.rs`
-- [x] 定义公共函数 `run_precheck(version, repo_path) → PrecheckResult`
-- [x] 从 `audit::audit()` 提取公共预检链 → 改用 `run_precheck`
-  ```
-  validate_version → normalize_version → resolve_scope_dir → precheck_version_changelog
-  ```
-- [x] `publish::publish()` 因 changelog 检查时机不同，仍直接调用原函数
-- [x] 为 `PrecheckResult` 写单元测试覆盖正常/异常路径（5 个测试）
+- [ ] **`source/git.rs`**：合并 `release/util/git.rs`（6 函数）+ `get_changed_paths_since_last_tag` + `parse_commit_messages`
+- [ ] **`source/gh.rs`**：搬入 `release/util/gh.rs` 全部内容
+- [ ] **`source/tag.rs`**：合并 `release/util/tag.rs` + `detect/tag_util.rs` 全部内容
 
-## ~~阶段三：拆分 `detect.rs`（~1058 行 → ~200 行/文件）~~ ✅
+### 2. 更新 `source/mod.rs`
 
-> **注意：** `get_latest_tag_for_scope` 仍通过 `pub(crate) use` 从 `detect/mod.rs` 暴露，外部引用路径不变（`super::detect::get_latest_tag_for_scope`）。
+- [ ] 添加 `pub mod git;` / `pub mod gh;` / `pub mod tag;`
 
-- [x] 将 `detect.rs` 转换为 `detect/` 子目录
-- [x] 创建 `detect/mod.rs`：`detect_version()` 入口 + `DetectError` + `DetectResult` + `git_output`
-- [x] 创建 `detect/tag_util.rs`：`parse_tag` / `parse_version` / `collect_tags_with_scope` / `get_latest_tag_for_scope` / `build_version` / `apply_scope_prefix` / `VersionParts`
-- [x] 创建 `detect/inference.rs`：`llm_decide` / `call_llm_decision` / `fallback_heuristic` / `build_version_prompt` / `build_decision_from_flags` / `parse_commit_messages` / `build_version_from_decision` / `LlmDecision`
-- [x] 创建 `detect/scope_util.rs`：`detect_project_type` / `detect_single_scope` / `get_changed_paths_since_last_tag`
-- [x] 保留私有结构体在各自文件内
-- [x] 所有测试同步迁移到对应子模块（29 + 15 + 10 = 54 个测试全部通过）
+### 3. 坍缩 `detect/` 回单文件
 
-## ~~阶段四：消除 `is_git_repo` 重复~~ ✅
+- [ ] 删除 `detect/tag_util.rs`（全部已搬至 `source/tag.rs`）
+- [ ] 删除 `detect/scope_util.rs`（`get_changed_paths` 搬至 `source/git.rs`；`detect_single_scope` + `detect_project_type` 合并入 `detect/mod.rs`）
+- [ ] `detect/inference.rs` 合并入 `detect/mod.rs`（移除了 `parse_commit_messages`）
+- [ ] `detect/mod.rs` → 提升为 `detect.rs`，删除 `detect/` 目录
+- [ ] 更新 `release/mod.rs`：`mod detect;` 不变（自动引用 `detect.rs`）
 
-> `status.rs` 中的私有 `is_git_repo` 已在之前被移除（或从未存在）。测试中的裸 `is_git_repo()` 引用已在阶段二修复为 `util::git::is_git_repo()`。生产代码（`collect_all` / `count_unreleased_in_dir`）已在使用 `util::git::is_git_repo`。
+### 4. 清理 `release/util/`
 
-- [x] `status.rs` 中无私有 `fn is_git_repo`
-- [x] 所有引用均指向 `util::git::is_git_repo`
-- [x] 测试通过验证行为不变
+- [ ] 删除 `release/util/` 整个目录
+- [ ] `release/mod.rs`：移除 `pub(crate) mod util;`
+- [ ] re-export 路径改为 `crate::source::{git,gh,tag}::xxx`
+
+### 5. 更新内部引用
+
+| 文件 | 当前 | 改为 |
+|------|------|------|
+| `release/audit.rs` | `util::gh::check_gh_installed` | `crate::source::gh::check_gh_installed` |
+| `release/audit.rs` | `util::gh::view_release_body` | `crate::source::gh::view_release_body` |
+| `release/audit.rs` | `util::git::is_working_tree_dirty` | `crate::source::git::is_working_tree_dirty` |
+| `release/audit.rs` | `util::git::ref_exists` | `crate::source::git::ref_exists` |
+| `release/status.rs` | `use super::util;` → `util::git::xxx` | `crate::source::git::xxx` |
+| `release/detect.rs` (原 `mod.rs`) | `super::util::git::git` | `crate::source::git::git` |
+| `release/detect.rs` | `tag_util::xxx` / `scope_util::xxx` / `inference::xxx` | 内部直接调用 |
+| `release/detect.rs` | `use crate::source::tag::xxx` 替代原 `tag_util::xxx` | 新增 import |
+| `release/publish.rs` | `super::delete_release` 等 | 不变（`release/mod.rs` re-export） |
+
+### 6. 验证
+
+- [ ] `cargo check` 无错误
+- [ ] `cargo test --lib` 全部通过（≥335 tests）
