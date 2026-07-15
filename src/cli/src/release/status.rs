@@ -1,52 +1,119 @@
+//! 发布状态查询
+//!
+//! 提供查看仓库当前发布状态的能力：按 scope（组件/子模块）列出最新标签和
+//! 自上次发布以来的未发布提交数，帮助开发者快速了解各模块的发布进度。
+
 use std::collections::HashMap;
 use std::path::Path;
 
 use crate::contract;
 
+/// 单个 scope 的发布状态快照。
+pub struct ReleaseStatus {
+    /// scope 名称（如 `qtcloud-core`，根 scope 为 `(root)`）。
+    pub scope: String,
+    /// 相对仓库根目录的路径。
+    pub path: String,
+    /// 该 scope 的最新 semver 标签。
+    pub latest_tag: String,
+    /// 自最新标签以来的未发布提交数。
+    pub unreleased: usize,
+}
+
+impl ReleaseStatus {
+    /// 收集仓库中所有 scope 的发布状态。
+    pub fn collect_all(repo_path: &Path) -> Vec<ReleaseStatus> {
+        let scopes_map = load_scopes_map(repo_path);
+        let latest_tags = get_latest_tags_by_scope(repo_path);
+
+        latest_tags
+            .iter()
+            .map(|(scope, tag)| {
+                let (path, scope_dir) = resolve_scope_path(repo_path, &scopes_map, scope);
+                let unreleased = count_unreleased_in_dir(repo_path, tag, &scope_dir);
+                ReleaseStatus {
+                    scope: scope.clone(),
+                    path,
+                    latest_tag: tag.clone(),
+                    unreleased,
+                }
+            })
+            .collect()
+    }
+}
+
+/// 打印发布状态到标准输出。
+///
+/// 委托给 [`status_to`]，忽略 I/O 错误。
 pub fn status(repo_path: &Path) {
     let mut stdout = std::io::stdout();
     status_to(&mut stdout, repo_path).ok();
 }
 
+/// 向指定 writer 写入发布状态报告。
+///
+/// 调用 [`ReleaseStatus::collect_all`] 获取数据后格式化输出。
+///
+/// # 输出格式
+///
+/// ```text
+/// 发布状态
+/// ────────────────────────────────────────
+///   [qtcloud-core]
+///     路径:         apps/qtcloud-core
+///     最新标签:     v2.1.0
+///     未发布提交:   3
+///   [(root)]
+///     路径:         .
+///     最新标签:     v5.0.0
+///     未发布提交:   0
+/// ```
 pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io::Result<()> {
-    let scopes_map = load_scopes_map(repo_path);
-    let latest_tags = get_latest_tags_by_scope(repo_path);
+    let statuses = ReleaseStatus::collect_all(repo_path);
 
     writeln!(writer, "发布状态")?;
     writeln!(writer, "{}", "─".repeat(40))?;
 
-    if latest_tags.is_empty() {
+    if statuses.is_empty() {
         writeln!(writer, "  最新标签:     (无)")?;
         return Ok(());
     }
 
-    for (scope, tag) in &latest_tags {
-        let scope_dir = if scope == "(root)" {
-            repo_path.to_path_buf()
-        } else {
-            match scopes_map.get(scope) {
-                Some(rel) => repo_path.join(rel),
-                None => {
-                    let d = repo_path.join(scope);
-                    if d.is_dir() { d } else { repo_path.to_path_buf() }
-                }
-            }
-        };
-
-        writeln!(writer, "  [{}]", scope)?;
-        let rel_path = scopes_map.get(scope).cloned().unwrap_or_else(|| {
-            if scope == "(root)" { ".".into() } else { scope.clone() }
-        });
-        writeln!(writer, "    路径:         {}", rel_path)?;
-        writeln!(writer, "    最新标签:     {}", tag)?;
-
-        let unreleased = count_unreleased_in_dir(repo_path, tag, &scope_dir);
-        writeln!(writer, "    未发布提交:   {}", unreleased)?;
+    for s in &statuses {
+        writeln!(writer, "  [{}]", s.scope)?;
+        writeln!(writer, "    路径:         {}", s.path)?;
+        writeln!(writer, "    最新标签:     {}", s.latest_tag)?;
+        writeln!(writer, "    未发布提交:   {}", s.unreleased)?;
     }
 
     Ok(())
 }
 
+/// 解析 scope 的相对路径和磁盘目录。
+fn resolve_scope_path(
+    repo_path: &Path,
+    scopes_map: &HashMap<String, String>,
+    scope: &str,
+) -> (String, std::path::PathBuf) {
+    if scope == "(root)" {
+        return (".".into(), repo_path.to_path_buf());
+    }
+    match scopes_map.get(scope) {
+        Some(rel) => (rel.clone(), repo_path.join(rel)),
+        None => {
+            let d = repo_path.join(scope);
+            if d.is_dir() {
+                (scope.into(), d)
+            } else {
+                (scope.into(), repo_path.to_path_buf())
+            }
+        }
+    }
+}
+
+/// 从配置文件加载 scope 名称到路径的映射。
+///
+/// 确保 `(root)` scope 始终存在，即使配置文件中未定义。
 fn load_scopes_map(repo_path: &Path) -> HashMap<String, String> {
     let mut map: HashMap<String, String> = contract::load_scopes(repo_path)
         .into_iter()
@@ -58,19 +125,39 @@ fn load_scopes_map(repo_path: &Path) -> HashMap<String, String> {
     map
 }
 
+/// 获取每个 scope 的最新 semver 标签。
+///
+/// 遍历仓库所有标签，按 `scope/version` 格式（或根 scope 的纯版本号）分组，
+/// 每组取语义版本最大的标签。返回 `(scope, 最新标签)` 列表。
 fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
-    use quanttide_devops::source::git_tag::{GixTagSource, TagSource, parse_semver_tag};
+    use quanttide_devops::source::git_tag::{parse_semver_tag, GixTagSource, TagSource};
     let source = GixTagSource::new(repo_path);
-    let all = match source.all_tags() { Ok(t) => t, Err(_) => return vec![] };
+    let all = match source.all_tags() {
+        Ok(t) => t,
+        Err(_) => return vec![],
+    };
     let mut result: Vec<(String, String)> = Vec::new();
     let mut seen: Vec<String> = Vec::new();
     for tag in &all {
-        let scope = if let Some(slash) = tag.find('/') { tag[..slash].to_string() } else { "(root)".to_string() };
-        if seen.contains(&scope) { continue; }
+        let scope = if let Some(slash) = tag.find('/') {
+            tag[..slash].to_string()
+        } else {
+            "(root)".to_string()
+        };
+        if seen.contains(&scope) {
+            continue;
+        }
         seen.push(scope.clone());
-        let latest = all.iter().filter(|t| {
-            if scope == "(root)" { !t.contains('/') } else { t.starts_with(&format!("{}/", scope)) }
-        }).max_by(|a, b| parse_semver_tag(a).cmp(&parse_semver_tag(b)));
+        let latest = all
+            .iter()
+            .filter(|t| {
+                if scope == "(root)" {
+                    !t.contains('/')
+                } else {
+                    t.starts_with(&format!("{}/", scope))
+                }
+            })
+            .max_by(|a, b| parse_semver_tag(a).cmp(&parse_semver_tag(b)));
         if let Some(t) = latest {
             result.push((scope, t.clone()));
         }
@@ -78,6 +165,11 @@ fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
     result
 }
 
+/// 统计 scope 目录中自指定标签以来的未发布提交数。
+///
+/// 如果 `scope_dir` 是独立的 git 子仓库（子模块），委托给
+/// [`count_unreleased_in_submodule`]；否则在 `repo_path` 主仓库中，
+/// 用 `git rev-list --count tag..HEAD -- scope_dir` 统计。
 fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usize {
     if is_git_repo(scope_dir) {
         return count_unreleased_in_submodule(scope_dir, tag);
@@ -106,11 +198,17 @@ fn count_unreleased_in_dir(repo_path: &Path, tag: &str, scope_dir: &Path) -> usi
         .unwrap_or(0)
 }
 
+/// 判断路径是否为 git 仓库（存在 `.git` 目录或文件）。
+///
+/// `.git` 文件表示该目录是一个 git 子模块的工作树。
 fn is_git_repo(path: &Path) -> bool {
     let git_dir = path.join(".git");
     git_dir.is_dir() || git_dir.is_file()
 }
 
+/// 统计子模块中自指定标签以来的未发布提交数。
+///
+/// 直接在子模块目录中执行 `git rev-list --count tag..HEAD`。
 fn count_unreleased_in_submodule(submodule_path: &Path, tag: &str) -> usize {
     std::process::Command::new("git")
         .args(["rev-list", "--count", &format!("{}..HEAD", tag)])
