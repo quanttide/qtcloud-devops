@@ -8,7 +8,7 @@
 /// - `doctor` — 修复格式问题（规则修复 + LLM 修复）
 use std::path::{Path, PathBuf};
 
-use quanttide_devops::source::roadmap::RoadmapVersion;
+use quanttide_devops::source::roadmap::{Roadmap, RoadmapVersion};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlanError {
@@ -129,80 +129,14 @@ pub fn doctor_file(path: &Path, scope: &str) -> Result<Vec<Issue>, PlanError> {
 
 /// 解析 ROADMAP.md，返回各版本进度列表。
 pub fn parse_roadmap(path: &Path) -> Result<Vec<RoadmapVersion>, PlanError> {
-    let content = std::fs::read_to_string(path)?;
-    parse_roadmap_str(&content)
+    let roadmap = Roadmap::from_path(path)?;
+    Ok(roadmap.versions().to_vec())
 }
 
 /// 解析 ROADMAP.md 字符串，返回各版本进度列表。
 pub fn parse_roadmap_str(s: &str) -> Result<Vec<RoadmapVersion>, PlanError> {
-    let mut versions: Vec<RoadmapVersion> = Vec::new();
-    let lines: Vec<&str> = s.lines().collect();
-    let mut i = 0;
-    let mut current_version: Option<String> = None;
-    let mut done = 0usize;
-    let mut total = 0usize;
-    let mut categories: Vec<(
-        String,
-        Vec<quanttide_devops::source::roadmap::RoadmapChecklistItem>,
-    )> = Vec::new();
-    let mut current_cat: Option<String> = None;
-    let mut cat_items: Vec<quanttide_devops::source::roadmap::RoadmapChecklistItem> = Vec::new();
-
-    while i < lines.len() {
-        let t = lines[i].trim();
-        if let Some(ver) = is_version_line(t) {
-            if let Some(v) = current_version.take() {
-                if let Some(cat) = current_cat.take() {
-                    categories.push((cat, cat_items.clone()));
-                    cat_items.clear();
-                }
-                versions.push(RoadmapVersion {
-                    version: v,
-                    status: String::new(),
-                    done,
-                    total,
-                    categories: std::mem::take(&mut categories),
-                });
-            }
-            done = 0;
-            total = 0;
-            current_version = Some(ver);
-        } else if t.starts_with("### ") && current_version.is_some() {
-            if let Some(cat) = current_cat.take() {
-                categories.push((cat, std::mem::take(&mut cat_items)));
-            }
-            current_cat = Some(t[4..].trim().to_string());
-        } else if current_version.is_some() {
-            if t.starts_with("- [x]") || t.starts_with("- [X]") {
-                total += 1;
-                done += 1;
-                cat_items.push(quanttide_devops::source::roadmap::RoadmapChecklistItem {
-                    description: t[5..].trim().to_string(),
-                    completed: true,
-                });
-            } else if t.starts_with("- [ ]") {
-                total += 1;
-                cat_items.push(quanttide_devops::source::roadmap::RoadmapChecklistItem {
-                    description: t[5..].trim().to_string(),
-                    completed: false,
-                });
-            }
-        }
-        i += 1;
-    }
-    if let Some(cat) = current_cat.take() {
-        categories.push((cat, cat_items));
-    }
-    if let Some(ver) = current_version {
-        versions.push(RoadmapVersion {
-            version: ver,
-            status: String::new(),
-            done,
-            total,
-            categories,
-        });
-    }
-    Ok(versions)
+    let roadmap = Roadmap::from_str(s)?;
+    Ok(roadmap.versions().to_vec())
 }
 
 /// 格式化输出 scope 规划进度。
@@ -246,7 +180,7 @@ fn try_print_plan_file(
     _label: &str,
     scope_label: &str,
 ) -> Result<(), PlanError> {
-    let versions = parse_roadmap(path)?;
+    let versions = parse_roadmap(path).unwrap_or_default();
     if versions.is_empty() {
         // 对于 TODO.md 空结果不是错误，跳过即可
         if _label == "TODO.md" {
@@ -937,14 +871,15 @@ mod tests {
     #[test]
     fn test_parse_empty() {
         let d = write_roadmap("");
-        let v = parse_roadmap(&d.path().join("ROADMAP.md")).unwrap();
-        assert!(v.is_empty());
+        let result = parse_roadmap(&d.path().join("ROADMAP.md"));
+        assert!(result.is_err(), "空文件应解析失败");
     }
 
     #[test]
     fn test_parse_single_version() {
         let d = write_roadmap(
-            "## [0.1.0]\n\
+            "# ROADMAP\n\
+             ## [0.1.0]\n\
              \n\
              ### Added\n\
              - [x] feature a\n\
@@ -962,7 +897,8 @@ mod tests {
     #[test]
     fn test_parse_multi_version() {
         let d = write_roadmap(
-            "## [0.2.0]\n\
+            "# ROADMAP\n\
+             ## [0.2.0]\n\
              - [x] done\n\
              - [ ] todo\n\
              \n\
@@ -982,14 +918,14 @@ mod tests {
 
     #[test]
     fn test_parse_v_prefix() {
-        let d = write_roadmap("## [v0.1.0]\n- [x] item\n");
+        let d = write_roadmap("# ROADMAP\n## [v0.1.0]\n- [x] item\n");
         let v = parse_roadmap(&d.path().join("ROADMAP.md")).unwrap();
         assert_eq!(v[0].version, "0.1.0");
     }
 
     #[test]
     fn test_parse_no_checkboxes() {
-        let d = write_roadmap("## [0.1.0]\n\njust text\n");
+        let d = write_roadmap("# ROADMAP\n## [0.1.0]\n\njust text\n");
         let v = parse_roadmap(&d.path().join("ROADMAP.md")).unwrap();
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].done, 0);
@@ -998,8 +934,7 @@ mod tests {
 
     #[test]
     fn test_parse_version_with_suffix() {
-        // `## [0.1.0] — 已发布` 应被正确识别
-        let d = write_roadmap("## [0.1.0] — 已发布\n- [x] done\n- [ ] todo\n");
+        let d = write_roadmap("# ROADMAP\n## [0.1.0] — 已发布\n- [x] done\n- [ ] todo\n");
         let v = parse_roadmap(&d.path().join("ROADMAP.md")).unwrap();
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].version, "0.1.0");
@@ -1010,7 +945,7 @@ mod tests {
     #[test]
     fn test_clean_version_with_suffix() {
         // 后缀版本头应被识别并可级联清理
-        let d = write_roadmap("## [0.1.0] — 已发布\n- [x] done\n");
+        let d = write_roadmap("# ROADMAP\n## [0.1.0] — 已发布\n- [x] done\n");
         clean_roadmap(&d.path().join("ROADMAP.md")).unwrap();
         let content = read_roadmap(d.path());
         assert!(!content.contains("0.1.0"), "空版本应被清理");
@@ -1247,7 +1182,7 @@ mod tests {
     #[test]
     fn test_print_status_unknown_headers_warns() {
         // 非标准 ## 头应触发 warning
-        let d = write_roadmap("## 现状 (Current)\n- [ ] item\n");
+        let d = write_roadmap("# ROADMAP\n## 现状 (Current)\n- [ ] item\n");
         let mut buf = Vec::new();
         print_status_to(&mut buf, d.path(), None).unwrap();
         let output = String::from_utf8_lossy(&buf);
@@ -1266,7 +1201,7 @@ mod tests {
         std::fs::create_dir_all(&scope_dir).unwrap();
         std::fs::write(
             scope_dir.join("ROADMAP.md"),
-            "## [0.1.0]\n- [x] done\n- [ ] todo\n",
+            "# ROADMAP\n## [0.1.0]\n- [x] done\n- [ ] todo\n",
         )
         .unwrap();
         let mut buf = Vec::new();
@@ -1279,7 +1214,7 @@ mod tests {
     #[test]
     fn test_print_status_with_data() {
         let d =
-            write_roadmap("## [0.2.0]\n- [x] done\n- [ ] todo\n\n## [0.1.0]\n- [x] a\n- [x] b\n");
+            write_roadmap("# ROADMAP\n## [0.2.0]\n- [x] done\n- [ ] todo\n\n## [0.1.0]\n- [x] a\n- [x] b\n");
         let mut buf = Vec::new();
         print_status_to(&mut buf, d.path(), None).unwrap();
         let output = String::from_utf8_lossy(&buf);
