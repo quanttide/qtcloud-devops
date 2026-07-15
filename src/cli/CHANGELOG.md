@@ -8,6 +8,24 @@
 
 
 
+
+## [0.10.1] - 2026-07-15
+
+### Added
+- 新增 ReleaseStatus 结构体
+- 新增 provider 样本（Go），参考 qtadmin 结构
+
+### Changed
+- 重构 release 模块：提升测试覆盖率至 99%，清理模块结构
+- 以 Display trait 替代游离的 status_label 函数
+- 规范化 prerelease 条目格式为 ### Added/Changed/Fixed
+- 更新 quanttide-devops 依赖至 0.3.3
+
+### Fixed
+- 修复 collect_git_log 正确处理库级别的 NoNewCommits 错误
+
+### Removed
+- 移除 v0.8.3 过时的 CHANGELOG 条目
 ## [0.10.0] - 2026-07-07
 
 ### Added
