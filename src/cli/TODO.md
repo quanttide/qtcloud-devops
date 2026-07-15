@@ -1,59 +1,28 @@
-# TODO — `release/*` → `source/` 迁移 + `detect` 恢复单模块
+# TODO — 重构计划
 
-> 将 `release/` 内通用工具函数提升到 `source/`，之后 `detect/` 坍缩回单文件 `detect.rs`。
+## ✅ 已完成
 
-## 范围
+- `release/* → source/` 结构迁移（commit `a252104`）
+- `release/detect/` 坍缩为单文件（`a252104`）
+- `release/util/` 删除（`a252104`）
+- `get_latest_tags_by_scope` 改用 toolkit `filter_latest_tag`（`0fddb51`）
+- `status.rs` 测试样板压缩（`0fddb51`）
+- `collect_all` 改用 `ReleaseState::new()`（`3acf66e`）
+- `status_to` 改用 toolkit `Display`（`3acf66e`）
+- `is_git_repo` 委托 toolkit（`3acf66e`）
+- `detect.rs` 测试移除无意义 git init（`3acf66e`）
 
-| 来源 → 目标 | 函数 |
-|-------------|------|
-| → `source/git.rs` | `git` / `git_check` / `is_git_repo` / `rev_list_count` / `is_working_tree_dirty` / `ref_exists`（来自 `release/util/git.rs`） |
-| → `source/git.rs` | `get_changed_paths_since_last_tag`（来自 `detect/scope_util.rs`） |
-| → `source/git.rs` | `parse_commit_messages`（来自 `detect/inference.rs`） |
-| → `source/gh.rs` | `check_gh_installed` / `create_release` / `view_release_body` / `delete_release`（来自 `release/util/gh.rs`） |
-| → `source/tag.rs` | `create_tag` / `push_tag` / `rollback_tag` / `delete_local_tag` / `delete_remote_tag` / `tag_push_refspec`（来自 `release/util/tag.rs`） |
-| → `source/tag.rs` | `get_latest_tag_for_scope` / `collect_tags_with_scope` / `parse_tag` / `parse_version` / `build_version` / `apply_scope_prefix` + `VersionParts`（来自 `detect/tag_util.rs`） |
+## 待处理
 
-## 步骤
+### P0 — 可立即动工
 
-### 1. 创建目标文件
+- [ ] `plan.rs:parse_roadmap_str`（70 行）替换为 `Roadmap::from_str`；测试输入补 `# ROADMAP` 头
+- [ ] 运行 `qtcloud-code` 扫描，消除 MUST 问题
 
-- [ ] **`source/git.rs`**：合并 `release/util/git.rs`（6 函数）+ `get_changed_paths_since_last_tag` + `parse_commit_messages`
-- [ ] **`source/gh.rs`**：搬入 `release/util/gh.rs` 全部内容
-- [ ] **`source/tag.rs`**：合并 `release/util/tag.rs` + `detect/tag_util.rs` 全部内容
+> P1 和 P2 已移至 [ROADMAP.md](./ROADMAP.md)
 
-### 2. 更新 `source/mod.rs`
+## 基线
 
-- [ ] 添加 `pub mod git;` / `pub mod gh;` / `pub mod tag;`
-
-### 3. 坍缩 `detect/` 回单文件
-
-- [ ] 删除 `detect/tag_util.rs`（全部已搬至 `source/tag.rs`）
-- [ ] 删除 `detect/scope_util.rs`（`get_changed_paths` 搬至 `source/git.rs`；`detect_single_scope` + `detect_project_type` 合并入 `detect/mod.rs`）
-- [ ] `detect/inference.rs` 合并入 `detect/mod.rs`（移除了 `parse_commit_messages`）
-- [ ] `detect/mod.rs` → 提升为 `detect.rs`，删除 `detect/` 目录
-- [ ] 更新 `release/mod.rs`：`mod detect;` 不变（自动引用 `detect.rs`）
-
-### 4. 清理 `release/util/`
-
-- [ ] 删除 `release/util/` 整个目录
-- [ ] `release/mod.rs`：移除 `pub(crate) mod util;`
-- [ ] re-export 路径改为 `crate::source::{git,gh,tag}::xxx`
-
-### 5. 更新内部引用
-
-| 文件 | 当前 | 改为 |
-|------|------|------|
-| `release/audit.rs` | `util::gh::check_gh_installed` | `crate::source::gh::check_gh_installed` |
-| `release/audit.rs` | `util::gh::view_release_body` | `crate::source::gh::view_release_body` |
-| `release/audit.rs` | `util::git::is_working_tree_dirty` | `crate::source::git::is_working_tree_dirty` |
-| `release/audit.rs` | `util::git::ref_exists` | `crate::source::git::ref_exists` |
-| `release/status.rs` | `use super::util;` → `util::git::xxx` | `crate::source::git::xxx` |
-| `release/detect.rs` (原 `mod.rs`) | `super::util::git::git` | `crate::source::git::git` |
-| `release/detect.rs` | `tag_util::xxx` / `scope_util::xxx` / `inference::xxx` | 内部直接调用 |
-| `release/detect.rs` | `use crate::source::tag::xxx` 替代原 `tag_util::xxx` | 新增 import |
-| `release/publish.rs` | `super::delete_release` 等 | 不变（`release/mod.rs` re-export） |
-
-### 6. 验证
-
-- [ ] `cargo check` 无错误
-- [ ] `cargo test --lib` 全部通过（≥335 tests）
+- 当前 CLI 代码总量：~9700 行（`find src/cli/src -name '*.rs' | xargs wc -l`）
+- 本 session 净删：-154 行（+31 / -185）
+- 剩余可压缩：估 ~800 行（P0+P1+P2 合计）
