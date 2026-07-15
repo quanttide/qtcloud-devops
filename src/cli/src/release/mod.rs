@@ -9,7 +9,7 @@ pub use changelog::ensure_changelog;
 pub use changelog::ChangelogError;
 pub use detect::DetectError;
 pub use publish::publish;
-pub use status::status;
+pub use status::{status, ReleaseState, ReleaseStatus};
 
 // ═══════════════════════════════════════════════════════════════════════
 // util (inlined)
@@ -128,6 +128,61 @@ pub fn push_tag(version: &str, repo_path: &Path) -> Result<(), String> {
     }
 }
 
+/// 从配置文件加载 scope 名称到路径的映射。
+///
+/// 确保 `(root)` scope 始终存在，即使配置文件中未定义。
+pub fn load_scopes_map(repo_path: &Path) -> std::collections::HashMap<String, String> {
+    let mut map: std::collections::HashMap<String, String> =
+        crate::contract::load_scopes(repo_path)
+            .into_iter()
+            .map(|s| (s.name, s.dir))
+            .collect();
+    if !map.contains_key("(root)") {
+        map.insert("(root)".to_string(), "".to_string());
+    }
+    map
+}
+
+/// 获取每个 scope 的最新 semver 标签。
+///
+/// 遍历仓库所有标签，按 `scope/version` 格式（或根 scope 的纯版本号）分组，
+/// 每组取语义版本最大的标签。返回 `(scope, 最新标签)` 列表。
+pub fn get_latest_tags_by_scope(repo_path: &Path) -> Vec<(String, String)> {
+    use quanttide_devops::source::git_tag::{parse_semver_tag, GixTagSource, TagSource};
+    let source = GixTagSource::new(repo_path);
+    let all = match source.all_tags() {
+        Ok(t) => t,
+        Err(_) => return vec![],
+    };
+    let mut result: Vec<(String, String)> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    for tag in &all {
+        let scope = if let Some(slash) = tag.find('/') {
+            tag[..slash].to_string()
+        } else {
+            "(root)".to_string()
+        };
+        if seen.contains(&scope) {
+            continue;
+        }
+        seen.push(scope.clone());
+        let latest = all
+            .iter()
+            .filter(|t| {
+                if scope == "(root)" {
+                    !t.contains('/')
+                } else {
+                    t.starts_with(&format!("{}/", scope))
+                }
+            })
+            .max_by(|a, b| parse_semver_tag(a).cmp(&parse_semver_tag(b)));
+        if let Some(t) = latest {
+            result.push((scope, t.clone()));
+        }
+    }
+    result
+}
+
 /// 从 version 字符串提取 scope，查契约得到子目录。
 pub fn resolve_scope_dir(version: &str, repo_path: &Path) -> std::path::PathBuf {
     let scope_name = if version.contains('/') {
@@ -163,7 +218,9 @@ pub fn get_remote_repo(repo_path: &Path) -> Option<String> {
 
 pub fn parse_github_repo(url: &str) -> Option<String> {
     let after = url.split("github.com").nth(1)?;
-    let path = after.strip_prefix('/').or_else(|| after.strip_prefix(':'))?;
+    let path = after
+        .strip_prefix('/')
+        .or_else(|| after.strip_prefix(':'))?;
     let repo = path.strip_suffix(".git").unwrap_or(path);
     if repo.is_empty() || repo.contains('/') && repo.split('/').last()?.is_empty() {
         return None;
