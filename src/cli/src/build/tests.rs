@@ -2,8 +2,6 @@
 mod tests {
     use crate::build::*;
     use crate::build::status::*;
-    use crate::build::ci::*;
-    use crate::build::check::*;
     use crate::contract;
 
     use std::path::Path;
