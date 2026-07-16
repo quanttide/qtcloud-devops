@@ -168,3 +168,10 @@
 - [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/main.rs
 - [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/contract.rs
 - [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./examples/release.rs
+
+### 架构债
+
+#### MUST
+
+- [ ] toolkit: `find_scope_by_path` 方法签名不表达路径坐标系，应改为 `find_scope_by_path(&self, repo_path: &Path, subpath: &Path)`
+- [ ] CLI: `resolve_roadmap_path` / `resolve_roadmap_dir` / `resolve_plan_dir` 三个函数重复了同一套路径解析逻辑，应合并为统一入口
