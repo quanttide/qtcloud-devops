@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use super::PublishTarget;
 use super::plan::{build_plan, print_plan, validate_plan, ReleasePlan};
-use crate::contract;
 use crate::source::changelog::write_changelog_content;
 use crate::source::git::worktree;
 
