@@ -1,14 +1,30 @@
 # CHANGELOG
 
+## [0.11.0] - unreleased
 
+### Breaking
 
+- plan status/plan clean/plan doctor scope 参数从位置参数改为 --scope 命名参数
 
+### Added
 
+- code audit --json：以 JSON 格式输出审计结果
+- plan todo-from-audit：从审计 JSON 更新 TODO.md（### 代码审计 → #### MUST/SHOULD/MAY）
+- plan roadmap-from-audit：从审计 JSON 自动生成 ROADMAP（按检查名聚合为战略目标）
+- release publish 前后各跑一次 release status，展示发布前后状态
 
+### Changed
 
+- code.rs 拆分为 code/{mod,status,audit}.rs，按子命令组织
+- collect_error_variants 提取 is_error_enum_declaration / extract_variant_name 纯函数（圈复杂度从 19 降至 ~8）
+- docs/code/audit.md 同步至当前 9 项检查 + JSON 管道说明
+- src/cli/ROADMAP.md 精简为战略级目标，细化规则与门禁对齐
 
+### Removed
 
+- src/cli/ROADMAP.md 中过细的函数级条目，移至 TODO.md
 
+# CHANGELOG
 
 ## [0.10.2] - 2026-07-15
 
