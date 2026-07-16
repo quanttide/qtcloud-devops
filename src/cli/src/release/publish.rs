@@ -32,11 +32,13 @@ pub fn publish(
     let ver = super::normalize_version(&version);
     let scope_dir = super::resolve_scope_dir(&version, repo_path);
 
-    update_config_version(&scope_dir, &ver);
+    let config_changed = update_config_version(&scope_dir, &ver);
+    if config_changed {
+        update_cargo_lock(&scope_dir);
+    }
     prepare_force_release(force, &version, repo_path);
     verify_config_consistency(&scope_dir, &ver)?;
-    update_cargo_lock(&scope_dir);
-    prepare_changelog_and_commit(repo_path, &scope_dir, &version);
+    prepare_changelog_and_commit(repo_path, &scope_dir, &version, config_changed);
     precheck_changelog(&version, &scope_dir)?;
     confirm_or_abort(yes, &version)?;
     execute_release(&version, repo_path, registry)?;
@@ -105,17 +107,25 @@ fn update_cargo_lock(scope_dir: &Path) {
     if ok { println!("✓ Cargo.lock 已同步"); }
 }
 
-fn prepare_changelog_and_commit(repo_path: &Path, scope_dir: &Path, version: &str) {
+fn prepare_changelog_and_commit(repo_path: &Path, scope_dir: &Path, version: &str, config_changed: bool) {
+    // 先 stage 配置文件（Cargo.toml / pyproject.toml）和 Cargo.lock
+    let mut staged_anything = false;
     for f in &["Cargo.toml", "pyproject.toml", "Cargo.lock"] {
         let path = scope_dir.join(f);
         if path.exists() {
             if let Ok(rel) = path.strip_prefix(repo_path) {
-                std::process::Command::new("git")
-                    .args(["add", rel.to_str().unwrap_or(f)]).current_dir(repo_path).output().ok();
+                if std::process::Command::new("git")
+                    .args(["add", rel.to_str().unwrap_or(f)]).current_dir(repo_path)
+                    .output().map(|o| o.status.success()).unwrap_or(false)
+                {
+                    staged_anything = true;
+                }
             }
         }
     }
-    match super::ensure_changelog(repo_path, scope_dir, version) {
+
+    // 处理 CHANGELOG
+    let changelog_committed = match super::ensure_changelog(repo_path, scope_dir, version) {
         Ok(Some(rel)) => {
             if std::process::Command::new("git").args(["add", &rel]).current_dir(repo_path)
                 .output().map(|o| o.status.success()).unwrap_or(false)
@@ -125,10 +135,24 @@ fn prepare_changelog_and_commit(repo_path: &Path, scope_dir: &Path, version: &st
                     .args(["commit", "-m", &format!("chore: add CHANGELOG entry for {}", ver)])
                     .current_dir(repo_path).output().ok();
                 println!("✓ CHANGELOG 修改已提交");
+                true
+            } else {
+                false
             }
         }
-        Err(e) => eprintln!("⚠ CHANGELOG 生成失败: {}\n   发布将继续，但请确保 CHANGELOG.md 包含版本 {} 的记录。", e, version),
-        _ => {}
+        Err(e) => {
+            eprintln!("⚠ CHANGELOG 生成失败: {}\n   发布将继续，但请确保 CHANGELOG.md 包含版本 {} 的记录。", e, version);
+            false
+        }
+        _ => false,
+    };
+
+    // 如果配置版本变更未随 CHANGELOG 提交，单独提交
+    if config_changed && !changelog_committed && staged_anything {
+        let ver = super::normalize_version(version);
+        std::process::Command::new("git")
+            .args(["commit", "-m", &format!("chore: bump version to {}", ver)])
+            .current_dir(repo_path).output().ok();
     }
 }
 
@@ -171,7 +195,10 @@ fn execute_release(version: &str, repo_path: &Path, registry: Option<PublishTarg
 }
 
 /// 更新 Cargo.toml / pyproject.toml 中的版本号。
-fn update_config_version(repo_path: &Path, version: &str) {
+///
+/// 返回是否有文件被实际修改。
+fn update_config_version(repo_path: &Path, version: &str) -> bool {
+    let mut changed = false;
     for filename in &["Cargo.toml", "pyproject.toml"] {
         let path = repo_path.join(filename);
         let content = match std::fs::read_to_string(&path) {
@@ -182,8 +209,10 @@ fn update_config_version(repo_path: &Path, version: &str) {
         if updated != content {
             std::fs::write(&path, &updated).ok();
             println!("✓ {} 版本已更新为 {}", filename, version);
+            changed = true;
         }
     }
+    changed
 }
 
 fn update_version_in_content(content: &str, new_ver: &str) -> String {

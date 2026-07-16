@@ -37,7 +37,16 @@ fn collect_tagged_states(repo_path: &Path, latest_tags: &[(String, String)]) -> 
             Some(n) if n > 0 => (ReleaseStatus::Pending, n),
             Some(n) => (ReleaseStatus::Latest, n),
         };
-        states.push(ReleaseState::new(status, scope.clone(), scope_path, Some(tag.clone()), pending_commits, version_consistent));
+        let mut builder = ReleaseState::builder()
+            .status(status)
+            .scope(scope.clone())
+            .scope_path(scope_path)
+            .current_version(tag.clone())
+            .pending_commits(pending_commits);
+        if let Some(vc) = version_consistent {
+            builder = builder.version_consistent(vc);
+        }
+        states.push(builder.build());
     }
     states
 }
@@ -50,11 +59,13 @@ fn collect_untagged_states(
     let mut states = Vec::new();
     for (scope, dir) in scopes_map {
         if !tagged_scopes.contains(scope.as_str()) {
-            states.push(ReleaseState::new(
-                ReleaseStatus::Unreleased, scope.clone(),
-                if scope == "(root)" { "".into() } else { dir.clone() },
-                None, 0, None,
-            ));
+            states.push(
+                ReleaseState::builder()
+                    .status(ReleaseStatus::Unreleased)
+                    .scope(scope.clone())
+                    .scope_path(if scope == "(root)" { "".to_string() } else { dir.clone() })
+                    .build(),
+            );
         }
     }
     states
