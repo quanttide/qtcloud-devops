@@ -90,6 +90,49 @@ print_report()          → 汇总输出
   ⚠ 3/9 项通过
 ```
 
-## 自举
+## JSON 输出（--json）
+
+以 JSON 格式输出审计结果，供 `plan todo-from-audit` 消费。
+
+```bash
+# 查看 JSON
+qtcloud-devops code audit --json
+
+# 管道到 plan 写入 TODO.md
+qtcloud-devops code audit --json | qtcloud-devops plan todo-from-audit
+
+# 两步操作（CI 场景）
+qtcloud-devops code audit --json > audit.json
+qtcloud-devops plan todo-from-audit < audit.json
+```
+
+JSON 结构：
+
+```json
+{
+  "source": "code-audit",
+  "source_label": "代码审计",
+  "entries": [
+    {
+      "priority": "MUST",
+      "items": [
+        { "file": "src/test.rs", "detail": "圈复杂度 19" }
+      ]
+    }
+  ]
+}
+```
+
+### 优先级分级
+
+`plan todo-from-audit` 按以下规则将检查项写入 TODO.md 的 `#### MUST` / `#### SHOULD` / `#### MAY` 子节：
+
+| 优先级 | 条件 |
+|--------|------|
+| MUST | Scope 目录缺失、语法检查失败、函数大幅超限（>80 行）、结构复杂度超标 |
+| SHOULD | 函数超限（>40 行）、API 文档缺失、导入数超标 |
+| MAY | TODO/FIXME 密度、文件长度、模块文档缺失 |
+
+多次运行幂等——已有的 `### 代码审计` 节会被整节替换，不会重复追加。
 
 `code audit` 的每次运行都是对自身的间接检查——如果一个提交把审计代码本身改得更复杂，下次运行就会检出它自己。这在 AGENTS.md 中记为经验第 7 条：**"用工具扫自己比手动挑问题更系统"**。

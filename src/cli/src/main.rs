@@ -107,6 +107,8 @@ enum PlanAction {
         /// scope 名称
         scope: Option<String>,
     },
+    /// 从审计 JSON 更新 TODO.md（从 stdin 读取 JSON）
+    TodoFromAudit,
 }
 
 #[derive(Subcommand)]
@@ -167,6 +169,9 @@ enum CodeAction {
     Audit {
         #[arg(default_value = ".")]
         path: PathBuf,
+        /// 以 JSON 格式输出（供 plan todo-from-audit 消费）
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -320,6 +325,12 @@ fn run_plan(action: PlanAction) -> Result<(), String> {
         PlanAction::Audit => {
             qtcloud_devops_cli::plan::plan_audit(&repo_path()).map_err(|e| format!("{}", e))
         }
+        PlanAction::TodoFromAudit => {
+            let input = std::io::read_to_string(std::io::stdin().lock())
+                .map_err(|e| format!("读取 stdin 失败: {}", e))?;
+            qtcloud_devops_cli::plan::todo_from_audit(&repo_path(), &input)
+                .map_err(|e| format!("{}", e))
+        }
     }
 }
 
@@ -395,9 +406,14 @@ fn run_overall_audit() -> Result<(), String> {
 fn run_code(action: CodeAction) -> Result<(), String> {
     match action {
         CodeAction::Status { path, offline } => run_code_status(path, offline),
-        CodeAction::Audit { path } => {
+        CodeAction::Audit { path, json } => {
             let root = resolve_path(&path)?;
-            qtcloud_devops_cli::code::audit(&root);
+            if json {
+                let output = qtcloud_devops_cli::code::audit_json(&root);
+                println!("{}", output);
+            } else {
+                qtcloud_devops_cli::code::audit(&root);
+            }
             Ok(())
         }
     }

@@ -6,13 +6,25 @@ use crate::contract;
 // audit — 代码质量审计
 // ═══════════════════════════════════════════════════════════════════════
 
+/// 运行审计并打印报告。
 pub fn audit(repo_path: &Path) {
-    let c = contract::load(repo_path);
+    let results = run_audit(repo_path);
+    print_report(&results);
+}
 
+/// 运行审计并以 JSON 格式输出（供 plan todo-from-audit 消费）。
+pub fn audit_json(repo_path: &Path) -> String {
+    let results = run_audit(repo_path);
+    let plan = to_audit_plan(&results);
+    serde_json::to_string_pretty(&plan).unwrap_or_default()
+}
+
+/// 运行审计，返回所有检查结果。
+pub fn run_audit(repo_path: &Path) -> Vec<RuleResult> {
+    let c = contract::load(repo_path);
     let files = walk_scope_files(&c, repo_path);
     let scanned = scan_files(&files);
-
-    let results: Vec<RuleResult> = vec![
+    vec![
         check_scope_dirs(&c, repo_path),
         check_todo_density(&scanned),
         check_fn_length(&scanned),
@@ -22,9 +34,7 @@ pub fn audit(repo_path: &Path) {
         check_file_length(&scanned),
         check_mod_doc(&scanned),
         check_lint(repo_path),
-    ];
-
-    print_report(&results);
+    ]
 }
 
 // ── 结果类型 ──────────────────────────────────────────
@@ -41,6 +51,86 @@ impl RuleResult {
     }
     fn fail(name: &'static str, details: Vec<String>) -> Self {
         Self { name, passed: false, details }
+    }
+}
+
+// ── 审计计划（JSON 输出，供 plan todo-from-audit 消费） ──
+
+/// 审计输出的 JSON 顶层结构。
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct AuditPlan {
+    pub source: String,
+    pub source_label: String,
+    pub entries: Vec<AuditPlanPriority>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct AuditPlanPriority {
+    pub priority: String,
+    pub items: Vec<AuditPlanItem>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct AuditPlanItem {
+    pub file: String,
+    pub detail: String,
+}
+
+/// 从 RuleResult 列表转换为 AuditPlan。
+fn to_audit_plan(results: &[RuleResult]) -> AuditPlan {
+    let mut must = Vec::new();
+    let mut should = Vec::new();
+    let mut may = Vec::new();
+
+    for r in results {
+        if r.passed {
+            continue;
+        }
+        for d in &r.details {
+            let (file, detail) = split_detail(d);
+            let item = AuditPlanItem { file, detail };
+            match classify_priority(r.name, d) {
+                "MUST" => must.push(item),
+                "SHOULD" => should.push(item),
+                _ => may.push(item),
+            }
+        }
+    }
+
+    let mut entries = Vec::new();
+    if !must.is_empty() { entries.push(AuditPlanPriority { priority: "MUST".to_string(), items: must }); }
+    if !should.is_empty() { entries.push(AuditPlanPriority { priority: "SHOULD".to_string(), items: should }); }
+    if !may.is_empty() { entries.push(AuditPlanPriority { priority: "MAY".to_string(), items: may }); }
+
+    AuditPlan {
+        source: "code-audit".to_string(),
+        source_label: "代码审计".to_string(),
+        entries,
+    }
+}
+
+/// 从 `file: detail` 格式中拆出 file 和 detail。若不含 `: ` 则 file 为空。
+fn split_detail(d: &str) -> (String, String) {
+    if let Some(pos) = d.find(": ") {
+        (d[..pos].to_string(), d[pos + 2..].to_string())
+    } else {
+        (String::new(), d.to_string())
+    }
+}
+
+/// 根据检查名称和详情内容判断优先级。
+fn classify_priority(check_name: &str, detail: &str) -> &'static str {
+    match check_name {
+        "Scope 目录" | "语法检查" => "MUST",
+        "函数长度" if detail.contains("大幅") => "MUST",
+        "结构复杂度" => "MUST",
+        "函数长度" => "SHOULD",
+        "API 文档覆盖率" => "SHOULD",
+        "导入数" => "SHOULD",
+        "TODO/FIXME 密度" => "MAY",
+        "文件长度" => "MAY",
+        "模块文档" => "MAY",
+        _ => "SHOULD",
     }
 }
 

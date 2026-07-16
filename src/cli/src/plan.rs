@@ -719,6 +719,52 @@ pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
     }
 }
 
+/// 从审计 JSON 更新 TODO.md。
+/// JSON 格式由 `code audit_json()` 或命令行 `--json` 输出。
+pub fn todo_from_audit(repo_path: &Path, json: &str) -> Result<(), PlanError> {
+    use crate::code::AuditPlan;
+
+    let plan: AuditPlan = serde_json::from_str(json)
+        .map_err(|e| PlanError::Other(format!("JSON 解析失败: {}", e)))?;
+    let todo_path = resolve_plan_dir(repo_path, None).join("TODO.md");
+
+    let mut content = if todo_path.exists() {
+        std::fs::read_to_string(&todo_path)?
+    } else {
+        String::new()
+    };
+
+    // 构建新节内容
+    let section_header = format!("### {}", plan.source_label);
+    let mut new_section = format!("{}\n\n", section_header);
+    for entry in &plan.entries {
+        new_section.push_str(&format!("#### {}\n\n", entry.priority));
+        for item in &entry.items {
+            new_section.push_str(&format!("- [ ] `{}`: {}\n", item.file, item.detail));
+        }
+        new_section.push('\n');
+    }
+
+    // 替换现有节或追加
+    if content.contains(&section_header) {
+        let start = content.find(&section_header).unwrap();
+        let end = content[start + 1..]
+            .find("\n### ")
+            .map(|p| start + 1 + p)
+            .unwrap_or(content.len());
+        content.replace_range(start..end, new_section.trim_end());
+    } else {
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(&new_section);
+    }
+
+    std::fs::write(&todo_path, &content)?;
+    println!("  ✓ 已更新 {}", todo_path.display());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
