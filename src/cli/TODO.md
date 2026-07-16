@@ -9,10 +9,10 @@
 - [x] `src/build.rs`: 拆分 `fn`（圈复杂度 11，78 行，嵌套 5 层）
 - [x] `src/release/detect.rs`: 拆分 `fn`（88 行，大幅超限）
 - [x] `src/release/audit.rs`: 拆分 `fn`（135 行，大幅超限，嵌套 5 层）
-- [ ] `src/release/status.rs`: 拆分 `fn`（69 行）
-- [ ] `src/release/publish.rs`: 拆分 `fn`（54 行）
-- [ ] `src/code/audit.rs`: 拆分 `scan_one`（70 行）
-- [ ] `src/source/git.rs`: 拆分 `scan_all`（嵌套 5 层）
+- [x] `src/release/status.rs`: 拆分 `fn`（69 行）
+- [x] `src/release/publish.rs`: 拆分 `fn`（54 行）
+- [x] `src/code/audit.rs`: 拆分 `scan_one`（70 行）
+- [x] `src/source/git.rs`: 拆分 `scan_all`（嵌套 5 层）
 - [ ] 提取 `source/tag.rs` 纯函数到 toolkit（`parse_version` / `build_version` / 等待 issue #6）
 
 #### SHOULD
