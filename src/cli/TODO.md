@@ -4,7 +4,7 @@
 
 #### MUST
 
-- [ ] `src/test.rs`: 拆分 `print_scope_audit` — 圈复杂度 11
+- [x] `src/test.rs`: 拆分 `print_scope_audit` — 圈复杂度 11
 - [ ] `src/plan.rs`: 拆分 `fn`（圈复杂度 15，86 行，嵌套 8 层）
 - [ ] `src/build.rs`: 拆分 `fn`（圈复杂度 11，78 行，嵌套 5 层）
 - [ ] `src/release/detect.rs`: 拆分 `fn`（88 行，大幅超限）

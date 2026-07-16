@@ -360,33 +360,51 @@ fn collect_error_variants(content: &str, enums: &mut Vec<(String, Vec<String>)>)
 /// 输出单个 scope 的审查报告。
 fn print_scope_audit(name: &str, report: &AuditReport, verbose: bool) {
     println!("\n  [{}]", name);
-    println!("    测试函数:     {}", report.total_tests);
-    if report.total_pub_fns > 0 {
-        let pure_count = report.pure_pub_fns;
-        let covered = report.tested_pub_fns.min(report.total_pub_fns);
-        let total = report.total_pub_fns;
-        let pct = if total > 0 { covered as f64 / total as f64 * 100.0 } else { 0.0 };
-        let icon = if pct >= 70.0 { "✅" } else { "⚠" };
-        println!("    函数覆盖率:   {:.0}% ({}/{}) {} (纯函数 {} 个)", pct, covered, total, icon, pure_count);
-        if verbose && !report.uncovered_fns.is_empty() {
-            println!("      未覆盖函数:");
-            for (path, kind) in &report.uncovered_fns {
-                println!("        {} [{}]", path, kind);
-            }
+    print_test_count(report.total_tests);
+    print_fn_coverage(report, verbose);
+    print_error_coverage(report, verbose);
+    print_line_coverage(report);
+}
+
+fn print_test_count(total_tests: usize) {
+    println!("    测试函数:     {}", total_tests);
+}
+
+fn print_fn_coverage(report: &AuditReport, verbose: bool) {
+    if report.total_pub_fns == 0 {
+        return;
+    }
+    let covered = report.tested_pub_fns.min(report.total_pub_fns);
+    let total = report.total_pub_fns;
+    let pct = covered as f64 / total as f64 * 100.0;
+    let icon = if pct >= 70.0 { "✅" } else { "⚠" };
+    println!("    函数覆盖率:   {:.0}% ({}/{}) {} (纯函数 {} 个)", pct, covered, total, icon, report.pure_pub_fns);
+    if verbose && !report.uncovered_fns.is_empty() {
+        println!("      未覆盖函数:");
+        for (path, kind) in &report.uncovered_fns {
+            println!("        {} [{}]", path, kind);
         }
     }
-    if report.error_variants > 0 {
-        let pct = if report.error_variants > 0 { report.tested_variants as f64 / report.error_variants as f64 * 100.0 } else { 100.0 };
-        let icon = if pct >= 80.0 { "✅" } else { "⚠" };
-        println!("    错误变体覆盖: {:.0}% ({}/{}) {}", pct, report.tested_variants, report.error_variants, icon);
-        if verbose && !report.uncovered_variants.is_empty() {
-            println!("      未覆盖: {}", report.uncovered_variants.join(", "));
-        }
+}
+
+fn print_error_coverage(report: &AuditReport, verbose: bool) {
+    if report.error_variants == 0 {
+        return;
     }
-    if report.coverage_pct > 0.0 {
-        let icon = if report.coverage_pct >= report.coverage_threshold { "✅" } else { "⚠" };
-        println!("    行覆盖率:     {:.1}% (阈值 {}%) {}", report.coverage_pct, report.coverage_threshold, icon);
+    let pct = report.tested_variants as f64 / report.error_variants as f64 * 100.0;
+    let icon = if pct >= 80.0 { "✅" } else { "⚠" };
+    println!("    错误变体覆盖: {:.0}% ({}/{}) {}", pct, report.tested_variants, report.error_variants, icon);
+    if verbose && !report.uncovered_variants.is_empty() {
+        println!("      未覆盖: {}", report.uncovered_variants.join(", "));
     }
+}
+
+fn print_line_coverage(report: &AuditReport) {
+    if report.coverage_pct <= 0.0 {
+        return;
+    }
+    let icon = if report.coverage_pct >= report.coverage_threshold { "✅" } else { "⚠" };
+    println!("    行覆盖率:     {:.1}% (阈值 {}%) {}", report.coverage_pct, report.coverage_threshold, icon);
 }
 
 /// 在 Docker 容器中运行测试和覆盖率。
