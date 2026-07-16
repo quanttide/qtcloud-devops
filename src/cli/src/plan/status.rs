@@ -20,7 +20,9 @@ pub fn resolve_roadmap_path(repo_path: &Path, scope: Option<&str>) -> PathBuf {
         _ => {
             // 省略 scope → 找当前目录所属 scope
             let current_dir = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
-            if let Some(s) = c.find_scope_by_path(&current_dir) {
+            // 相对化 current_dir，find_scope_by_path 用 scope.dir（相对路径）做 starts_with
+            let relative = current_dir.strip_prefix(repo_path).unwrap_or(&current_dir);
+            if let Some(s) = c.find_scope_by_path(relative) {
                 repo_path.join(&s.dir).join("ROADMAP.md")
             } else {
                 repo_path.join("ROADMAP.md")
@@ -46,7 +48,8 @@ pub fn resolve_roadmap_dir(repo_path: &Path, scope: Option<&str>) -> PathBuf {
         }
         _ => {
             let current_dir = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
-            if let Some(s) = c.find_scope_by_path(&current_dir) {
+            let relative = current_dir.strip_prefix(repo_path).unwrap_or(&current_dir);
+            if let Some(s) = c.find_scope_by_path(relative) {
                 repo_path.join(&s.dir)
             } else {
                 repo_path.to_path_buf()
