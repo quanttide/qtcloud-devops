@@ -5,11 +5,15 @@
 //! - [`status`] — 工作区状态（`is_working_tree_dirty`）
 //! - [`log`] — 提交历史（`rev_list_count`、`parse_commit_messages`）
 //! - [`diff`] — 变更查询（`get_changed_paths_since_last_tag`）
+//! - [`submodule`] — 子模块扫描（`RepoState`、`SubmoduleStatus`）
+//! - [`tag`] — 标签操作（`create_tag`、`parse_tag`、`collect_tags_with_scope`）
 
 pub mod diff;
 pub mod log;
 pub mod repo;
 pub mod status;
+pub mod submodule;
+pub mod tag;
 
 use std::path::Path;
 

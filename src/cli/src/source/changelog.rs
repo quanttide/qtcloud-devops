@@ -47,10 +47,10 @@ fn collect_git_log(repo_path: &Path) -> Result<String, ChangelogError> {
 
 fn get_latest_tag(repo_path: &Path) -> Option<String> {
     // 尝试所有 scope，取最新 tag（raw）
-    use quanttide_devops::source::git_tag::{GixTagSource, TagSource};
+    use quanttide_devops::source::git::tag::{GixTagSource, TagSource};
     let source = GixTagSource::new(repo_path);
     let all = source.all_tags().ok()?;
-    let by_semver = |t: &str| quanttide_devops::source::git_tag::parse_semver_tag(t);
+    let by_semver = |t: &str| quanttide_devops::source::git::tag::parse_semver_tag(t);
     all.iter()
         .max_by(|a, b| by_semver(a).cmp(&by_semver(b)))
         .cloned()

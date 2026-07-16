@@ -3,13 +3,13 @@ use std::path::Path;
 
 pub fn get_latest_tag_for_scope(root: &Path, scope: Option<&str>) -> Option<String> {
     let scope_name = scope.unwrap_or("");
-    quanttide_devops::source::git_tag::latest_tag(root, scope_name)
+    quanttide_devops::source::git::tag::latest_tag(root, scope_name)
         .ok()
         .flatten()
 }
 
 pub fn collect_tags_with_scope(root: &Path) -> HashMap<String, Vec<String>> {
-    use quanttide_devops::source::git_tag::{parse_semver_tag, GixTagSource, TagSource};
+    use quanttide_devops::source::git::tag::{parse_semver_tag, GixTagSource, TagSource};
     let source = GixTagSource::new(root);
     let all = match source.all_tags() {
         Ok(t) => t,

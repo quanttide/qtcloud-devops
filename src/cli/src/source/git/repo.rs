@@ -2,7 +2,7 @@ use std::path::Path;
 
 /// 检查路径是否为 git 仓库。
 pub fn is_git_repo(path: &Path) -> bool {
-    quanttide_devops::source::git_repo::is_git_repo(path)
+    quanttide_devops::source::git::repo::is_git_repo(path)
 }
 
 /// 检查指定 ref 是否存在（如 tag、branch）。

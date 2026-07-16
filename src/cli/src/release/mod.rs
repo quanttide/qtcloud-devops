@@ -20,7 +20,7 @@ pub use crate::source::git_tag::{create_tag, delete_local_tag, delete_remote_tag
 // 业务逻辑（保留在 mod.rs）
 // ═══════════════════════════════════════════════════════════════════════
 
-use quanttide_devops::source::git_tag::{filter_latest_tag, filter_tags_by_scope, GixTagSource, TagSource};
+use quanttide_devops::source::git::tag::{filter_latest_tag, filter_tags_by_scope, GixTagSource, TagSource};
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
