@@ -23,3 +23,9 @@ AST 级分析（圈复杂度、长函数、未用变量等）归 `qtcloud-code r
 原因：`git2` 缺少 credential callback 配置，连接 GitHub HTTPS 时会报 "authentication required but no callback set"。系统 `git` 命令使用用户已配置的 credential helper（如 `gh auth setup-git`），不存在此问题。
 
 `git2` 的使用范围：仅限纯本地操作（读配置、查日志、创建本地 tag、rev-parse 等）。
+
+### scope 路径查找要保持坐标系一致
+
+`find_scope_by_path` 的 `current_dir` 参数用 `starts_with` 与相对路径 `scope.dir` 匹配，所以它**要求相对路径**。调用方若传绝对路径（`std::env::current_dir()`），匹配会静默失效，导致 `resolve_roadmap_path` fallback 到默认路径（`repo_path/ROADMAP.md`），与真实 ROADMAP.md 分处不同目录。
+
+结论：**Contract 层的路径方法必须显式标注坐标参考系**，或要求调用方同时提供 `repo_path` 和 `subpath`。消费侧（plan 模块）不应自建路径解析逻辑，应通过统一入口查询「当前目录所属 scope 的规划目录」。
