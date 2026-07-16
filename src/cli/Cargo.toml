@@ -19,7 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-gix = { version = "0.66", features = ["default", "serde"] }
+gix = { version = "0.69", features = ["default", "serde"] }
 git2 = "0.19"
 quanttide-devops = { path = "../../../../packages/quanttide-devops-toolkit/packages/rust" }
 serde = { version = "1", features = ["derive"] }

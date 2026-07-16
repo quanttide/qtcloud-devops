@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::source::git::submodule::{RepoState, SubmoduleStatus};
+use crate::source::git::submodule::{RepoState, SubmoduleStatus, scan_repo_state, scan_repo_state_offline};
 
 // ═══════════════════════════════════════════════════════════════════════
 // 模型
@@ -57,9 +57,9 @@ fn map_status(s: &SubmoduleStatus) -> SyncStatus {
 
 pub fn status(root: PathBuf, offline: bool) -> Result<StatusReport, Box<dyn std::error::Error>> {
     let state = if offline {
-        RepoState::scan_offline(&root)
+        scan_repo_state_offline(&root)
     } else {
-        RepoState::scan(&root)
+        scan_repo_state(&root)
     }?;
     let mut components = Vec::with_capacity(state.submodules.len());
     for sm in &state.submodules {
