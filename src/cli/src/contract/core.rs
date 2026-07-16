@@ -1,22 +1,10 @@
-/// 契约模块 — 适配层，委托给 `quanttide-devops` toolkit。
-pub use quanttide_devops::contract::{
-    check_version_consistency, load_or_default, normalize_version, validate_version,
-    verify_version, BuildTool, Contract, ContractError, Language, Pipeline, Platform, Registry,
-    Scope, SourceControl, Stage, StageBuild, StageRelease, StageTest, VersionState,
-};
-pub use quanttide_devops::source::config_file::{
-    detect_languages, read_config_versions,
-};
-
 use std::path::Path;
+
+pub use quanttide_devops::contract::{Contract, ContractError, load_or_default};
 
 /// 加载契约。有 `contract.yaml` 则解析，无则自动推测。
 pub fn load(repo_path: &Path) -> Contract {
     load_or_default(repo_path)
-}
-
-pub fn detect_by_files(dir: &Path) -> Language {
-    detect_languages(dir).into_iter().next().unwrap_or(Language::Unknown(String::new()))
 }
 
 /// 显示当前契约的完整状态。
@@ -27,9 +15,9 @@ pub fn status(repo_path: &Path) {
 
 /// 写入指定 writer 的版本（可测试）。
 pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io::Result<()> {
+    let c = load(repo_path);
     let contract_path = repo_path.join(".quanttide/devops/contract.yaml");
     let exists = contract_path.exists();
-    let c = load(repo_path);
 
     let status = if exists {
         "✅ 已加载"
@@ -78,7 +66,7 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
             ));
         }
     }
-    let langs = detect_languages(repo_path);
+    let langs = crate::contract::detect_languages(repo_path);
     if !langs.is_empty() {
         o.push_str(&format!(
             "\n  语言:      {}\n",
@@ -98,29 +86,6 @@ mod tests {
 
     fn tmpdir() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
-    }
-
-    #[test]
-    fn test_detect_by_files_empty_dir() {
-        let d = tmpdir();
-        let lang = detect_by_files(d.path());
-        assert!(matches!(lang, Language::Unknown(_)));
-    }
-
-    #[test]
-    fn test_detect_by_files_cargo_toml() {
-        let d = tmpdir();
-        std::fs::write(d.path().join("Cargo.toml"), "").unwrap();
-        let lang = detect_by_files(d.path());
-        assert_eq!(lang.as_str(), "rust");
-    }
-
-    #[test]
-    fn test_detect_by_files_python() {
-        let d = tmpdir();
-        std::fs::write(d.path().join("pyproject.toml"), "").unwrap();
-        let lang = detect_by_files(d.path());
-        assert_eq!(lang.as_str(), "python");
     }
 
     #[test]

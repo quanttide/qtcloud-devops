@@ -1,177 +1,32 @@
 ## TODO
 
-### 代码审计
+### 架构债
+
+依赖方向：`source / platform → contract → plan / test / release / build / code`
 
 #### MUST
 
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./tests/release.rs`: `test_release_publish_scoped_monorepo()` 83 行（大幅超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/publish.rs`: 嵌套深度 5 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/audit.rs`: 嵌套深度 5 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/clean.rs`: 嵌套深度 5 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/audit.rs`: 嵌套深度 7 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/status.rs`: 嵌套深度 8 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/code/status.rs`: 嵌套深度 5 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs`: 嵌套深度 5 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/roadmap.rs`: 嵌套深度 5 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/mod.rs`: 嵌套深度 6 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/tag.rs`: 嵌套深度 5 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/run.rs`: 嵌套深度 5 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/coverage.rs`: 嵌套深度 6 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/audit.rs`: 嵌套深度 5 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/tests.rs`: 嵌套深度 5 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/summary.rs`: 嵌套深度 6 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/main.rs`: 嵌套深度 5 层
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/audit.rs`: `evaluate_gates(mut` 圈复杂度 36
-- [ ] `cargo check`: ✅
-- [ ] `uv check`: ❌
+- [ ] `src/source/changelog.rs` → `crate::release::normalize_version`：反向依赖。
+      source 层不应依赖 release 层。`normalize_version` 是 contract 定义的标准，
+      应改为 `crate::contract::normalize_version`，直接调用 contract 而非 release 的薄包装。
+- [ ] `src/source/mod.rs` → `crate::contract`：`detect_used_languages()` 读取 contract 来确定
+      需要检查哪些语言/工具链。这是系统诊断功能，不属于 source 层的实现逻辑。
+      做法：将 `detect_used_languages()` 和配套的 `build_tool_status_header()`、
+      `build_language_sections()` 从 source/mod.rs 提取到独立的 `diagnostics` 模块或 main.rs。
+- [ ] `src/release/mod.rs` 内联 contract 薄包装：`validate_version()`、`normalize_version()`、
+      `precheck_version_changelog()`、`extract_notes()`、`confirm_release()`、`parse_github_repo()` ——
+      这些要么是 contract 定义的规范（version），要么是 platform 的实现（github），不应放在 release 里。
 
 #### SHOULD
 
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./tests/code.rs`: `setup_repo_with_submodule(tmp:` 71 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./tests/mock.rs`: `test_test_run_multiple_scopes()` 42 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./tests/mock.rs`: `test_test_run_scoped_by_cwd()` 54 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./tests/cli.rs`: `test_cli_publish_auto_generates_changelog()` 41 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./tests/cli.rs`: `test_cli_publish_gh_not_found_err_path()` 56 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/detect.rs`: `build_version_prompt(` 55 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/detect.rs`: `build_decision_from_flags(` 52 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/publish.rs`: `test_publish_scoped_version_with_contract()` 45 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/audit.rs`: `audit_github_release(` 58 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/audit.rs`: `test_detect_candidate_with_existing_tag()` 41 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/status.rs`: `test_collect_all_multiple_scopes()` 46 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/status.rs`: `test_collect_all_subdir_scope()` 50 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/status.rs`: `test_collect_all_unknown()` 60 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/build/mod.rs`: `fn` 42 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/build/status.rs`: `fn` 41 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/from_audit.rs`: `fn` 46 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/from_audit.rs`: `fn` 70 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/audit.rs`: `fn` 54 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/status.rs`: `try_print_plan_file(` 52 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/status.rs`: `print_progress(` 41 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/code/audit.rs`: `classify_priority(check_name:` 46 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/code/status.rs`: `test_status_report_counts()` 41 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs`: `fn` 51 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs`: `scan_with_options(root:` 60 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs`: `scan_single_submodule(` 56 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs`: `test_scan_with_behind_remote()` 53 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/changelog.rs`: `fn` 46 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/mod.rs`: `build_language_sections(used_langs:` 58 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/run.rs`: `run_direct(repo_path:` 54 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/coverage.rs`: `fn` 47 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/audit.rs`: `fn` 44 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/audit.rs`: `fn` 60 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/tests.rs`: `test_scope_filter_large_contract()` 50 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/contract.rs`: `fn` 70 行（超限）
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/mod.rs`: `validate_version(version:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/mod.rs`: `normalize_version(version:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/mod.rs`: `precheck_version_changelog(version:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/mod.rs`: `extract_notes(version:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/mod.rs`: `confirm_release(version:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/mod.rs`: `parse_github_repo(url:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/precheck.rs`: `changelog_ok(&self)`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/build/status.rs`: `status_to(writer:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/build/status.rs`: `check_args(lang:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/from_audit.rs`: `todo_from_audit(repo_path:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/clean.rs`: `clean_done_items(path:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/doctor.rs`: `edit_roadmap(path:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/doctor.rs`: `doctor_file(path:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/status.rs`: `resolve_roadmap_path(repo_path:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/code/status.rs`: `label(&self)`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/code/status.rs`: `status(root:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs`: `priority(&self)`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs`: `from_submodules(submodules:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs`: `describe_issue(status:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs`: `scan(root:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs`: `scan_offline(root:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs`: `scan_all(`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/roadmap.rs`: `rule_nonstandard_header(trimmed:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/roadmap.rs`: `rule_nonstandard_category(trimmed:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/roadmap.rs`: `rule_v_prefix(trimmed:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/roadmap.rs`: `rule_category_case(trimmed:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/roadmap.rs`: `rule_checkbox_format(trimmed:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/changelog.rs`: `ensure_changelog(`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/tag.rs`: `get_latest_tag_for_scope(root:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/tag.rs`: `collect_tags_with_scope(root:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/tag.rs`: `parse_tag(tag:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/tag.rs`: `parse_version(s:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/tag.rs`: `build_version(parts:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/tag.rs`: `apply_scope_prefix(scope:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/run.rs`: `coverage_command(lang:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/mod.rs`: `met(&self)`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/mod.rs`: `is_io_fn(name:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/status.rs`: `print_scope_status(`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/summary.rs`: `parse_test_summary(content:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/contract.rs`: `load_scopes(repo_path:`
-- [ ] `/home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/contract.rs`: `detect_by_files(dir:`
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./tests/mock.rs (716 行)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/detect.rs (707 行)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/status.rs (529 行)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/code/audit.rs (818 行)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs (1279 行)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/tag.rs (619 行)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/tests.rs (722 行)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/main.rs (527 行)
+- [ ] `src/release/detect.rs`（707 行）：scope 版本探测逻辑和 release 决策逻辑深度耦合。
+      应考虑按"版本探测"和"发布决策"拆分。
+- [ ] `src/code/audit.rs`（818 行）：代码审计逻辑过长，应按审计规则拆分。
+- [ ] `tests/mock.rs`（716 行）：测试基础设施过长，应按领域拆分。
+- [ ] `src/release/status.rs`（529 行）：状态展示和 release 数据收集耦合在一起。
+- [ ] `src/test/tests.rs`（722 行）：测试用例过长，应按被测试模块拆分。
+- [ ] `src/main.rs`（527 行）：CLI 入口过长，子命令逻辑应继续拆分。
 
 #### MAY
 
-- [ ] ``: 118 处, 密度 9.5‰（阈值 5‰）
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./tests/cli.rs (12 处)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/from_audit.rs (7 处)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/mod.rs (3 处)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/doctor.rs (5 处)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/audit.rs (32 处)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/tests.rs (13 处)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/status.rs (5 处)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/code/audit.rs (30 处)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/roadmap.rs (1 处)
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/main.rs (10 处)
-- [ ] ``: 43/45 文件缺少 //!（覆盖率 4%）
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./packages/python/qtcloud_devops_cli/__init__.py
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./tests/release.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./tests/code.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./tests/cli.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./build.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/detect.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/mod.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/precheck.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/publish.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/release/audit.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/build/mod.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/build/clean.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/build/audit.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/build/tests.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/build/status.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/from_audit.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/mod.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/clean.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/doctor.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/audit.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/tests.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/plan/status.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/code/mod.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/code/audit.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/code/status.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/git.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/roadmap.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/changelog.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/mod.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/tag.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/source/gh.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/run.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/coverage.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/mod.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/audit.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/tests.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/status.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/test/summary.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/lib.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/python.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/main.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./src/contract.rs
-- [ ] ``: /home/iguo/repos/quanttide/domains/quanttide-devops/apps/qtcloud-devops/src/cli/./examples/release.rs
-
-### 架构债
-
-#### MUST
-
-- [x] toolkit: `find_scope_by_path` 方法签名不表达路径坐标系，应改为 `find_scope_by_path(&self, repo_path: &Path, subpath: &Path)`
-- [x] CLI: `resolve_roadmap_path` / `resolve_roadmap_dir` / `resolve_plan_dir` 三个函数重复了同一套路径解析逻辑，应合并为统一入口
+- [ ] 43/45 文件缺少 `//!` 模块文档（覆盖率 4%）
