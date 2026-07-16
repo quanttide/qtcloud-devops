@@ -277,10 +277,17 @@ fn run_test(action: TestAction) -> Result<(), String> {
 fn run_release(action: ReleaseAction) -> Result<(), String> {
     match action {
         ReleaseAction::Audit { version, scope } => run_release_audit(version, scope),
-        ReleaseAction::Publish { version, yes, force, dry_run, registry } =>
-            qtcloud_devops_cli::release::publish(
-                version.as_deref(), &repo_path(), yes, force, dry_run, registry,
-            ).map_err(|e| format!("{}", e)),
+        ReleaseAction::Publish { version, yes, force, dry_run, registry } => {
+            let rp = repo_path();
+            qtcloud_devops_cli::release::status(&rp);
+            println!();
+            let result = qtcloud_devops_cli::release::publish(
+                version.as_deref(), &rp, yes, force, dry_run, registry,
+            );
+            println!();
+            qtcloud_devops_cli::release::status(&rp);
+            result.map_err(|e| format!("{}", e))
+        }
         ReleaseAction::Status => { qtcloud_devops_cli::release::status(&repo_path()); Ok(()) }
     }
 }
