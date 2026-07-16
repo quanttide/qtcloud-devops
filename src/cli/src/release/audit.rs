@@ -126,133 +126,95 @@ fn audit_github_release(
 /// 发布预检审计：不执行任何实际发布操作，仅检查是否具备发布条件。
 pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, String> {
     let mut items: Vec<AuditItem> = Vec::new();
-
-    // ── 1. 版本号格式 ──────────────────────────────────────────────
-    let version = match version {
-        Some(v) => {
-            let ok = super::validate_version(v);
-            items.push(AuditItem {
-                name: "版本号格式",
-                passed: ok,
-                detail: if ok {
-                    v.to_string()
-                } else {
-                    format!("无效: {}", v)
-                },
-            });
-            if !ok {
-                return Ok(items);
-            }
-            v.to_string()
-        }
-        None => match super::detect::detect_version(repo_path) {
-            Ok(result) => {
-                items.push(AuditItem {
-                    name: "版本号检测",
-                    passed: true,
-                    detail: result.version.clone(),
-                });
-                result.version
-            }
-            Err(e) => {
-                items.push(AuditItem {
-                    name: "版本号检测",
-                    passed: false,
-                    detail: format!("自动检测失败: {}", e),
-                });
-                return Ok(items);
-            }
-        },
+    let version = match resolve_or_detect_version(version, repo_path, &mut items) {
+        Ok(v) => v,
+        Err(_) => return Ok(items),
     };
 
     let pre = super::run_precheck(&version, repo_path);
     let ver = &pre.normalized;
     let scope_dir = &pre.scope_dir;
 
-    // ── 2. 配置文件版本一致性 ─────────────────────────────────────
+    items.push(check_config_consistency(scope_dir, ver));
+    items.push(check_changelog(&pre, ver));
+    items.push(check_workspace(repo_path));
+
+    let tag_exists = crate::source::git::ref_exists(repo_path, &format!("refs/tags/{}", version));
+    items.push(check_tag_conflict(&version, tag_exists));
+
+    let remote_name = super::get_remote_repo(repo_path);
+    items.push(check_remote(remote_name.as_deref()));
+
+    audit_github_release(&mut items, tag_exists, remote_name.as_deref(), &version, &pre.changelog_path);
+
+    Ok(items)
+}
+
+fn resolve_or_detect_version(version: Option<&str>, repo_path: &Path, items: &mut Vec<AuditItem>) -> Result<String, String> {
+    match version {
+        Some(v) => {
+            let ok = super::validate_version(v);
+            items.push(AuditItem { name: "版本号格式", passed: ok, detail: if ok { v.to_string() } else { format!("无效: {}", v) } });
+            if ok { Ok(v.to_string()) } else { Err("版本号无效".into()) }
+        }
+        None => match super::detect::detect_version(repo_path) {
+            Ok(result) => {
+                items.push(AuditItem { name: "版本号检测", passed: true, detail: result.version.clone() });
+                Ok(result.version)
+            }
+            Err(e) => {
+                items.push(AuditItem { name: "版本号检测", passed: false, detail: format!("自动检测失败: {}", e) });
+                Err("版本号检测失败".into())
+            }
+        },
+    }
+}
+
+fn check_config_consistency(scope_dir: &Path, ver: &str) -> AuditItem {
     let config_files = contract::read_config_versions(scope_dir);
-    let inconsistent: Vec<&(String, Option<String>)> = config_files
-        .iter()
-        .filter(|(_, v)| match v {
-            Some(cv) => cv != ver,
-            None => false,
-        })
-        .collect();
-    items.push(AuditItem {
+    let inconsistent: Vec<_> = config_files.iter().filter(|(_, v)| match v { Some(cv) => cv != ver, None => false }).collect();
+    AuditItem {
         name: "配置文件一致性",
         passed: inconsistent.is_empty(),
         detail: if inconsistent.is_empty() {
             format!("{} 个文件版本均为 {}", config_files.len(), ver)
         } else {
-            format!(
-                "不一致: {}",
-                inconsistent
-                    .iter()
-                    .map(|(f, v)| format!("{} = {}", f, v.as_deref().unwrap_or("?")))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
+            format!("不一致: {}", inconsistent.iter().map(|(f, v)| format!("{} = {}", f, v.as_deref().unwrap_or("?"))).collect::<Vec<_>>().join(", "))
         },
-    });
+    }
+}
 
-    // ── 3. CHANGELOG ──────────────────────────────────────────────
-    let changelog_errors = &pre.changelog_errors;
-    let changelog_path = &pre.changelog_path;
-    items.push(AuditItem {
+fn check_changelog(pre: &super::precheck::PrecheckResult, ver: &str) -> AuditItem {
+    AuditItem {
         name: "CHANGELOG",
-        passed: changelog_errors.is_empty(),
-        detail: if changelog_errors.is_empty() {
-            format!("包含 {} 条目", ver)
-        } else {
-            changelog_errors.join("; ")
-        },
-    });
+        passed: pre.changelog_errors.is_empty(),
+        detail: if pre.changelog_errors.is_empty() { format!("包含 {} 条目", ver) } else { pre.changelog_errors.join("; ") },
+    }
+}
 
-    // ── 4. 工作区干净 ─────────────────────────────────────────────
+fn check_workspace(repo_path: &Path) -> AuditItem {
     let dirty = crate::source::git::is_working_tree_dirty(repo_path);
-    items.push(AuditItem {
+    AuditItem {
         name: "工作区状态",
         passed: !dirty,
-        detail: if dirty {
-            "有未提交变更".into()
-        } else {
-            "干净".into()
-        },
-    });
+        detail: if dirty { "有未提交变更".into() } else { "干净".into() },
+    }
+}
 
-    // ── 5. 本地 tag 不存在 ─────────────────────────────────────────
-    let tag_exists = crate::source::git::ref_exists(repo_path, &format!("refs/tags/{}", version));
-    items.push(AuditItem {
+fn check_tag_conflict(version: &str, tag_exists: bool) -> AuditItem {
+    AuditItem {
         name: "标签冲突",
         passed: !tag_exists,
-        detail: if tag_exists {
-            format!("{} 已存在", version)
-        } else {
-            format!("{} 可用", version)
-        },
-    });
+        detail: if tag_exists { format!("{} 已存在", version) } else { format!("{} 可用", version) },
+    }
+}
 
-    // ── 6. 远程可达性 ─────────────────────────────────────────────
-    let remote_name = super::get_remote_repo(repo_path);
-    items.push(AuditItem {
+fn check_remote(remote_name: Option<&str>) -> AuditItem {
+    AuditItem {
         name: "远程仓库",
         passed: remote_name.is_some(),
-        detail: if let Some(ref r) = remote_name {
-            format!("origin ({})", r)
-        } else {
-            "未配置 origin".into()
-        },
-    });
-
-    audit_github_release(
-        &mut items,
-        tag_exists,
-        remote_name.as_deref(),
-        &version,
-        changelog_path,
-    );
-
-    Ok(items)
+        detail: if let Some(r) = remote_name { format!("origin ({})", r) } else { "未配置 origin".into() },
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use quanttide_agent::Settings;
 
@@ -33,22 +33,49 @@ fn git_output(args: &[&str], repo_path: &Path) -> Result<String, DetectError> {
 
 /// 主入口。
 pub fn detect_version(repo_path: &Path) -> Result<DetectResult, DetectError> {
-    let root = git_output(&["rev-parse", "--show-toplevel"], repo_path)
-        .map_err(|_| DetectError::Other(format!("不在 git 仓库中: {:?}", repo_path)))?;
-    let root = Path::new(&root);
-
-    let project_type = detect_project_type(root);
+    let root = resolve_git_root(repo_path)?;
+    let project_type = detect_project_type(&root);
     println!("📌 项目类型: {}", project_type);
 
-    let scope = detect_single_scope(root)?;
+    let scope = detect_single_scope(&root)?;
     println!("📌 scope: {:?}", scope);
 
-    let latest_tag = crate::source::tag::get_latest_tag_for_scope(root, scope.as_deref());
-    let (has_tag, major, minor, patch, pre_stage, pre_num) = match latest_tag {
-        Some(ref tag) => {
+    let latest_tag = crate::source::tag::get_latest_tag_for_scope(&root, scope.as_deref());
+    let (has_tag, major, minor, patch, pre_stage, pre_num) = parse_and_print_tag(latest_tag.as_ref());
+
+    if has_tag && !has_new_commits_since_tag(&root, latest_tag.as_ref().unwrap()) {
+        return Err(DetectError::Other("上次标签后没有新提交".into()));
+    }
+
+    let commits = collect_commit_messages(&root, latest_tag.as_ref());
+    if commits.is_empty() {
+        return Err(DetectError::Other("没有提交记录".into()));
+    }
+
+    let llm_tag = latest_tag.as_deref().unwrap_or("(新项目，无版本标签)");
+    let decision = llm_decide(&commits, llm_tag, project_type, scope.as_deref().unwrap_or("(root)"))?;
+    println!("🧠 LLM 决策: {}", decision.reason);
+
+    let new_version = build_version_from_decision(has_tag, &crate::source::tag::VersionParts {
+        major, minor, patch, pre_stage: pre_stage.clone(), pre_num,
+    }, &decision)?;
+
+    let version = crate::source::tag::apply_scope_prefix(scope.as_deref(), &new_version);
+    println!("\n🔮 建议版本: {}", version);
+    Ok(DetectResult { version })
+}
+
+fn resolve_git_root(repo_path: &Path) -> Result<PathBuf, DetectError> {
+    let root = git_output(&["rev-parse", "--show-toplevel"], repo_path)
+        .map_err(|_| DetectError::Other(format!("不在 git 仓库中: {:?}", repo_path)))?;
+    Ok(PathBuf::from(root.trim()))
+}
+
+fn parse_and_print_tag(latest_tag: Option<&String>) -> (bool, u32, u32, u32, Option<String>, Option<u32>) {
+    match latest_tag {
+        Some(tag) => {
             let (_, ver_str) = crate::source::tag::parse_tag(tag);
-            let (ma, mi, pa, st, nu) = crate::source::tag::parse_version(ver_str)
-                .map_err(DetectError::Version)?;
+            let (ma, mi, pa, st, nu): (u32, u32, u32, Option<String>, Option<u32>) = crate::source::tag::parse_version(ver_str).unwrap_or((0, 0, 0, None, None));
             println!("📦 最新标签: {}", tag);
             println!("   v{}.{}.{}", ma, mi, pa);
             if let Some(ref stage) = st {
@@ -60,60 +87,26 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, DetectError> {
             println!("📦 没有版本标签（新项目）");
             (false, 0, 1, 0, None, None)
         }
-    };
-
-    if has_tag {
-        let tag = latest_tag.as_ref().unwrap();
-        let tag_rev = git_output(&["rev-parse", &format!("refs/tags/{}", tag)], root)
-            .map_err(|_| DetectError::Other("找不到标签引用".into()))?;
-        let head_rev = git_output(&["rev-parse", "HEAD"], root)
-            .map_err(|_| DetectError::Other("找不到 HEAD".into()))?;
-        if tag_rev == head_rev {
-            return Err(DetectError::Other("上次标签后没有新提交".into()));
-        }
     }
+}
 
+fn has_new_commits_since_tag(root: &Path, tag: &str) -> bool {
+    let tag_rev = git_output(&["rev-parse", &format!("refs/tags/{}", tag)], root).ok();
+    let head_rev = git_output(&["rev-parse", "HEAD"], root).ok();
+    tag_rev.zip(head_rev).map(|(t, h)| t != h).unwrap_or(false)
+}
+
+fn collect_commit_messages(root: &Path, latest_tag: Option<&String>) -> Vec<String> {
     let range = latest_tag
         .as_ref()
         .map_or("HEAD".to_string(), |t| format!("{}..HEAD", t));
     let log_output = git_output(&["log", "--oneline", &range], root).unwrap_or_default();
     let commits = crate::source::git::parse_commit_messages(&log_output);
-
     println!("📝 提交数: {}", commits.len());
     for c in &commits {
         println!("   • {}", c);
     }
-
-    if commits.is_empty() {
-        return Err(DetectError::Other("没有提交记录".into()));
-    }
-
-    let llm_tag = latest_tag.as_deref().unwrap_or("(新项目，无版本标签)");
-    let decision = llm_decide(
-        &commits,
-        llm_tag,
-        project_type,
-        scope.as_deref().unwrap_or("(root)"),
-    )?;
-
-    println!("🧠 LLM 决策: {}", decision.reason);
-
-    let new_version = build_version_from_decision(
-        has_tag,
-        &crate::source::tag::VersionParts {
-            major,
-            minor,
-            patch,
-            pre_stage: pre_stage.clone(),
-            pre_num,
-        },
-        &decision,
-    )?;
-
-    let version = crate::source::tag::apply_scope_prefix(scope.as_deref(), &new_version);
-
-    println!("\n🔮 建议版本: {}", version);
-    Ok(DetectResult { version })
+    commits
 }
 
 // ═══════════════════════════════════════════════════════════════════════

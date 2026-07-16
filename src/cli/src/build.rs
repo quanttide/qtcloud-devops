@@ -22,68 +22,57 @@ pub fn status_to(writer: &mut impl std::io::Write, repo_path: &Path) -> std::io:
     let mut o = format!("构建状态\n{}\n", "-".repeat(50));
 
     if c.scopes.is_empty() {
-        let lang = contract::detect_languages(repo_path).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
-        let root_scope = contract::Scope {
-            name: "(root)".into(),
-            dir: ".".into(),
-            language: lang.clone(),
-            framework: String::new(),
-            build_tool: contract::BuildTool::Unknown(String::new()),
-            registry: contract::Registry::None,
-            release: contract::StageRelease::default(),
-            test_threshold: None,
-            ci_workflow: None,
-        };
-        let vs = contract::verify_version(repo_path, &root_scope).unwrap_or_else(|e| {
-            eprintln!("  ⚠ 版本状态检查失败: {}", e);
-            contract::VersionState {
-                tag_version: None,
-                config_version: None,
-                consistent: false,
-                config_files: vec![],
-            }
-        });
-        let release = c.scope_release(&root_scope);
-        o.push_str(&build_scope_str(&ScopeInfo {
-            name: "(root)", dir: repo_path, lang: &lang, c: &c, vs: &vs, release: &release,
-        }));
+        append_root_status(&mut o, repo_path, &c);
     } else {
         for scope in &c.scopes {
-            let scope_dir = repo_path.join(&scope.dir);
-            if !scope_dir.exists() {
-                o.push_str(&format!(
-                    "  [{}]     ⚠ 目录不存在: {}\n",
-                    scope.name, scope.dir
-                ));
-                continue;
-            }
-            let lang = c.resolve_language(scope, &scope_dir);
-            let vs = contract::verify_version(repo_path, scope).unwrap_or_else(|e| {
-                eprintln!("  ⚠ 版本状态检查失败: {}", e);
-                contract::VersionState {
-                    tag_version: None,
-                    config_version: None,
-                    consistent: false,
-                    config_files: vec![],
-                }
-            });
-            let release = c.scope_release(scope);
-            o.push_str(&build_scope_str(&ScopeInfo {
-                name: &scope.name, dir: &scope_dir, lang: &lang, c: &c, vs: &vs, release: &release,
-            }));
+            append_scope_status(&mut o, scope, repo_path, &c);
         }
     }
 
-    let dirty = is_working_tree_dirty(repo_path);
     o.push_str(&format!(
         "  工作区         {}\n",
-        if dirty {
-            "⚠ 有未提交变更"
-        } else {
-            "✅ 干净"
-        }
+        if is_working_tree_dirty(repo_path) { "⚠ 有未提交变更" } else { "✅ 干净" }
     ));
     write!(writer, "{}", o)
+}
+
+fn append_root_status(o: &mut String, repo_path: &Path, c: &contract::Contract) {
+    let lang = contract::detect_languages(repo_path).into_iter().next()
+        .unwrap_or(contract::Language::Unknown(String::new()));
+    let root_scope = contract::Scope {
+        name: "(root)".into(), dir: ".".into(), language: lang.clone(),
+        framework: String::new(), build_tool: contract::BuildTool::Unknown(String::new()),
+        registry: contract::Registry::None, release: contract::StageRelease::default(),
+        test_threshold: None, ci_workflow: None,
+    };
+    let vs = load_version_state(repo_path, &root_scope);
+    let release = c.scope_release(&root_scope);
+    o.push_str(&build_scope_str(&ScopeInfo {
+        name: "(root)", dir: repo_path, lang: &lang, c, vs: &vs, release: &release,
+    }));
+}
+
+fn append_scope_status(o: &mut String, scope: &contract::Scope, repo_path: &Path, c: &contract::Contract) {
+    let scope_dir = repo_path.join(&scope.dir);
+    if !scope_dir.exists() {
+        o.push_str(&format!("  [{}]     ⚠ 目录不存在: {}\n", scope.name, scope.dir));
+        return;
+    }
+    let lang = c.resolve_language(scope, &scope_dir);
+    let vs = load_version_state(repo_path, scope);
+    let release = c.scope_release(scope);
+    o.push_str(&build_scope_str(&ScopeInfo {
+        name: &scope.name, dir: &scope_dir, lang: &lang, c, vs: &vs, release: &release,
+    }));
+}
+
+fn load_version_state(repo_path: &Path, scope: &contract::Scope) -> contract::VersionState {
+    contract::verify_version(repo_path, scope).unwrap_or_else(|e| {
+        eprintln!("  ⚠ 版本状态检查失败: {}", e);
+        contract::VersionState {
+            tag_version: None, config_version: None, consistent: false, config_files: vec![],
+        }
+    })
 }
 
 struct ScopeInfo<'a> {
@@ -355,49 +344,61 @@ pub fn audit(repo_path: &Path) {
     let mut passed = 0u32;
     let total = 4u32;
 
-    // 1. 编译器安装
-    let lang = contract::detect_languages(repo_path).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
-    if let Some((cmd, label)) = check_command(&lang) {
-        let ok = std::process::Command::new(cmd).arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
-        println!("  {} 编译器: {}", if ok { "✅" } else { "❌" }, label);
-        if ok { passed += 1; }
-    } else {
-        println!("  ⚠ 编译器: 未知语言，跳过");
-        passed += 1;
-    }
-
-    // 2. 清单文件存在
-    let mf = check_manifest_file(&lang);
-    if let Some(f) = mf {
-        let exists = repo_path.join(f).exists();
-        println!("  {} 清单文件: {}", if exists { "✅" } else { "❌" }, f);
-        if exists { passed += 1; }
-    } else {
-        println!("  ⚠ 清单文件: 未知语言，跳过");
-        passed += 1;
-    }
-
-    // 3. CI 工作流
-    if !c.scopes.is_empty() {
-        let all_ci = c.scopes.iter().all(|s| {
-            let workflow = resolve_workflow(&s.name, s.ci_workflow.as_deref());
-            repo_path.join(".github/workflows").join(format!("{}.yml", workflow)).exists()
-                || repo_path.join(".github/workflows").join(format!("{}.yaml", workflow)).exists()
-        });
-        println!("  {} CI 工作流: {}", if all_ci { "✅" } else { "❌" }, if all_ci { "全部 scope 已定义" } else { "部分 scope 缺少 CI 工作流" });
-        if all_ci { passed += 1; }
-    } else {
-        println!("  ⚠ CI 工作流: 无 scope，跳过");
-        passed += 1;
-    }
-
-    // 4. 依赖来源
-    let deps = check_dependencies(repo_path);
-    let deps_ok = deps == "✅ crates.io" || deps == "—";
-    println!("  {} 依赖来源: {}", if deps_ok { "✅" } else { "❌" }, deps);
-    if deps_ok { passed += 1; }
+    if audit_compiler(repo_path) { passed += 1; }
+    if audit_manifest(repo_path) { passed += 1; }
+    if audit_ci_workflow(&c, repo_path) { passed += 1; }
+    if audit_deps(repo_path) { passed += 1; }
 
     print_audit_summary(passed, total);
+}
+
+fn audit_compiler(repo_path: &Path) -> bool {
+    let lang = contract::detect_languages(repo_path).into_iter().next()
+        .unwrap_or(contract::Language::Unknown(String::new()));
+    if let Some((cmd, label)) = check_command(&lang) {
+        let ok = std::process::Command::new(cmd).arg("--version").output()
+            .map(|o| o.status.success()).unwrap_or(false);
+        println!("  {} 编译器: {}", if ok { "✅" } else { "❌" }, label);
+        ok
+    } else {
+        println!("  ⚠ 编译器: 未知语言，跳过");
+        true
+    }
+}
+
+fn audit_manifest(repo_path: &Path) -> bool {
+    let lang = contract::detect_languages(repo_path).into_iter().next()
+        .unwrap_or(contract::Language::Unknown(String::new()));
+    if let Some(f) = check_manifest_file(&lang) {
+        let exists = repo_path.join(f).exists();
+        println!("  {} 清单文件: {}", if exists { "✅" } else { "❌" }, f);
+        exists
+    } else {
+        println!("  ⚠ 清单文件: 未知语言，跳过");
+        true
+    }
+}
+
+fn audit_ci_workflow(c: &contract::Contract, repo_path: &Path) -> bool {
+    if c.scopes.is_empty() {
+        println!("  ⚠ CI 工作流: 无 scope，跳过");
+        return true;
+    }
+    let all_ci = c.scopes.iter().all(|s| {
+        let workflow = resolve_workflow(&s.name, s.ci_workflow.as_deref());
+        repo_path.join(".github/workflows").join(format!("{}.yml", workflow)).exists()
+            || repo_path.join(".github/workflows").join(format!("{}.yaml", workflow)).exists()
+    });
+    println!("  {} CI 工作流: {}", if all_ci { "✅" } else { "❌" },
+        if all_ci { "全部 scope 已定义" } else { "部分 scope 缺少 CI 工作流" });
+    all_ci
+}
+
+fn audit_deps(repo_path: &Path) -> bool {
+    let deps = check_dependencies(repo_path);
+    let ok = deps == "✅ crates.io" || deps == "—";
+    println!("  {} 依赖来源: {}", if ok { "✅" } else { "❌" }, deps);
+    ok
 }
 
 fn print_audit_summary(passed: u32, total: u32) {

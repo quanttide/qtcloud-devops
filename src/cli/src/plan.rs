@@ -291,62 +291,9 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
         return Ok(removed);
     }
 
-    // 删除空的分类标题（跳过空行看后面是否真有内容）
-    let mut i = 0;
-    while i < lines.len() {
-        if CATEGORIES.iter().any(|c| {
-            let t = lines[i].trim();
-            t == *c || t.eq_ignore_ascii_case(c)
-        }) {
-            let mut j = i + 1;
-            while j < lines.len() && lines[j].trim().is_empty() {
-                j += 1;
-            }
-            if j >= lines.len()
-                || CATEGORIES.iter().any(|c| {
-                    let t = lines[j].trim();
-                    t == *c || t.eq_ignore_ascii_case(c)
-                })
-                || is_version_line(lines[j]).is_some()
-            {
-                lines.remove(i);
-                continue;
-            }
-        }
-        i += 1;
-    }
-
-    // 第三遍：删除空的版本标题（跳过空行看后面是否真有内容）
-    let mut i = 0;
-    while i < lines.len() {
-        if is_version_line(lines[i]).is_some() {
-            let mut j = i + 1;
-            while j < lines.len() && lines[j].trim().is_empty() {
-                j += 1;
-            }
-            if j >= lines.len() || is_version_line(lines[j]).is_some() {
-                // 后面是文件尾或另一个版本头 → 此版本为空
-                lines.remove(i);
-                continue;
-            }
-            // 后面有内容（checkbox、分类等）→ 保留
-        }
-        i += 1;
-    }
-    if let Some(last) = lines.last() {
-        if is_version_line(last).is_some() {
-            lines.pop();
-        }
-    }
-
-    // 清理尾部空行
-    while let Some(last) = lines.last() {
-        if last.trim().is_empty() {
-            lines.pop();
-        } else {
-            break;
-        }
-    }
+    remove_empty_categories(&mut lines);
+    remove_empty_versions(&mut lines);
+    clean_trailing_blanks(&mut lines);
 
     if lines.is_empty() {
         std::fs::write(path, "")?;
@@ -360,6 +307,63 @@ pub fn clean_roadmap(path: &Path) -> Result<usize, PlanError> {
     }
     std::fs::write(path, &output)?;
     Ok(removed + original_len.saturating_sub(output.len()))
+}
+
+/// 删除空的分类标题（`### Added` 等，其后无实际内容）。
+fn remove_empty_categories(lines: &mut Vec<&str>) {
+    let mut i = 0;
+    while i < lines.len() {
+        if CATEGORIES.iter().any(|c| {
+            let t = lines[i].trim();
+            t == *c || t.eq_ignore_ascii_case(c)
+        }) {
+            let mut j = i + 1;
+            while j < lines.len() && lines[j].trim().is_empty() { j += 1; }
+            if j >= lines.len()
+                || CATEGORIES.iter().any(|c| {
+                    let t = lines[j].trim();
+                    t == *c || t.eq_ignore_ascii_case(c)
+                })
+                || is_version_line(lines[j]).is_some()
+            {
+                lines.remove(i);
+                continue;
+            }
+        }
+        i += 1;
+    }
+}
+
+/// 删除空的版本标题（`## [X.Y.Z]`，其后无内容）。
+fn remove_empty_versions(lines: &mut Vec<&str>) {
+    let mut i = 0;
+    while i < lines.len() {
+        if is_version_line(lines[i]).is_some() {
+            let mut j = i + 1;
+            while j < lines.len() && lines[j].trim().is_empty() { j += 1; }
+            if j >= lines.len() || is_version_line(lines[j]).is_some() {
+                lines.remove(i);
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if let Some(last) = lines.last() {
+        if is_version_line(last).is_some() {
+            lines.pop();
+        }
+    }
+}
+
+/// 清理尾部空行。
+fn clean_trailing_blanks(lines: &mut Vec<&str>) {
+    while let Some(last) = lines.last() {
+        if last.trim().is_empty() {
+            lines.pop();
+        } else {
+            break;
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

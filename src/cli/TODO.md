@@ -5,10 +5,10 @@
 #### MUST
 
 - [x] `src/test.rs`: 拆分 `print_scope_audit` — 圈复杂度 11
-- [ ] `src/plan.rs`: 拆分 `fn`（圈复杂度 15，86 行，嵌套 8 层）
-- [ ] `src/build.rs`: 拆分 `fn`（圈复杂度 11，78 行，嵌套 5 层）
-- [ ] `src/release/detect.rs`: 拆分 `fn`（88 行，大幅超限）
-- [ ] `src/release/audit.rs`: 拆分 `fn`（135 行，大幅超限，嵌套 5 层）
+- [x] `src/plan.rs`: 拆分 `fn`（圈复杂度 15，86 行，嵌套 8 层）
+- [x] `src/build.rs`: 拆分 `fn`（圈复杂度 11，78 行，嵌套 5 层）
+- [x] `src/release/detect.rs`: 拆分 `fn`（88 行，大幅超限）
+- [x] `src/release/audit.rs`: 拆分 `fn`（135 行，大幅超限，嵌套 5 层）
 - [ ] `src/release/status.rs`: 拆分 `fn`（69 行）
 - [ ] `src/release/publish.rs`: 拆分 `fn`（54 行）
 - [ ] `src/code/audit.rs`: 拆分 `scan_one`（70 行）
@@ -21,7 +21,7 @@
 - [ ] `src/main.rs`: 拆分 `run_plan_clean`（59 行）
 - [ ] `src/plan.rs`: 拆分 `try_print_plan_file`（52 行）
 - [ ] `src/plan.rs`: 拆分 `print_progress`（50 行）
-- [ ] `src/build.rs`: 拆分 `check_dependencies`（41 行）
+- [x] `src/build.rs`: 拆分 `check_dependencies`（41 行）
 - [ ] `src/contract.rs`: 拆分 `fn`（70 行）
 - [ ] `src/release/detect.rs`: 拆分 `build_version_prompt`（55 行）
 - [ ] `src/release/detect.rs`: 拆分 `build_decision_from_flags`（52 行）
