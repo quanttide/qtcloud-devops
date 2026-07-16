@@ -23,33 +23,9 @@ pub fn publish(
     dry_run: bool,
     registry: Option<PublishTarget>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // ── 确定版本号 ────────────────────────────────────────────────
-    let version = match version {
-        Some(v) => {
-            if !super::validate_version(v) {
-                return Err(format!("版本号格式错误: {}", v).into());
-            }
-            v.to_string()
-        }
-        None => {
-            let result = super::detect::detect_version(repo_path)?;
-            if dry_run {
-                println!("\n💡 建议版本: {}", result.version);
-                println!("   使用 -v 指定版本执行发布，或直接运行不加 --dry-run");
-                return Ok(());
-            }
-            result.version
-        }
-    };
-
-    // ── dry-run：仅预览 ───────────────────────────────────────────
+    let version = resolve_version(version, repo_path, dry_run)?;
     if dry_run {
-        println!("\n💡 预览发布: {}", version);
-        println!("   将更新 Cargo.toml/pyproject.toml 版本号");
-        println!("   将更新 CHANGELOG.md");
-        println!("   将创建 git tag 并推送到远端");
-        println!("   将创建 GitHub Release");
-        println!("   使用 -y 跳过确认直接发布");
+        print_dry_run_preview(&version);
         return Ok(());
     }
 
@@ -67,6 +43,34 @@ pub fn publish(
 
     println!("✓ 版本 {} 已发布", version);
     Ok(())
+}
+
+fn resolve_version(version: Option<&str>, repo_path: &Path, dry_run: bool) -> Result<String, Box<dyn std::error::Error>> {
+    match version {
+        Some(v) => {
+            if !super::validate_version(v) {
+                return Err(format!("版本号格式错误: {}", v).into());
+            }
+            Ok(v.to_string())
+        }
+        None => {
+            let result = super::detect::detect_version(repo_path)?;
+            if dry_run {
+                println!("\n💡 建议版本: {}", result.version);
+                println!("   使用 -v 指定版本执行发布，或直接运行不加 --dry-run");
+            }
+            Ok(result.version)
+        }
+    }
+}
+
+fn print_dry_run_preview(version: &str) {
+    println!("\n💡 预览发布: {}", version);
+    println!("   将更新 Cargo.toml/pyproject.toml 版本号");
+    println!("   将更新 CHANGELOG.md");
+    println!("   将创建 git tag 并推送到远端");
+    println!("   将创建 GitHub Release");
+    println!("   使用 -y 跳过确认直接发布");
 }
 
 fn prepare_force_release(force: bool, version: &str, repo_path: &Path) {

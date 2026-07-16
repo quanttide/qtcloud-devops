@@ -19,67 +19,54 @@ pub use quanttide_devops::stage::release::{ReleaseState, ReleaseStatus};
 pub fn collect_all(repo_path: &Path) -> Vec<ReleaseState> {
     let scopes_map = super::load_scopes_map(repo_path);
     let latest_tags = super::get_latest_tags_by_scope(repo_path);
-    let tagged_scopes: HashSet<&str> = latest_tags.iter().map(|(s, _)| s.as_str()).collect();
+    let mut states = collect_tagged_states(repo_path, &latest_tags);
+    states.extend(collect_untagged_states(&scopes_map, &latest_tags));
+    states
+}
 
-    let mut states: Vec<ReleaseState> = Vec::new();
-
-    // 1) 有 tag 的 scope：检查 changelog、计算未发布提交数 → 确定状态
-    for (scope, tag) in &latest_tags {
+fn collect_tagged_states(repo_path: &Path, latest_tags: &[(String, String)]) -> Vec<ReleaseState> {
+    let mut states = Vec::new();
+    for (scope, tag) in latest_tags {
         let scope_dir = super::resolve_scope_dir(tag, repo_path);
-        let scope_path = scope_dir
-            .strip_prefix(repo_path)
+        let scope_path = scope_dir.strip_prefix(repo_path)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| ".".into());
-        let changelog_path = scope_dir.join("CHANGELOG.md");
-        let version_consistent = if !changelog_path.exists() {
-            Some(false)
-        } else {
-            match quanttide_devops::source::changelog::Changelog::from_path(&changelog_path) {
-                Ok(cl) => {
-                    let ver = super::normalize_version(tag);
-                    Some(cl.contains_version(&ver))
-                }
-                Err(_) => None,
-            }
-        };
-
+        let version_consistent = check_changelog_consistency(&scope_dir.join("CHANGELOG.md"), tag);
         let (status, pending_commits) = match count_unreleased_in_dir(repo_path, tag, &scope_dir) {
             None => (ReleaseStatus::Unknown, 0),
             Some(n) if version_consistent == Some(false) => (ReleaseStatus::Inconsistent, n),
             Some(n) if n > 0 => (ReleaseStatus::Pending, n),
             Some(n) => (ReleaseStatus::Latest, n),
         };
-
-        states.push(ReleaseState::new(
-            status,
-            scope.clone(),
-            scope_path,
-            Some(tag.clone()),
-            pending_commits,
-            version_consistent,
-        ));
+        states.push(ReleaseState::new(status, scope.clone(), scope_path, Some(tag.clone()), pending_commits, version_consistent));
     }
+    states
+}
 
-    // 2) 配置中定义但无 tag 的 scope → Unreleased
-    for (scope, dir) in &scopes_map {
+fn collect_untagged_states(
+    scopes_map: &std::collections::HashMap<String, String>,
+    latest_tags: &[(String, String)],
+) -> Vec<ReleaseState> {
+    let tagged_scopes: std::collections::HashSet<&str> = latest_tags.iter().map(|(s, _)| s.as_str()).collect();
+    let mut states = Vec::new();
+    for (scope, dir) in scopes_map {
         if !tagged_scopes.contains(scope.as_str()) {
-            let scope_path = if scope == "(root)" {
-                "".into()
-            } else {
-                dir.clone()
-            };
             states.push(ReleaseState::new(
-                ReleaseStatus::Unreleased,
-                scope.clone(),
-                scope_path,
-                None,
-                0,
-                None,
+                ReleaseStatus::Unreleased, scope.clone(),
+                if scope == "(root)" { "".into() } else { dir.clone() },
+                None, 0, None,
             ));
         }
     }
-
     states
+}
+
+fn check_changelog_consistency(changelog_path: &Path, tag: &str) -> Option<bool> {
+    if !changelog_path.exists() { return Some(false); }
+    match quanttide_devops::source::changelog::Changelog::from_path(changelog_path) {
+        Ok(cl) => { let ver = super::normalize_version(tag); Some(cl.contains_version(&ver)) }
+        Err(_) => None,
+    }
 }
 
 /// 打印发布状态到标准输出。
