@@ -15,8 +15,12 @@ pub fn audit(repo_path: &Path) {
     let results: Vec<RuleResult> = vec![
         check_scope_dirs(&c, repo_path),
         check_todo_density(&scanned),
+        check_fn_length(&scanned),
+        check_api_docs(&scanned),
+        check_complexity(&scanned),
         check_import_count(&scanned),
         check_file_length(&scanned),
+        check_mod_doc(&scanned),
         check_lint(repo_path),
     ];
 
@@ -51,6 +55,16 @@ struct ScannedFile {
     todos: Vec<(usize, String)>,
     /// import / use 声明数
     imports: usize,
+    /// 超长函数列表 (行数, 名称)
+    long_fns: Vec<(usize, String)>,
+    /// 缺少文档注释的 pub 函数
+    missing_docs: Vec<String>,
+    /// 最大嵌套深度
+    max_nesting: usize,
+    /// 高圈复杂度函数列表 (复杂度, 名称)
+    high_complexity: Vec<(usize, String)>,
+    /// 是否有模块级文档（//!）
+    has_mod_doc: bool,
 }
 
 // ── 目录遍历 ──────────────────────────────────────────
@@ -114,27 +128,127 @@ fn scan_files(files: &[PathBuf]) -> Vec<ScannedFile> {
 /// 扫描单个文件
 fn scan_one(path: &Path) -> Option<ScannedFile> {
     let content = std::fs::read_to_string(path).ok()?;
-    let lines = content.lines().count();
-    let todos: Vec<(usize, String)> = content
-        .lines()
-        .enumerate()
-        .filter_map(|(i, l)| {
-            let t = l.trim().to_lowercase();
-            if t.contains("todo") || t.contains("fixme") || t.contains("hack") {
-                Some((i + 1, l.trim().to_string()))
-            } else {
-                None
+    let lines: Vec<&str> = content.lines().collect();
+    let total_lines = lines.len();
+
+    // 扫描 TODO/FIXME/HACK
+    let todos: Vec<(usize, String)> = lines.iter().enumerate().filter_map(|(i, l)| {
+        let t = l.trim().to_lowercase();
+        if t.contains("todo") || t.contains("fixme") || t.contains("hack") {
+            Some((i + 1, l.trim().to_string()))
+        } else {
+            None
+        }
+    }).collect();
+
+    // 扫描 import / use
+    let imports = lines.iter().filter(|l| {
+        let t = l.trim();
+        t.starts_with("use ") || t.starts_with("import ")
+    }).count();
+
+    // 扫描函数定义
+    let fn_starts: Vec<usize> = find_fn_positions(&lines);
+
+    // 超长函数
+    let long_fns: Vec<(usize, String)> = fn_starts.iter().enumerate().filter_map(|(idx, &start)| {
+        let end = if idx + 1 < fn_starts.len() { fn_starts[idx + 1] } else { total_lines };
+        let n = end - start;
+        if n > 40 {
+            let name = lines[start].trim().split_whitespace().nth(1).unwrap_or("?").to_string();
+            Some((n, name))
+        } else { None }
+    }).collect();
+
+    // 缺少文档注释的 pub fn
+    let missing_docs = find_missing_doc_comments(&lines);
+
+    // 嵌套深度
+    let max_nesting = lines.iter().filter_map(|line| {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with("//") || t.starts_with("///") || t.starts_with("/*") { return None; }
+        let indent = line.len() - line.trim_start().len();
+        Some(if indent > 0 && line.starts_with('\t') { indent } else { indent / 4 })
+    }).max().unwrap_or(0);
+
+    // 高圈复杂度函数
+    let high_complexity: Vec<(usize, String)> = high_complexity_fns(&lines).iter().map(|(ln, comp)| {
+        let name = lines[*ln].trim().split_whitespace().nth(1).unwrap_or("?").to_string();
+        (*comp, name)
+    }).collect();
+
+    // 模块文档
+    let has_mod_doc = lines.iter().take(10).any(|l| l.trim().starts_with("//!"));
+
+    Some(ScannedFile {
+        path: path.to_path_buf(),
+        lines: total_lines,
+        todos,
+        imports,
+        long_fns,
+        missing_docs,
+        max_nesting,
+        high_complexity,
+        has_mod_doc,
+    })
+}
+
+// ── 工具函数（单文件分析） ────────────────────────────
+
+/// 查找函数定义行号（先试 Rust fn，再试其他语言）
+fn find_fn_positions(lines: &[&str]) -> Vec<usize> {
+    let rust: Vec<_> = lines.iter().enumerate()
+        .filter(|(_, l)| { let t = l.trim(); (t.starts_with("fn ") || t.starts_with("pub fn ") || t.starts_with("pub(crate) fn ")) && !t.starts_with("//") && !t.starts_with("///") })
+        .map(|(i, _)| i).collect();
+    if !rust.is_empty() { return rust; }
+    lines.iter().enumerate()
+        .filter(|(_, l)| { let t = l.trim(); (t.starts_with("def ") || t.starts_with("function ") || t.starts_with("func ")) && !t.starts_with("//") && !t.starts_with("#") && !t.starts_with("--") })
+        .map(|(i, _)| i).collect()
+}
+
+/// 收集缺少 `///` 文档注释的公开函数
+fn find_missing_doc_comments(lines: &[&str]) -> Vec<String> {
+    let mut missing = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim();
+        if t.starts_with("pub fn ") || t.starts_with("pub(crate) fn ") {
+            let has_doc = (1..=3).any(|off| i >= off && lines[i - off].trim().starts_with("///"));
+            if !has_doc {
+                missing.push(t.split_whitespace().nth(2).unwrap_or("?").to_string());
             }
-        })
-        .collect();
-    let imports = content
-        .lines()
-        .filter(|l| {
-            let t = l.trim();
-            t.starts_with("use ") || t.starts_with("import ")
-        })
-        .count();
-    Some(ScannedFile { path: path.to_path_buf(), lines, todos, imports })
+        }
+    }
+    missing
+}
+
+/// 判断行是否为函数定义
+fn is_fn_def(t: &str) -> bool {
+    t.starts_with("fn ") || t.starts_with("pub fn ") || t.starts_with("def ") || t.starts_with("function ") || t.starts_with("func ")
+}
+
+/// 统计行中分支关键字出现次数
+fn branch_kw_count(t: &str) -> usize {
+    ["if ", "else if ", "for ", "while ", "match ", "case ", "catch ", "except"]
+        .iter().filter(|kw| t.contains(*kw)).count()
+}
+
+/// 查找圈复杂度超过 10 的函数
+fn high_complexity_fns(lines: &[&str]) -> Vec<(usize, usize)> {
+    let mut results = Vec::new();
+    let mut in_fn = false;
+    let mut start = 0;
+    let mut comp = 0;
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim();
+        if is_fn_def(t) {
+            if in_fn && comp > 10 { results.push((start, comp)); }
+            start = i; comp = 0; in_fn = true;
+        } else if in_fn {
+            comp += branch_kw_count(t);
+        }
+    }
+    if in_fn && comp > 10 { results.push((start, comp)); }
+    results
 }
 
 // ── 检查项 ────────────────────────────────────────────
@@ -176,6 +290,55 @@ fn check_todo_density(scanned: &[ScannedFile]) -> RuleResult {
     }
 }
 
+/// 检查函数长度（阈值 40 行，超过 80 行大幅扣分）
+fn check_fn_length(scanned: &[ScannedFile]) -> RuleResult {
+    let all_long: Vec<String> = scanned.iter().flat_map(|f| {
+        f.long_fns.iter().map(|(n, name)| {
+            let level = if *n > 80 { "大幅" } else { "" };
+            format!("{}: `{}` {} 行（{}超限）", f.path.display(), name, n, level)
+        }).collect::<Vec<_>>()
+    }).collect();
+    if all_long.is_empty() {
+        RuleResult::pass("函数长度", "全部函数 ≤ 40 行".to_string())
+    } else {
+        RuleResult::fail("函数长度", all_long)
+    }
+}
+
+/// 检查 API 文档覆盖率（pub fn 缺少 `///` 注释）
+fn check_api_docs(scanned: &[ScannedFile]) -> RuleResult {
+    let all_missing: Vec<String> = scanned.iter().flat_map(|f| {
+        f.missing_docs.iter().map(|name| format!("{}: `{}`", f.path.display(), name)).collect::<Vec<_>>()
+    }).collect();
+    if all_missing.is_empty() {
+        RuleResult::pass("API 文档覆盖率", "全部 pub 函数有文档注释".to_string())
+    } else {
+        RuleResult::fail("API 文档覆盖率", all_missing)
+    }
+}
+
+/// 检查结构复杂度（嵌套深度 > 4、圈复杂度 > 10）
+fn check_complexity(scanned: &[ScannedFile]) -> RuleResult {
+    let mut details = Vec::new();
+    // 嵌套深度
+    for f in scanned {
+        if f.max_nesting > 4 {
+            details.push(format!("{}: 嵌套深度 {} 层", f.path.display(), f.max_nesting));
+        }
+    }
+    // 圈复杂度
+    for f in scanned {
+        for (comp, name) in &f.high_complexity {
+            details.push(format!("{}: `{}` 圈复杂度 {}", f.path.display(), name, comp));
+        }
+    }
+    if details.is_empty() {
+        RuleResult::pass("结构复杂度", "嵌套 ≤ 4 层，圈复杂度 ≤ 10".to_string())
+    } else {
+        RuleResult::fail("结构复杂度", details)
+    }
+}
+
 /// 检查 import 数（阈值 30 个每文件）
 fn check_import_count(scanned: &[ScannedFile]) -> RuleResult {
     let high: Vec<String> = scanned
@@ -201,6 +364,24 @@ fn check_file_length(scanned: &[ScannedFile]) -> RuleResult {
         RuleResult::pass("文件长度", "全部文件 ≤ 500 行".to_string())
     } else {
         RuleResult::fail("超长文件（阈值 500 行）", long)
+    }
+}
+
+/// 检查模块文档（//! 存在性）
+fn check_mod_doc(scanned: &[ScannedFile]) -> RuleResult {
+    let missing: Vec<String> = scanned
+        .iter()
+        .filter(|f| !f.has_mod_doc)
+        .map(|f| f.path.display().to_string())
+        .collect();
+    if missing.is_empty() {
+        RuleResult::pass("模块文档", "全部文件包含 //! 文档".to_string())
+    } else {
+        let total = scanned.len();
+        let pct = (total - missing.len()) as f64 / total.max(1) as f64 * 100.0;
+        let mut details = vec![format!("{}/{} 文件缺少 //!（覆盖率 {:.0}%）", missing.len(), total, pct)];
+        details.extend(missing);
+        RuleResult::fail("模块文档", details)
     }
 }
 
@@ -304,175 +485,246 @@ mod tests {
     // ── is_source_file ───────────────────────────────────────────
 
     #[test]
-    fn test_is_source_file_rs() {
-        assert!(is_source_file(Path::new("foo.rs")));
-    }
-
+    fn test_is_source_file_rs() { assert!(is_source_file(Path::new("foo.rs"))); }
     #[test]
-    fn test_is_source_file_py() {
-        assert!(is_source_file(Path::new("foo.py")));
-    }
-
+    fn test_is_source_file_py() { assert!(is_source_file(Path::new("foo.py"))); }
     #[test]
-    fn test_is_source_file_txt() {
-        assert!(!is_source_file(Path::new("foo.txt")));
-    }
-
+    fn test_is_source_file_txt() { assert!(!is_source_file(Path::new("foo.txt"))); }
     #[test]
-    fn test_is_source_file_generated_dart() {
+    fn test_is_source_file_generated() {
         assert!(!is_source_file(Path::new("foo.freezed.dart")));
         assert!(!is_source_file(Path::new("foo.g.dart")));
+        assert!(!is_source_file(Path::new("foo.pb.go")));
+    }
+
+    // ── find_fn_positions ────────────────────────────────────────
+
+    #[test]
+    fn test_find_fn_positions_rust() {
+        let lines = vec!["fn a() {}", "fn b() {}"];
+        assert_eq!(find_fn_positions(&lines), vec![0, 1]);
     }
 
     #[test]
-    fn test_is_source_file_generated_go() {
-        assert!(!is_source_file(Path::new("foo.pb.go")));
+    fn test_find_fn_positions_other_langs() {
+        let lines = vec!["def foo(): pass", "def bar(): pass"];
+        assert_eq!(find_fn_positions(&lines), vec![0, 1]);
+    }
+
+    #[test]
+    fn test_find_fn_positions_skip_comment() {
+        let lines = vec!["// fn commented() {}", "fn real() {}"];
+        assert_eq!(find_fn_positions(&lines), vec![1]);
+    }
+
+    // ── find_missing_doc_comments ───────────────────────────────
+
+    #[test]
+    fn test_find_missing_doc_comments_all_documented() {
+        let lines = vec!["/// docs", "pub fn foo() {}", "fn bar() {}"];
+        assert!(find_missing_doc_comments(&lines).is_empty());
+    }
+
+    #[test]
+    fn test_find_missing_doc_comments_missing() {
+        let lines = vec!["pub fn foo() {}"];
+        assert_eq!(find_missing_doc_comments(&lines), vec!["foo()"]);
+    }
+
+    // ── high_complexity_fns ─────────────────────────────────────
+
+    #[test]
+    fn test_high_complexity_fns_none() {
+        let lines = vec!["fn simple() { let x = 1; }"];
+        assert!(high_complexity_fns(&lines).is_empty());
+    }
+
+    #[test]
+    fn test_high_complexity_fns_above_10() {
+        let mut branches = String::new();
+        for i in 0..12 { branches.push_str(&format!("if {} == 0 {{ }}\n", i)); }
+        let code = format!("fn complex() {{\n{}}}", branches);
+        let lines: Vec<&str> = code.lines().collect();
+        let result = high_complexity_fns(&lines);
+        assert!(!result.is_empty());
     }
 
     // ── scan_one ─────────────────────────────────────────────────
 
+    fn with_temp_file(content: &str) -> (tempfile::TempDir, ScannedFile) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.rs");
+        std::fs::write(&path, content).unwrap();
+        let f = scan_one(&path).unwrap();
+        (dir, f)
+    }
+
     #[test]
     fn test_scan_one_basic() {
-        let dir = std::env::temp_dir().join("test_scan_one");
-        std::fs::create_dir_all(&dir).ok();
-        let path = dir.join("test.rs");
-        std::fs::write(&path, "use std::collections;\nfn main() {}\n// TODO: fix this\n").ok();
-        let result = scan_one(&path);
-        assert!(result.is_some());
-        let f = result.unwrap();
+        let (_dir, f) = with_temp_file("use std::collections;\nfn main() {}\n// TODO: fix\n");
         assert_eq!(f.lines, 3);
         assert_eq!(f.imports, 1);
         assert_eq!(f.todos.len(), 1);
-        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_scan_one_fn_length() {
+        let mut content = String::from("fn long() {\n");
+        for _ in 0..45 { content.push_str("    let x = 1;\n"); }
+        content.push_str("}\n");
+        let (_dir, f) = with_temp_file(&content);
+        assert_eq!(f.long_fns.len(), 1);
+    }
+
+    #[test]
+    fn test_scan_one_missing_docs() {
+        let content = "pub fn foo() {}\npub fn bar() {}\n";
+        let (_dir, f) = with_temp_file(content);
+        assert_eq!(f.missing_docs.len(), 2);
+    }
+
+    #[test]
+    fn test_scan_one_mod_doc() {
+        let (_dir, f) = with_temp_file("//! module doc\nfn a() {}\n");
+        assert!(f.has_mod_doc);
+
+        let (_dir2, f2) = with_temp_file("fn a() {}\n");
+        assert!(!f2.has_mod_doc);
     }
 
     #[test]
     fn test_scan_one_unreadable() {
-        let result = scan_one(Path::new("/nonexistent/file.rs"));
-        assert!(result.is_none());
+        assert!(scan_one(Path::new("/nonexistent/file.rs")).is_none());
     }
 
-    // ── check_todo_density ───────────────────────────────────────
+    // ── check_* ──────────────────────────────────────────────────
 
-    #[test]
-    fn test_check_todo_density_below_threshold() {
-        let scanned = vec![ScannedFile {
+    fn make_file(lines: usize, imports: usize, todos: usize) -> ScannedFile {
+        ScannedFile {
             path: PathBuf::from("x.rs"),
-            lines: 1000,
-            todos: vec![],
-            imports: 0,
-        }];
-        let result = check_todo_density(&scanned);
-        assert!(result.passed);
+            lines,
+            todos: (0..todos).map(|i| (i, "TODO".into())).collect(),
+            imports,
+            long_fns: vec![],
+            missing_docs: vec![],
+            max_nesting: 0,
+            high_complexity: vec![],
+            has_mod_doc: true,
+        }
     }
 
     #[test]
-    fn test_check_todo_density_above_threshold() {
-        // 6 markers / 1000 lines = 6‰ > 5‰ threshold
-        let scanned = vec![ScannedFile {
-            path: PathBuf::from("x.rs"),
-            lines: 1000,
-            todos: vec![
-                (1, "TODO".into()), (2, "FIXME".into()), (3, "HACK".into()),
-                (4, "TODO".into()), (5, "FIXME".into()), (6, "HACK".into()),
-            ],
-            imports: 0,
-        }];
-        let result = check_todo_density(&scanned);
-        assert!(!result.passed);
+    fn test_check_todo_density_below() {
+        assert!(check_todo_density(&[make_file(1000, 0, 0)]).passed);
     }
 
     #[test]
-    fn test_check_todo_density_zero_lines() {
-        let scanned = vec![];
-        let result = check_todo_density(&scanned);
-        assert!(result.passed);
+    fn test_check_todo_density_above() {
+        assert!(!check_todo_density(&[make_file(1000, 0, 6)]).passed);
     }
 
-    // ── check_import_count ───────────────────────────────────────
+    #[test]
+    fn test_check_todo_density_empty() {
+        assert!(check_todo_density(&[]).passed);
+    }
 
     #[test]
-    fn test_check_import_count_all_ok() {
-        let scanned = vec![ScannedFile {
-            path: PathBuf::from("x.rs"),
-            lines: 10,
-            todos: vec![],
-            imports: 5,
-        }];
-        let result = check_import_count(&scanned);
-        assert!(result.passed);
+    fn test_check_import_count_ok() {
+        assert!(check_import_count(&[make_file(10, 5, 0)]).passed);
     }
 
     #[test]
     fn test_check_import_count_high() {
-        let scanned = vec![ScannedFile {
-            path: PathBuf::from("x.rs"),
-            lines: 100,
-            todos: vec![],
-            imports: 35,
-        }];
-        let result = check_import_count(&scanned);
-        assert!(!result.passed);
+        assert!(!check_import_count(&[make_file(100, 35, 0)]).passed);
     }
 
-    // ── check_file_length ────────────────────────────────────────
-
     #[test]
-    fn test_check_file_length_all_ok() {
-        let scanned = vec![ScannedFile {
-            path: PathBuf::from("x.rs"),
-            lines: 300,
-            todos: vec![],
-            imports: 0,
-        }];
-        let result = check_file_length(&scanned);
-        assert!(result.passed);
+    fn test_check_file_length_ok() {
+        assert!(check_file_length(&[make_file(300, 0, 0)]).passed);
     }
 
     #[test]
     fn test_check_file_length_long() {
-        let scanned = vec![ScannedFile {
-            path: PathBuf::from("x.rs"),
-            lines: 600,
-            todos: vec![],
-            imports: 0,
-        }];
-        let result = check_file_length(&scanned);
-        assert!(!result.passed);
+        assert!(!check_file_length(&[make_file(600, 0, 0)]).passed);
+    }
+
+    #[test]
+    fn test_check_fn_length_ok() {
+        let f = ScannedFile { long_fns: vec![], ..make_file(0, 0, 0) };
+        assert!(check_fn_length(&[f]).passed);
+    }
+
+    #[test]
+    fn test_check_fn_length_long() {
+        let f = ScannedFile { long_fns: vec![(50, "foo".into())], ..make_file(0, 0, 0) };
+        assert!(!check_fn_length(&[f]).passed);
+    }
+
+    #[test]
+    fn test_check_api_docs_ok() {
+        let f = ScannedFile { missing_docs: vec![], ..make_file(0, 0, 0) };
+        assert!(check_api_docs(&[f]).passed);
+    }
+
+    #[test]
+    fn test_check_api_docs_missing() {
+        let f = ScannedFile { missing_docs: vec!["foo".into()], ..make_file(0, 0, 0) };
+        assert!(!check_api_docs(&[f]).passed);
+    }
+
+    #[test]
+    fn test_check_complexity_ok() {
+        let f = ScannedFile { max_nesting: 3, high_complexity: vec![], ..make_file(0, 0, 0) };
+        assert!(check_complexity(&[f]).passed);
+    }
+
+    #[test]
+    fn test_check_complexity_deep_nesting() {
+        let f = ScannedFile { max_nesting: 6, high_complexity: vec![], ..make_file(0, 0, 0) };
+        assert!(!check_complexity(&[f]).passed);
+    }
+
+    #[test]
+    fn test_check_complexity_high_cyclomatic() {
+        let f = ScannedFile { max_nesting: 0, high_complexity: vec![(15, "foo".into())], ..make_file(0, 0, 0) };
+        assert!(!check_complexity(&[f]).passed);
+    }
+
+    #[test]
+    fn test_check_mod_doc_ok() {
+        let f = ScannedFile { has_mod_doc: true, ..make_file(0, 0, 0) };
+        assert!(check_mod_doc(&[f]).passed);
+    }
+
+    #[test]
+    fn test_check_mod_doc_missing() {
+        let f = ScannedFile { has_mod_doc: false, ..make_file(0, 0, 0) };
+        assert!(!check_mod_doc(&[f]).passed);
     }
 
     // ── check_scope_dirs ─────────────────────────────────────────
 
+    fn with_contract_scope(scope_dir: &str) -> (tempfile::TempDir, contract::Contract) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".quanttide/devops")).unwrap();
+        std::fs::write(
+            dir.path().join(".quanttide/devops/contract.yaml"),
+            format!("stages:\nscopes:\n  core:\n    dir: {}\n", scope_dir),
+        ).unwrap();
+        let c = contract::load(dir.path());
+        (dir, c)
+    }
+
     #[test]
     fn test_check_scope_dirs_all_exist() {
-        let dir = std::env::temp_dir().join("test_scope_dirs_ok");
-        std::fs::create_dir_all(&dir).ok();
-        std::fs::create_dir_all(&dir.join("core")).ok();
-        std::fs::create_dir_all(&dir.join(".quanttide/devops")).ok();
-        std::fs::write(
-            &dir.join(".quanttide/devops/contract.yaml"),
-            "stages:\nscopes:\n  core:\n    dir: core\n",
-        )
-        .ok();
-        let c = contract::load(&dir);
-        let result = check_scope_dirs(&c, &dir);
-        assert!(result.passed);
-        std::fs::remove_dir_all(&dir).ok();
+        let (dir, c) = with_contract_scope("src");
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        assert!(check_scope_dirs(&c, dir.path()).passed);
     }
 
     #[test]
     fn test_check_scope_dirs_missing() {
-        let dir = std::env::temp_dir().join("test_scope_dirs_missing");
-        std::fs::create_dir_all(&dir).ok();
-        std::fs::create_dir_all(&dir.join(".quanttide/devops")).ok();
-        std::fs::write(
-            &dir.join(".quanttide/devops/contract.yaml"),
-            "stages:\nscopes:\n  core:\n    dir: nonexistent\n",
-        )
-        .ok();
-        let c = contract::load(&dir);
-        let result = check_scope_dirs(&c, &dir);
-        assert!(!result.passed);
-        std::fs::remove_dir_all(&dir).ok();
+        let (dir, c) = with_contract_scope("nonexistent");
+        assert!(!check_scope_dirs(&c, dir.path()).passed);
     }
 }
