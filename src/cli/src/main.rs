@@ -93,11 +93,13 @@ enum PlanAction {
     /// 查看 scope 规划进度
     Status {
         /// scope 名称（省略时自动检测当前目录所属 scope）
+        #[arg(long)]
         scope: Option<String>,
     },
     /// 删除 scope 已完成条目
     Clean {
         /// scope 名称
+        #[arg(long)]
         scope: Option<String>,
     },
     /// 审计 ROADMAP 与 TODO 的关系：ROADMAP 是完整规划，TODO 是待办
@@ -105,6 +107,7 @@ enum PlanAction {
     /// 修复 ROADMAP 和 TODO 的格式：标准化版本头、分类、checkbox
     Doctor {
         /// scope 名称
+        #[arg(long)]
         scope: Option<String>,
     },
     /// 从审计 JSON 更新 TODO.md（从 stdin 读取 JSON）
