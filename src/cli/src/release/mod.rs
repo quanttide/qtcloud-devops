@@ -10,7 +10,7 @@ pub use detect::DetectError;
 pub use precheck::{run_precheck, PrecheckResult};
 pub use publish::publish;
 pub use status::{collect_all, status, ReleaseState, ReleaseStatus};
-pub use crate::source::gh::{check_gh_installed, create_release, delete_release};
+pub use crate::platform::gh::{check_gh_installed, create_release, delete_release};
 pub use crate::source::git::{
     git, git_check, is_git_repo, is_working_tree_dirty, ref_exists, rev_list_count,
 };

@@ -1,9 +1,9 @@
 /// source 命令：检查系统依赖的外部命令状态。
 pub mod changelog;
-pub mod gh;
 pub mod git;
-pub mod roadmap;
 pub mod git_tag;
+pub mod roadmap;
+pub mod git_submodule;
 
 use std::io::Write;
 use std::path::Path;

@@ -106,7 +106,7 @@ fn setup_repo_with_submodule(tmp: &std::path::Path) -> std::path::PathBuf {
 fn test_integration_scan_submodule() {
     let t = tempfile::tempdir().unwrap();
     let p = setup_repo_with_submodule(t.path());
-    let s = qtcloud_devops_cli::source::git::RepoState::scan(&p).unwrap();
+    let s = qtcloud_devops_cli::source::git_submodule::RepoState::scan(&p).unwrap();
     assert_eq!(s.total, 1);
     assert_eq!(s.submodules[0].name, "libs/sub");
 }
@@ -114,6 +114,6 @@ fn test_integration_scan_submodule() {
 #[test]
 fn test_integration_scan_no_gitmodules() {
     assert!(
-        qtcloud_devops_cli::source::git::RepoState::scan(&tempfile::tempdir().unwrap().path()).is_err()
+        qtcloud_devops_cli::source::git_submodule::RepoState::scan(&tempfile::tempdir().unwrap().path()).is_err()
     );
 }

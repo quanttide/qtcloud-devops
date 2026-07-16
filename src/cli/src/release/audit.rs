@@ -92,7 +92,7 @@ fn audit_github_release(
             return;
         }
     };
-    if !crate::source::gh::check_gh_installed() {
+    if !crate::platform::gh::check_gh_installed() {
         items.push(AuditItem {
             name: "GitHub Release",
             passed: false,
@@ -100,7 +100,7 @@ fn audit_github_release(
         });
         return;
     }
-    let body = crate::source::gh::view_release_body(version, repo);
+    let body = crate::platform::gh::view_release_body(version, repo);
     match body {
         Some(b) => {
             let notes = super::extract_notes(version, changelog_path);
