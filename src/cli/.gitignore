@@ -5,6 +5,7 @@ __pycache__/
 .Python
 build/
 !docs/build/
+!src/build/
 develop-eggs/
 dist/
 downloads/
