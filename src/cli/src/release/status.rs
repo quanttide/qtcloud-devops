@@ -10,7 +10,6 @@
 //!
 //! 使用示例见 `quanttide-devops` 工具箱 `examples/release.rs`。
 
-use std::collections::HashSet;
 use std::path::Path;
 
 pub use quanttide_devops::stage::release::{ReleaseState, ReleaseStatus};

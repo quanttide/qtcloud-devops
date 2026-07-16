@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use qtcloud_devops_cli::code::{self, StatusReport};
 use qtcloud_devops_cli::release::PublishTarget;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 #[derive(Parser)]
@@ -294,44 +294,36 @@ fn run_release(action: ReleaseAction) -> Result<(), String> {
 
 fn run_release_audit(version: Option<String>, scope: Option<String>) -> Result<(), String> {
     let rp = repo_path();
-    let results = if let Some(v) = version {
+    let all_items = if let Some(v) = version {
         qtcloud_devops_cli::release::audit(Some(&v), &rp)
             .map(|items| vec![("".to_string(), items)])
     } else {
         qtcloud_devops_cli::release::audit_all(&rp, scope.as_deref())
-    };
-    match results {
-        Ok(all_items) => {
-            let (all_passed, all_total) =
-                all_items.iter().fold((0u32, 0u32), |(p, t), (_, items)| {
-                    let sp = items.iter().filter(|i| i.passed).count() as u32;
-                    (p + sp, t + items.len() as u32)
-                });
-            for (scope_name, items) in &all_items {
-                if !scope_name.is_empty() {
-                    println!("发布审计 — {}\n{}", scope_name, "-".repeat(50));
-                } else {
-                    println!("发布审计\n{}", "-".repeat(50));
-                }
-                let mut passed = 0u32;
-                for item in items {
-                    let icon = if item.passed { "✅" } else { "❌" };
-                    println!("  {} {}", icon, item.name);
-                    println!("        {}", item.detail);
-                    if item.passed { passed += 1; }
-                }
-                let total = items.len() as u32;
-                println!("{}\n  {}/{} 项通过\n", "-".repeat(50), passed, total);
-            }
-            let total = all_items.len() as u32;
-            if all_passed == all_total {
-                println!("  全部 {} 项检查通过 ({} scope)", all_total, total);
-                Ok(())
-            } else {
-                Err(format!("{}/{} 项未通过 ({} scope)", all_total - all_passed, all_total, total))
-            }
+    }.map_err(|e| format!("审计失败: {}", e))?;
+    print_audit_results(&all_items)
+}
+
+fn print_audit_results(all_items: &[(String, Vec<qtcloud_devops_cli::release::AuditItem>)]) -> Result<(), String> {
+    let (all_passed, all_total) = all_items.iter().fold((0u32, 0u32), |(p, t), (_, items)| {
+        let sp = items.iter().filter(|i| i.passed).count() as u32;
+        (p + sp, t + items.len() as u32)
+    });
+    for (scope_name, items) in all_items {
+        let header = if scope_name.is_empty() { "发布审计".into() } else { format!("发布审计 — {}", scope_name) };
+        println!("{}\n{}", header, "-".repeat(50));
+        let mut passed = 0u32;
+        for item in items {
+            println!("  {} {}", if item.passed { "✅" } else { "❌" }, item.name);
+            println!("        {}", item.detail);
+            if item.passed { passed += 1; }
         }
-        Err(e) => Err(format!("审计失败: {}", e)),
+        println!("{}\n  {}/{} 项通过\n", "-".repeat(50), passed, items.len() as u32);
+    }
+    if all_passed == all_total {
+        println!("  全部 {} 项检查通过 ({} scope)", all_total, all_items.len());
+        Ok(())
+    } else {
+        Err(format!("{}/{} 项未通过 ({} scope)", all_total - all_passed, all_total, all_items.len()))
     }
 }
 
@@ -455,57 +447,41 @@ fn run_code_status(path: PathBuf, offline: bool) -> Result<(), String> {
 fn run_plan_clean(scope: Option<String>) -> Result<(), String> {
     let repo_path = repo_path();
     let dir = qtcloud_devops_cli::plan::resolve_roadmap_dir(&repo_path, scope.as_deref());
-    let cleaned_files: Vec<String> = ["ROADMAP.md", "TODO.md"]
-        .iter()
-        .filter_map(|name| {
-            let path = dir.join(name);
-            if !path.exists() {
-                return None;
-            }
-            match qtcloud_devops_cli::plan::clean_done_items(&path) {
-                Ok(removed) if removed > 0 => {
-                    println!("  ✓ 已清理 {} 字节，文件: {}", removed, path.display());
-                    let rel = path
-                        .strip_prefix(&repo_path)
-                        .unwrap_or(&path)
-                        .to_str()
-                        .unwrap_or(name)
-                        .to_string();
-                    Some(rel)
-                }
-                Ok(_) => {
-                    None
-                }
-                Err(e) => {
-                    eprintln!("  ✗ 清理失败 {}: {}", name, e);
-                    None
-                }
-            }
-        })
-        .collect();
-
+    let cleaned_files = collect_cleaned_files(&repo_path, &dir);
     if cleaned_files.is_empty() {
         println!("  无已完成条目可清理");
         return Ok(());
     }
+    git_commit_cleaned(&repo_path, &cleaned_files)
+}
 
-    // 自动提交
-    for rel in &cleaned_files {
-        std::process::Command::new("git")
-            .args(["add", rel])
-            .current_dir(&repo_path)
-            .output()
+fn collect_cleaned_files(repo_path: &Path, dir: &Path) -> Vec<String> {
+    ["ROADMAP.md", "TODO.md"].iter().filter_map(|name| {
+        let path = dir.join(name);
+        if !path.exists() { return None; }
+        match qtcloud_devops_cli::plan::clean_done_items(&path) {
+            Ok(removed) if removed > 0 => {
+                println!("  ✓ 已清理 {} 字节，文件: {}", removed, path.display());
+                let rel = path.strip_prefix(repo_path).unwrap_or(&path)
+                    .to_str().unwrap_or(name).to_string();
+                Some(rel)
+            }
+            Ok(_) => None,
+            Err(e) => { eprintln!("  ✗ 清理失败 {}: {}", name, e); None }
+        }
+    }).collect()
+}
+
+fn git_commit_cleaned(repo_path: &Path, files: &[String]) -> Result<(), String> {
+    for rel in files {
+        std::process::Command::new("git").args(["add", rel])
+            .current_dir(repo_path).output()
             .map_err(|e| format!("git add 失败: {}", e))?;
     }
-    let files_str = cleaned_files.join(", ");
-    std::process::Command::new("git")
-        .args([
-            "commit",
-            "-m",
-            &format!("chore: clean completed items from {}", files_str),
-        ])
-        .current_dir(&repo_path)
-        .output()
+    let files_str = files.join(", ");
+    std::process::Command::new("git").args(["commit", "-m",
+        &format!("chore: clean completed items from {}", files_str)])
+        .current_dir(repo_path).output()
         .map_err(|e| format!("git commit 失败: {}", e))?;
     println!("  ✓ 已提交 ({})", files_str);
     Ok(())
