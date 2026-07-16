@@ -1,7 +1,6 @@
 use super::PlanError;
 use crate::plan::status::resolve_roadmap_dir;
 use std::path::Path;
-use std::collections::BTreeMap;
 
 pub fn todo_from_audit(repo_path: &Path, json: &str, scope: Option<&str>) -> Result<(), PlanError> {
     use crate::code::AuditPlan;

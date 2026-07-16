@@ -1,8 +1,7 @@
-use super::{PlanError, Issue};
+use super::PlanError;
 use std::path::{Path, PathBuf};
-use std::io::Write;
 use quanttide_devops::source::roadmap::{Roadmap, RoadmapVersion};
-use crate::source::roadmap::{apply_rules_to_line, is_version_line, CATEGORIES};
+use crate::source::roadmap::CATEGORIES;
 use crate::plan::doctor::edit_llm;
 
 /// 根据 repo_path 和可选的 scope 名称，解析 scope 所在目录。

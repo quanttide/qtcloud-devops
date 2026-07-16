@@ -11,6 +11,7 @@ pub(crate) fn cache_path(dir: &Path) -> PathBuf {
 }
 
 /// 收集已缓存的测试结果（不运行测试）。
+#[expect(dead_code)]
 pub(crate) fn collect_test_summary(dir: &Path, _lang: &contract::Language) -> TestSummary {
     let cache = cache_path(dir);
     let content = match std::fs::read_to_string(&cache) {

@@ -1,7 +1,7 @@
-use super::{PlanError, parse_roadmap};
+use super::PlanError;
 use crate::plan::{status::resolve_roadmap_dir, edit_roadmap};
 use std::path::Path;
-use crate::source::roadmap::{is_version_line, CATEGORIES};
+
 
 fn llm_audit_consistency(
     roadmap: &str,

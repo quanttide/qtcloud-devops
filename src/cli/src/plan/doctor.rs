@@ -1,8 +1,6 @@
-use super::{PlanError, parse_roadmap, parse_roadmap_str, Issue};
+use super::{PlanError, Issue};
 use std::path::Path;
-use quanttide_devops::source::roadmap::Roadmap;
-use crate::source::roadmap::{apply_rules_to_line, is_version_line, CATEGORIES};
-use quanttide_agent::Settings;
+use crate::source::roadmap::apply_rules_to_line;
 
 pub fn edit_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, PlanError> {
     let content = std::fs::read_to_string(path)?;

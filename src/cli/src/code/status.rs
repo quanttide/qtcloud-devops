@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::source::git::submodule::{RepoState, SubmoduleStatus, scan_repo_state, scan_repo_state_offline};
+use crate::source::git::submodule::{SubmoduleStatus, scan_repo_state, scan_repo_state_offline};
 
 // ═══════════════════════════════════════════════════════════════════════
 // 模型

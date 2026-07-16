@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::process::Command;
 
 pub use quanttide_devops::source::git::submodule::{
