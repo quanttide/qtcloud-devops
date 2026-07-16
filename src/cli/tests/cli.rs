@@ -237,13 +237,13 @@ fn test_cli_contract_status() {
 }
 
 #[test]
-fn test_cli_source_status() {
-    let output = cli().args(["source", "status"]).output().unwrap();
+fn test_cli_doctor_status() {
+    let output = cli().args(["doctor", "status"]).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("git"),
-        "source status 应包含 git: {}",
-        &stdout[..100]
+        "doctor status 应包含 git: {}",
+        &stdout[..stdout.len().min(100)]
     );
 }
 
@@ -322,10 +322,10 @@ fn test_cli_code_audit_help() {
 }
 
 #[test]
-fn test_cli_source_help() {
-    let output = cli().args(["source", "--help"]).output().unwrap();
+fn test_cli_doctor_help() {
+    let output = cli().args(["doctor", "--help"]).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("source"));
+    assert!(stdout.contains("doctor"));
 }
 
 #[test]
