@@ -4,7 +4,7 @@
 
 ### MUST（圈复杂度 ≥15 / 嵌套 ≥6 / 函数 ≥80 行 / 文件 ≥1000 行）
 
-- [ ] `src/test.rs`: 拆分 `collect_error_variants` — 圈复杂度 19，嵌套 6 层，71 行
+- [x] `src/test.rs`: 拆分 `collect_error_variants` — 圈复杂度 19，嵌套 6 层，71 行
 - [ ] `src/test.rs`: 拆分 `print_scope_audit` — 圈复杂度 11
 - [ ] `src/plan.rs`: 拆分 `fn`（圈复杂度 15，86 行，嵌套 8 层）
 - [ ] `src/build.rs`: 拆分 `fn`（圈复杂度 11，78 行，嵌套 5 层）

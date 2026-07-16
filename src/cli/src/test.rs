@@ -262,6 +262,41 @@ fn collect_pub_fns(content: &str, fns: &mut Vec<(String, String)>, path: &Path) 
     }
 }
 
+/// 检测行是否为错误枚举定义（`pub enum ...Error`），返回枚举名。
+fn is_error_enum_declaration(line: &str) -> Option<String> {
+    let t = line.trim();
+    let rest = t.strip_prefix("pub enum ")?;
+    let name = rest
+        .split(|c: char| c == '{' || c == ' ' || c == '\t')
+        .next()
+        .unwrap_or("")
+        .to_string();
+    if name.contains("Error") || name.contains("error") {
+        Some(name)
+    } else {
+        None
+    }
+}
+
+/// 从 enum 体的一行中提取变体名（取第一个标识符，忽略元组参数、属性等）。
+fn extract_variant_name(line: &str) -> Option<String> {
+    let t = line.trim();
+    if t.is_empty() || t.starts_with("//") || t.starts_with("#[") {
+        return None;
+    }
+    let name = t
+        .split(|c: char| c == '(' || c == '{' || c == ',' || c == ' ' || c == '\t')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if name.is_empty() || name.starts_with('#') {
+        None
+    } else {
+        Some(name)
+    }
+}
+
 /// 从源码中收集错误枚举变体（基于 brace depth 的稳健解析）。
 fn collect_error_variants(content: &str, enums: &mut Vec<(String, Vec<String>)>) {
     let mut depth: isize = 0;
@@ -273,26 +308,21 @@ fn collect_error_variants(content: &str, enums: &mut Vec<(String, Vec<String>)>)
     for line in content.lines() {
         let t = line.trim();
 
-        // 检测 enum 定义开始
+        // 扫描模式：找 pub enum ...Error
         if !in_error_enum {
-            if let Some(rest) = t.strip_prefix("pub enum ") {
-                let name = rest.split(|c: char| c == '{' || c == ' ' || c == '\t')
-                    .next().unwrap_or("").to_string();
-                if name.contains("Error") || name.contains("error") {
-                    enum_name = name;
-                    in_error_enum = true;
-                    variants.clear();
-                    depth = 0;
-                    in_attr = false;
-                    // 同一行可能有 {，计入深度
-                    if t.contains('{') { depth = 1; }
-                    continue;
-                }
+            if let Some(name) = is_error_enum_declaration(line) {
+                enum_name = name;
+                in_error_enum = true;
+                variants.clear();
+                depth = 0;
+                in_attr = false;
+                if t.contains('{') { depth = 1; }
             }
             continue;
         }
 
-        // 在 enum 体内
+        // 收集模式：处理 enum 体内的行
+        // 属性行
         if t.starts_with('#') {
             in_attr = true;
             if t.ends_with(']') { in_attr = false; }
@@ -316,13 +346,7 @@ fn collect_error_variants(content: &str, enums: &mut Vec<(String, Vec<String>)>)
             continue;
         }
 
-        // 跳过空行、注释、derive
-        if t.is_empty() || t.starts_with("//") || t.starts_with("#[") { continue; }
-
-        // 提取变体名（取第一个标识符，忽略元组参数等）
-        let v = t.split(|c: char| c == '(' || c == '{' || c == ',' || c == ' ' || c == '\t')
-            .next().unwrap_or("").trim().to_string();
-        if !v.is_empty() && !v.starts_with('#') {
+        if let Some(v) = extract_variant_name(t) {
             variants.push(v);
         }
     }
@@ -860,6 +884,96 @@ mod tests {
         assert_eq!(s.passed, 8);
         assert_eq!(s.failed, 3);
         assert_eq!(s.skipped, 1);
+    }
+
+    // ── is_error_enum_declaration ─────────────────────────────
+
+    #[test]
+    fn test_is_error_enum_declaration_matches() {
+        assert_eq!(
+            is_error_enum_declaration("pub enum MyError {"),
+            Some("MyError".into())
+        );
+    }
+
+    #[test]
+    fn test_is_error_enum_declaration_matches_lowercase() {
+        assert_eq!(
+            is_error_enum_declaration("pub enum parse_error {"),
+            Some("parse_error".into())
+        );
+    }
+
+    #[test]
+    fn test_is_error_enum_declaration_skips_non_error() {
+        assert_eq!(is_error_enum_declaration("pub enum Color {"), None);
+    }
+
+    #[test]
+    fn test_is_error_enum_declaration_skips_non_pub() {
+        assert_eq!(is_error_enum_declaration("enum MyError {"), None);
+    }
+
+    #[test]
+    fn test_is_error_enum_declaration_skips_struct() {
+        assert_eq!(is_error_enum_declaration("pub struct Error {"), None);
+    }
+
+    #[test]
+    fn test_is_error_enum_declaration_extracts_name_with_generics() {
+        assert_eq!(
+            is_error_enum_declaration("pub enum MyError<E> {"),
+            Some("MyError<E>".into())
+        );
+    }
+
+    // ── extract_variant_name ────────────────────────────────────
+
+    #[test]
+    fn test_extract_variant_name_simple() {
+        assert_eq!(
+            extract_variant_name("    IoError,"),
+            Some("IoError".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_variant_name_with_tuple() {
+        assert_eq!(
+            extract_variant_name("    NotFound(String),"),
+            Some("NotFound".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_variant_name_with_braces() {
+        assert_eq!(
+            extract_variant_name("    Detailed { code: u32 },"),
+            Some("Detailed".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_variant_name_skips_comment() {
+        assert_eq!(extract_variant_name("// this is a comment"), None);
+    }
+
+    #[test]
+    fn test_extract_variant_name_skips_derive() {
+        assert_eq!(
+            extract_variant_name("#[derive(Debug)]"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_extract_variant_name_skips_empty() {
+        assert_eq!(extract_variant_name(""), None);
+    }
+
+    #[test]
+    fn test_extract_variant_name_skips_blank() {
+        assert_eq!(extract_variant_name("   "), None);
     }
 
     #[test]
