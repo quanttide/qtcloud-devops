@@ -79,7 +79,10 @@ fn llm_changelog(git_log: &str, version: &str) -> Result<String, ChangelogError>
     Ok(response.content.trim().to_string())
 }
 
-pub fn ensure_changelog(
+/// 只读地生成 CHANGELOG 内容（不写盘），供 Plan 阶段使用。
+///
+/// 返回 `Some(content)` 表示需要追加新条目，`None` 表示版本已存在无需修改。
+pub fn generate_changelog_content(
     repo_path: &Path,
     scope_dir: &Path,
     version: &str,
@@ -97,23 +100,22 @@ pub fn ensure_changelog(
         Ok(log) => log,
         Err(ChangelogError::NoNewCommits) => {
             // 无新提交时，仍允许预发布阶段晋级（如 beta.8 → rc.1）
-            // 自动生成占位 CHANGELOG 条目，避免发布流程中断
-            let placeholder = format!("阶段晋级至 {}", version);
-            lib_changelog::append_entry(&changelog_path, version, &placeholder)?;
-            println!("✓ CHANGELOG.md 已更新（版本 {}，阶段晋级）", version);
-            let rel = changelog_path
-                .strip_prefix(repo_path)
-                .unwrap_or(&changelog_path)
-                .to_str()
-                .unwrap_or("CHANGELOG.md")
-                .to_string();
-            return Ok(Some(rel));
+            return Ok(Some(format!("阶段晋级至 {}", version)));
         }
         Err(e) => return Err(e),
     };
-    let changelog_content = llm_changelog(&git_log, version)?;
-    lib_changelog::append_entry(&changelog_path, version, &changelog_content)?;
-    println!("✓ CHANGELOG.md 已更新（版本 {})", version);
+    llm_changelog(&git_log, version).map(Some)
+}
+
+/// 将 CHANGELOG 内容写入文件并返回相对路径，仅供 Execute 阶段使用。
+pub fn write_changelog_content(
+    repo_path: &Path,
+    scope_dir: &Path,
+    version: &str,
+    content: &str,
+) -> Result<Option<String>, ChangelogError> {
+    let changelog_path = scope_dir.join("CHANGELOG.md");
+    lib_changelog::append_entry(&changelog_path, version, content)?;
     let rel = changelog_path
         .strip_prefix(repo_path)
         .unwrap_or(&changelog_path)
@@ -121,6 +123,19 @@ pub fn ensure_changelog(
         .unwrap_or("CHANGELOG.md")
         .to_string();
     Ok(Some(rel))
+}
+
+/// （已废弃）生成 CHANGELOG 并直接写入文件。请改用 `generate_changelog_content` + `write_changelog_content`。
+pub fn ensure_changelog(
+    repo_path: &Path,
+    scope_dir: &Path,
+    version: &str,
+) -> Result<Option<String>, ChangelogError> {
+    let content = generate_changelog_content(repo_path, scope_dir, version)?;
+    match content {
+        Some(c) => write_changelog_content(repo_path, scope_dir, version, &c),
+        None => Ok(None),
+    }
 }
 
 #[cfg(test)]

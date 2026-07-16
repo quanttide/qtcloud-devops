@@ -1,10 +1,11 @@
 mod audit;
 mod detect;
+mod plan;
 mod precheck;
 mod publish;
 mod status;
 
-pub use crate::source::changelog::{ensure_changelog, ChangelogError};
+pub use crate::source::changelog::{ensure_changelog, generate_changelog_content, write_changelog_content, ChangelogError};
 pub use audit::{audit, audit_all, AuditItem};
 pub use detect::DetectError;
 pub use precheck::{run_precheck, PrecheckResult};

@@ -1,18 +1,15 @@
 use std::path::Path;
 
 use super::PublishTarget;
+use super::plan::{build_plan, print_plan, validate_plan, ReleasePlan};
 use crate::contract;
+use crate::source::changelog::write_changelog_content;
 
-/// 发布版本。
+/// 发布版本。三阶段架构：Plan（只读）→ Confirm → Execute（只写）。
 ///
-/// 内部处理流程：
-/// 1. 校验版本号格式（有 `-v` 时），或自动检测版本号（无 `-v` 时）
-/// 2. 从 contract.yaml 获取 scope 子目录
-/// 3. 自动更新 Cargo.toml / pyproject.toml 版本号
-/// 4. 自动生成 CHANGELOG（如有需要）并提交
-/// 5. 校验 CHANGELOG 包含对应版本记录
-/// 6. 用户确认（除非 `yes = true`）
-/// 7. 创建 git tag → 推送 → 创建 GitHub Release
+/// 阶段一 Plan：计算版本号、配置文件 diff、CHANGELOG 内容、Lockfile 需求，不写盘。
+/// 阶段二 Confirm：展示计划给用户，确认后进入 Execute。
+/// 阶段三 Execute：写文件、git commit、git tag、push、GitHub Release。
 ///
 /// `version` 为 None 时自动检测。`dry_run` 为 true 时只打印不执行。
 pub fn publish(
@@ -23,27 +20,24 @@ pub fn publish(
     dry_run: bool,
     registry: Option<PublishTarget>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // ── Phase 1: Plan（只读）───────────────────────────────────────
     let version = resolve_version(version, repo_path, dry_run)?;
     if dry_run {
         print_dry_run_preview(&version);
         return Ok(());
     }
 
-    let ver = super::normalize_version(&version);
-    let scope_dir = super::resolve_scope_dir(&version, repo_path);
+    let plan = build_plan(repo_path, &version, force)?;
+    validate_plan(&plan)?;
 
-    let config_changed = update_config_version(&scope_dir, &ver);
-    if config_changed {
-        update_cargo_lock(&scope_dir);
-    }
-    prepare_force_release(force, &version, repo_path);
-    verify_config_consistency(&scope_dir, &ver)?;
-    prepare_changelog_and_commit(repo_path, &scope_dir, &version, config_changed);
-    precheck_changelog(&version, &scope_dir)?;
-    confirm_or_abort(yes, &version)?;
-    execute_release(&version, repo_path, registry)?;
+    // ── Phase 2: Confirm ───────────────────────────────────────────
+    print_plan(&plan);
+    confirm_or_abort(yes, &plan.version)?;
 
-    println!("✓ 版本 {} 已发布", version);
+    // ── Phase 3: Execute（只写）────────────────────────────────────
+    execute_plan(&plan, repo_path, registry)?;
+
+    println!("✓ 版本 {} 已发布", plan.version);
     Ok(())
 }
 
@@ -75,8 +69,48 @@ fn print_dry_run_preview(version: &str) {
     println!("   使用 -y 跳过确认直接发布");
 }
 
-fn prepare_force_release(force: bool, version: &str, repo_path: &Path) {
-    if !force { return; }
+fn confirm_or_abort(yes: bool, version: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if !yes && !super::confirm_release(version, false) {
+        Err("已取消发布".into())
+    } else {
+        Ok(())
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Execute 阶段（所有写操作集中在此）
+// ═══════════════════════════════════════════════════════════════════════
+
+/// 执行发布计划的所有写操作。
+fn execute_plan(
+    plan: &ReleasePlan,
+    repo_path: &Path,
+    registry: Option<PublishTarget>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // 1. 强制重新发布时清理旧 tag 和 Release
+    if plan.force {
+        prepare_force_release(&plan.version, repo_path);
+    }
+
+    // 2. 写配置文件
+    write_config_files(plan);
+
+    // 3. 同步 Cargo.lock（若需要）
+    let lock_changed = maybe_update_lockfile(plan);
+
+    // 4. 写 CHANGELOG
+    let changelog_written = maybe_write_changelog(plan, repo_path);
+
+    // 5. Git 提交
+    git_commit_all(plan, repo_path, lock_changed || changelog_written || !plan.config_updates.is_empty());
+
+    // 6. Git tag + push + GitHub Release
+    execute_release(&plan.version, repo_path, registry)?;
+
+    Ok(())
+}
+
+fn prepare_force_release(version: &str, repo_path: &Path) {
     if let Some(repo) = super::get_remote_repo(repo_path) {
         eprintln!("🔁 强制重新发布，清理旧资源...");
         super::delete_release(version, &repo);
@@ -85,91 +119,115 @@ fn prepare_force_release(force: bool, version: &str, repo_path: &Path) {
     super::delete_local_tag(version, repo_path);
 }
 
-fn verify_config_consistency(scope_dir: &Path, ver: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let config_files = contract::read_config_versions(scope_dir);
-    let inconsistent: Vec<_> = config_files.iter().filter(|(_, v)| match v {
-        Some(cv) => cv != ver, None => false,
-    }).collect();
-    if !inconsistent.is_empty() {
-        for (fname, v) in &inconsistent {
-            eprintln!("⚠ {}: 版本 {} 与目标 {} 不一致", fname, v.as_deref().unwrap_or("?"), ver);
-        }
-        return Err("存在版本号不一致的配置文件，请先同步".into());
+/// 写入所有待更新的配置文件。
+fn write_config_files(plan: &ReleasePlan) {
+    for update in &plan.config_updates {
+        std::fs::write(&update.path, &update.new_content).ok();
+        let name = update.path.file_name().unwrap_or_default();
+        println!("✓ {} 版本已更新为 {}", name.to_string_lossy(), plan.ver);
     }
-    Ok(())
 }
 
-fn update_cargo_lock(scope_dir: &Path) {
-    if !scope_dir.join("Cargo.toml").exists() { return; }
+/// 若需要则同步 Cargo.lock，返回 true 表示文件有变更。
+fn maybe_update_lockfile(plan: &ReleasePlan) -> bool {
+    if !plan.lockfile_needs_update {
+        return false;
+    }
+    // 备份当前内容以便比较
+    let lock_path = plan.scope_dir.join("Cargo.lock");
+    let before = std::fs::read_to_string(&lock_path).unwrap_or_default();
+
     let ok = std::process::Command::new("cargo")
-        .args(["generate-lockfile"]).current_dir(scope_dir).output()
-        .map(|o| o.status.success()).unwrap_or(false);
-    if ok { println!("✓ Cargo.lock 已同步"); }
-}
-
-fn prepare_changelog_and_commit(repo_path: &Path, scope_dir: &Path, version: &str, config_changed: bool) {
-    // 先 stage 配置文件（Cargo.toml / pyproject.toml）和 Cargo.lock
-    let mut staged_anything = false;
-    for f in &["Cargo.toml", "pyproject.toml", "Cargo.lock"] {
-        let path = scope_dir.join(f);
-        if path.exists() {
-            if let Ok(rel) = path.strip_prefix(repo_path) {
-                if std::process::Command::new("git")
-                    .args(["add", rel.to_str().unwrap_or(f)]).current_dir(repo_path)
-                    .output().map(|o| o.status.success()).unwrap_or(false)
-                {
-                    staged_anything = true;
-                }
-            }
-        }
+        .args(["generate-lockfile"])
+        .current_dir(&plan.scope_dir)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !ok {
+        eprintln!("⚠ cargo generate-lockfile 失败，Cargo.lock 可能未同步");
+        return false;
     }
 
-    // 处理 CHANGELOG
-    let changelog_committed = match super::ensure_changelog(repo_path, scope_dir, version) {
-        Ok(Some(rel)) => {
-            if std::process::Command::new("git").args(["add", &rel]).current_dir(repo_path)
-                .output().map(|o| o.status.success()).unwrap_or(false)
-            {
-                let ver = super::normalize_version(version);
-                std::process::Command::new("git")
-                    .args(["commit", "-m", &format!("chore: add CHANGELOG entry for {}", ver)])
-                    .current_dir(repo_path).output().ok();
-                println!("✓ CHANGELOG 修改已提交");
-                true
-            } else {
-                false
-            }
+    let after = std::fs::read_to_string(&lock_path).unwrap_or_default();
+    if after == before {
+        println!("✓ Cargo.lock 已是最新，无需变更");
+        false
+    } else {
+        println!("✓ Cargo.lock 已同步");
+        true
+    }
+}
+
+/// 若 Plan 中包含了 CHANGELOG 新内容则写入文件，返回 true。
+fn maybe_write_changelog(plan: &ReleasePlan, repo_path: &Path) -> bool {
+    let content = match &plan.changelog_content {
+        Some(c) => c,
+        None => return false,
+    };
+    match write_changelog_content(repo_path, &plan.scope_dir, &plan.version, content) {
+        Ok(Some(_)) => {
+            println!("✓ CHANGELOG.md 已更新（版本 {})", plan.ver);
+            true
         }
+        Ok(None) => false,
         Err(e) => {
-            eprintln!("⚠ CHANGELOG 生成失败: {}\n   发布将继续，但请确保 CHANGELOG.md 包含版本 {} 的记录。", e, version);
+            eprintln!("⚠ CHANGELOG 写入失败: {}", e);
             false
         }
-        _ => false,
-    };
-
-    // 如果配置版本变更未随 CHANGELOG 提交，单独提交
-    if config_changed && !changelog_committed && staged_anything {
-        let ver = super::normalize_version(version);
-        std::process::Command::new("git")
-            .args(["commit", "-m", &format!("chore: bump version to {}", ver)])
-            .current_dir(repo_path).output().ok();
     }
 }
 
-fn precheck_changelog(version: &str, scope_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let changelog_path = scope_dir.join("CHANGELOG.md");
-    let errors = super::precheck_version_changelog(version, &changelog_path);
-    if !errors.is_empty() { return Err(errors.join("\n").into()); }
-    Ok(())
+/// Git add + commit 所有变更文件。
+fn git_commit_all(plan: &ReleasePlan, repo_path: &Path, anything_changed: bool) {
+    if !anything_changed {
+        return;
+    }
+
+    // Stage 配置文件
+    for f in &["Cargo.toml", "pyproject.toml", "Cargo.lock"] {
+        let path = plan.scope_dir.join(f);
+        if path.exists() {
+            if let Ok(rel) = path.strip_prefix(repo_path) {
+                std::process::Command::new("git")
+                    .args(["add", rel.to_str().unwrap_or(f)])
+                    .current_dir(repo_path)
+                    .output()
+                    .ok();
+            }
+        }
+    }
+
+    // Stage CHANGELOG
+    let cl_path = plan.scope_dir.join("CHANGELOG.md");
+    if cl_path.exists() {
+        if let Ok(rel) = cl_path.strip_prefix(repo_path) {
+            std::process::Command::new("git")
+                .args(["add", rel.to_str().unwrap_or("CHANGELOG.md")])
+                .current_dir(repo_path)
+                .output()
+                .ok();
+        }
+    }
+
+    // Commit
+    let msg = match (&plan.changelog_content, plan.config_updates.is_empty()) {
+        (Some(_), _) => format!("chore: add CHANGELOG entry for {}", plan.ver),
+        (None, false) => format!("chore: bump version to {}", plan.ver),
+        _ => format!("chore: prepare release {}", plan.ver),
+    };
+    std::process::Command::new("git")
+        .args(["commit", "-m", &msg])
+        .current_dir(repo_path)
+        .output()
+        .ok();
+    println!("✓ Git 提交: {}", msg);
 }
 
-fn confirm_or_abort(yes: bool, version: &str) -> Result<(), Box<dyn std::error::Error>> {
-    if !yes && !super::confirm_release(version, false) {
-        Err("已取消发布".into())
-    } else { Ok(()) }
-}
-
-fn execute_release(version: &str, repo_path: &Path, registry: Option<PublishTarget>) -> Result<(), Box<dyn std::error::Error>> {
+fn execute_release(
+    version: &str,
+    repo_path: &Path,
+    registry: Option<PublishTarget>,
+) -> Result<(), Box<dyn std::error::Error>> {
     if !super::create_tag(version, repo_path) {
         return Err(format!("创建标签 {} 失败", version).into());
     }
@@ -178,6 +236,7 @@ fn execute_release(version: &str, repo_path: &Path, registry: Option<PublishTarg
         return Err(format!("推送标签失败: {}", e).into());
     }
     println!("✓ 标签 {} 已创建并推送", version);
+
     let changelog_path = repo_path.join("CHANGELOG.md");
     let notes = super::extract_notes(version, &changelog_path);
     if let Some(repo) = super::get_remote_repo(repo_path) {
@@ -194,44 +253,9 @@ fn execute_release(version: &str, repo_path: &Path, registry: Option<PublishTarg
     Ok(())
 }
 
-/// 更新 Cargo.toml / pyproject.toml 中的版本号。
-///
-/// 返回是否有文件被实际修改。
-fn update_config_version(repo_path: &Path, version: &str) -> bool {
-    let mut changed = false;
-    for filename in &["Cargo.toml", "pyproject.toml"] {
-        let path = repo_path.join(filename);
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let updated = update_version_in_content(&content, version);
-        if updated != content {
-            std::fs::write(&path, &updated).ok();
-            println!("✓ {} 版本已更新为 {}", filename, version);
-            changed = true;
-        }
-    }
-    changed
-}
-
-fn update_version_in_content(content: &str, new_ver: &str) -> String {
-    let mut result = String::new();
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("version = \"") {
-            let indent = &line[..line.find("version = \"").unwrap()];
-            result.push_str(&format!("{}version = \"{}\"\n", indent, new_ver));
-        } else if trimmed.starts_with("\"version\":") {
-            let indent = &line[..line.find("\"version\":").unwrap()];
-            result.push_str(&format!("{}\"version\": \"{}\",\n", indent, new_ver));
-        } else {
-            result.push_str(line);
-            result.push('\n');
-        }
-    }
-    result
-}
+// ═══════════════════════════════════════════════════════════════════════
+// 测试
+// ═══════════════════════════════════════════════════════════════════════
 
 #[cfg(test)]
 mod tests {
@@ -271,6 +295,7 @@ mod tests {
         )
         .is_err());
     }
+
     #[test]
     fn test_publish_auto_generates_changelog() {
         let d = tempfile::tempdir().unwrap();
@@ -281,12 +306,14 @@ mod tests {
         let changelog = std::fs::read_to_string(d.path().join("CHANGELOG.md")).unwrap_or_default();
         assert!(changelog.contains("## [1.0.0]"));
     }
+
     #[test]
     fn test_publish_formal_with_yes() {
         let d = tempfile::tempdir().unwrap();
         let r = publish(Some("v1.0.0"), d.path(), true, false, false, None);
         assert!(r.is_ok() || r.is_err());
     }
+
     #[test]
     fn test_publish_prerelease_with_yes() {
         let d = tempfile::tempdir().unwrap();
@@ -299,40 +326,6 @@ mod tests {
         .unwrap();
         let r = publish(Some("v1.0.0-rc.1"), d.path(), true, false, false, None);
         assert!(r.is_ok() || r.is_err());
-    }
-    #[test]
-    fn test_update_version_in_content_toml() {
-        let content = "name = \"foo\"\nversion = \"0.1.0\"\n";
-        assert_eq!(
-            update_version_in_content(content, "0.2.0"),
-            "name = \"foo\"\nversion = \"0.2.0\"\n"
-        );
-    }
-    #[test]
-    fn test_update_version_in_content_json() {
-        let content = "{\n  \"version\": \"1.0.0\",\n}\n";
-        let result = update_version_in_content(content, "2.0.0");
-        assert!(result.contains("\"version\": \"2.0.0\""));
-    }
-
-    #[test]
-    fn test_update_config_version_creates_files() {
-        let d = tempfile::tempdir().unwrap();
-        std::fs::write(
-            d.path().join("Cargo.toml"),
-            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
-        )
-        .unwrap();
-        std::fs::write(
-            d.path().join("pyproject.toml"),
-            "[project]\nname = \"test\"\nversion = \"0.1.0\"\n",
-        )
-        .unwrap();
-        update_config_version(d.path(), "0.2.0");
-        let cargo = std::fs::read_to_string(d.path().join("Cargo.toml")).unwrap();
-        assert!(cargo.contains("version = \"0.2.0\""));
-        let pyproject = std::fs::read_to_string(d.path().join("pyproject.toml")).unwrap();
-        assert!(pyproject.contains("version = \"0.2.0\""));
     }
 
     #[test]
@@ -379,5 +372,49 @@ mod tests {
 
         let cargo = std::fs::read_to_string(scope_dir.join("Cargo.toml")).unwrap();
         assert!(cargo.contains("version = \"0.2.0\""));
+    }
+
+    // ── Execute 阶段单元测试 ────────────────────────────────────────
+
+    #[test]
+    fn test_write_config_files_writes_disk() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join("Cargo.toml"),
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let plan = ReleasePlan {
+            version: "v0.2.0".into(),
+            ver: "0.2.0".into(),
+            repo_path: d.path().to_path_buf(),
+            scope_dir: d.path().to_path_buf(),
+            force: false,
+            config_updates: vec![super::super::plan::ConfigUpdate {
+                path: d.path().join("Cargo.toml"),
+                new_content: "[package]\nname = \"test\"\nversion = \"0.2.0\"\n".into(),
+            }],
+            changelog_content: None,
+            lockfile_needs_update: false,
+        };
+        write_config_files(&plan);
+        let content = std::fs::read_to_string(d.path().join("Cargo.toml")).unwrap();
+        assert!(content.contains("version = \"0.2.0\""));
+    }
+
+    #[test]
+    fn test_maybe_update_lockfile_noop_when_not_needed() {
+        let d = tempfile::tempdir().unwrap();
+        let plan = ReleasePlan {
+            version: "v0.2.0".into(),
+            ver: "0.2.0".into(),
+            repo_path: d.path().to_path_buf(),
+            scope_dir: d.path().to_path_buf(),
+            force: false,
+            config_updates: vec![],
+            changelog_content: None,
+            lockfile_needs_update: false,
+        };
+        assert!(!maybe_update_lockfile(&plan));
     }
 }
