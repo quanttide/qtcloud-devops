@@ -57,36 +57,6 @@ pub struct RepoState {
     pub needs_attention: Vec<String>,
 }
 
-/// 子模块状态快照，用于 `determine_submodule_status` 入参。
-struct SubmoduleState {
-    is_uninitialized: bool,
-    is_dirty: bool,
-    is_detached: bool,
-    is_orphaned: bool,
-    remote_unreachable: bool,
-    ahead_count: usize,
-    behind_count: usize,
-    local_head: gix::ObjectId,
-    parent_pointer: gix::ObjectId,
-}
-
-impl Default for SubmoduleState {
-    fn default() -> Self {
-        let null = gix::ObjectId::null(gix::hash::Kind::Sha1);
-        Self {
-            is_uninitialized: false,
-            is_dirty: false,
-            is_detached: false,
-            is_orphaned: false,
-            remote_unreachable: false,
-            ahead_count: 0,
-            behind_count: 0,
-            local_head: null,
-            parent_pointer: null,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct AggregateStatus {
     pub total: usize,
@@ -161,6 +131,36 @@ pub fn describe_issue(status: &SubmoduleStatus) -> (String, String) {
         ),
         SubmoduleStatus::Uninitialized => ("尚未初始化".into(), "运行 init 初始化子模块".into()),
         SubmoduleStatus::Clean => unreachable!(),
+    }
+}
+
+/// 子模块状态快照，用于 `determine_submodule_status` 入参。
+struct SubmoduleState {
+    is_uninitialized: bool,
+    is_dirty: bool,
+    is_detached: bool,
+    is_orphaned: bool,
+    remote_unreachable: bool,
+    ahead_count: usize,
+    behind_count: usize,
+    local_head: gix::ObjectId,
+    parent_pointer: gix::ObjectId,
+}
+
+impl Default for SubmoduleState {
+    fn default() -> Self {
+        let null = gix::ObjectId::null(gix::hash::Kind::Sha1);
+        Self {
+            is_uninitialized: false,
+            is_dirty: false,
+            is_detached: false,
+            is_orphaned: false,
+            remote_unreachable: false,
+            ahead_count: 0,
+            behind_count: 0,
+            local_head: null,
+            parent_pointer: null,
+        }
     }
 }
 

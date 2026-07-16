@@ -9,15 +9,7 @@ pub(crate) mod audit;
 pub use status::status;
 pub use clean::clean;
 pub use audit::audit;
-
-/// CI 运行记录。
-#[derive(Debug, PartialEq)]
-pub(crate) struct CiRun {
-    pub conclusion: String,
-    pub title: String,
-    pub branch: String,
-    pub number: String,
-}
+pub use quanttide_devops::stage::build::CiRun;
 
 pub(crate) struct ScopeInfo<'a> {
     name: &'a str,

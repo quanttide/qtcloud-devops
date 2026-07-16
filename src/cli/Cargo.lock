@@ -551,6 +551,7 @@ dependencies = [
  "gix-submodule 0.16.0",
  "gix-tempfile 15.0.0",
  "gix-trace",
+ "gix-transport 0.44.0",
  "gix-traverse 0.43.1",
  "gix-url 0.28.2",
  "gix-utils",
@@ -561,6 +562,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "regex",
+ "serde",
  "signal-hook",
  "smallvec",
  "thiserror 2.0.18",
@@ -591,6 +593,7 @@ dependencies = [
  "gix-date",
  "gix-utils",
  "itoa",
+ "serde",
  "thiserror 2.0.18",
  "winnow",
 ]
@@ -653,6 +656,7 @@ dependencies = [
  "gix-quote",
  "gix-trace",
  "kstring",
+ "serde",
  "smallvec",
  "thiserror 2.0.18",
  "unicode-bom",
@@ -726,6 +730,7 @@ dependencies = [
  "gix-features 0.39.1",
  "gix-hash 0.15.1",
  "memmap2",
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -816,6 +821,7 @@ dependencies = [
  "gix-sec",
  "gix-trace",
  "gix-url 0.28.2",
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -1078,6 +1084,7 @@ dependencies = [
  "bstr",
  "gix-features 0.39.1",
  "gix-path",
+ "serde",
 ]
 
 [[package]]
@@ -1098,6 +1105,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b5eccc17194ed0e67d49285e4853307e4147e95407f91c1c3e4a13ba9f4e4ce"
 dependencies = [
  "faster-hex",
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -1147,6 +1155,7 @@ dependencies = [
  "gix-glob 0.17.1",
  "gix-path",
  "gix-trace",
+ "serde",
  "unicode-bom",
 ]
 
@@ -1203,6 +1212,7 @@ dependencies = [
  "libc",
  "memmap2",
  "rustix 0.38.44",
+ "serde",
  "smallvec",
  "thiserror 2.0.18",
 ]
@@ -1251,6 +1261,7 @@ dependencies = [
  "bstr",
  "gix-actor 0.33.2",
  "gix-date",
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -1322,6 +1333,7 @@ dependencies = [
  "gix-utils",
  "gix-validate 0.9.4",
  "itoa",
+ "serde",
  "smallvec",
  "thiserror 2.0.18",
  "winnow",
@@ -1365,6 +1377,7 @@ dependencies = [
  "gix-path",
  "gix-quote",
  "parking_lot",
+ "serde",
  "tempfile",
  "thiserror 2.0.18",
 ]
@@ -1403,6 +1416,7 @@ dependencies = [
  "gix-object 0.46.1",
  "gix-path",
  "memmap2",
+ "serde",
  "smallvec",
  "thiserror 2.0.18",
  "uluru",
@@ -1558,6 +1572,7 @@ dependencies = [
  "gix-transport 0.44.0",
  "gix-utils",
  "maybe-async",
+ "serde",
  "thiserror 2.0.18",
  "winnow",
 ]
@@ -1612,6 +1627,7 @@ dependencies = [
  "gix-utils",
  "gix-validate 0.9.4",
  "memmap2",
+ "serde",
  "thiserror 2.0.18",
  "winnow",
 ]
@@ -1676,6 +1692,7 @@ dependencies = [
  "gix-object 0.46.1",
  "gix-revwalk 0.17.0",
  "gix-trace",
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -1731,6 +1748,7 @@ dependencies = [
  "bstr",
  "gix-hash 0.15.1",
  "gix-lock 15.0.1",
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -1878,6 +1896,7 @@ dependencies = [
  "gix-quote",
  "gix-sec",
  "gix-url 0.28.2",
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -1940,6 +1959,7 @@ dependencies = [
  "gix-features 0.39.1",
  "gix-path",
  "percent-encoding",
+ "serde",
  "thiserror 2.0.18",
  "url",
 ]
@@ -2012,6 +2032,7 @@ dependencies = [
  "gix-object 0.46.1",
  "gix-path",
  "gix-validate 0.9.4",
+ "serde",
 ]
 
 [[package]]
