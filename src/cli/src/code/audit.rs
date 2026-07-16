@@ -222,66 +222,63 @@ fn scan_one(path: &Path) -> Option<ScannedFile> {
     let lines: Vec<&str> = content.lines().collect();
     let total_lines = lines.len();
 
-    // 扫描 TODO/FIXME/HACK
-    let todos: Vec<(usize, String)> = lines.iter().enumerate().filter_map(|(i, l)| {
+    let todos = scan_todo_markers(&lines);
+    let imports = count_imports(&lines);
+    let fn_starts = find_fn_positions(&lines);
+    let long_fns = find_long_fns(&lines, &fn_starts, total_lines);
+    let missing_docs = find_missing_doc_comments(&lines);
+    let max_nesting = compute_max_nesting(&lines);
+    let high_complexity = extract_high_complexity(&lines);
+    let has_mod_doc = lines.iter().take(10).any(|l| l.trim().starts_with("//!"));
+
+    Some(ScannedFile {
+        path: path.to_path_buf(), lines: total_lines,
+        todos, imports, long_fns, missing_docs,
+        max_nesting, high_complexity, has_mod_doc,
+    })
+}
+
+fn scan_todo_markers(lines: &[&str]) -> Vec<(usize, String)> {
+    lines.iter().enumerate().filter_map(|(i, l)| {
         let t = l.trim().to_lowercase();
         if t.contains("todo") || t.contains("fixme") || t.contains("hack") {
             Some((i + 1, l.trim().to_string()))
-        } else {
-            None
-        }
-    }).collect();
+        } else { None }
+    }).collect()
+}
 
-    // 扫描 import / use
-    let imports = lines.iter().filter(|l| {
+fn count_imports(lines: &[&str]) -> usize {
+    lines.iter().filter(|l| {
         let t = l.trim();
         t.starts_with("use ") || t.starts_with("import ")
-    }).count();
+    }).count()
+}
 
-    // 扫描函数定义
-    let fn_starts: Vec<usize> = find_fn_positions(&lines);
-
-    // 超长函数
-    let long_fns: Vec<(usize, String)> = fn_starts.iter().enumerate().filter_map(|(idx, &start)| {
+fn find_long_fns(lines: &[&str], fn_starts: &[usize], total_lines: usize) -> Vec<(usize, String)> {
+    fn_starts.iter().enumerate().filter_map(|(idx, &start)| {
         let end = if idx + 1 < fn_starts.len() { fn_starts[idx + 1] } else { total_lines };
         let n = end - start;
         if n > 40 {
             let name = lines[start].trim().split_whitespace().nth(1).unwrap_or("?").to_string();
             Some((n, name))
         } else { None }
-    }).collect();
+    }).collect()
+}
 
-    // 缺少文档注释的 pub fn
-    let missing_docs = find_missing_doc_comments(&lines);
-
-    // 嵌套深度
-    let max_nesting = lines.iter().filter_map(|line| {
+fn compute_max_nesting(lines: &[&str]) -> usize {
+    lines.iter().filter_map(|line| {
         let t = line.trim();
         if t.is_empty() || t.starts_with("//") || t.starts_with("///") || t.starts_with("/*") { return None; }
         let indent = line.len() - line.trim_start().len();
         Some(if indent > 0 && line.starts_with('\t') { indent } else { indent / 4 })
-    }).max().unwrap_or(0);
+    }).max().unwrap_or(0)
+}
 
-    // 高圈复杂度函数
-    let high_complexity: Vec<(usize, String)> = high_complexity_fns(&lines).iter().map(|(ln, comp)| {
+fn extract_high_complexity(lines: &[&str]) -> Vec<(usize, String)> {
+    high_complexity_fns(lines).iter().map(|(ln, comp)| {
         let name = lines[*ln].trim().split_whitespace().nth(1).unwrap_or("?").to_string();
         (*comp, name)
-    }).collect();
-
-    // 模块文档
-    let has_mod_doc = lines.iter().take(10).any(|l| l.trim().starts_with("//!"));
-
-    Some(ScannedFile {
-        path: path.to_path_buf(),
-        lines: total_lines,
-        todos,
-        imports,
-        long_fns,
-        missing_docs,
-        max_nesting,
-        high_complexity,
-        has_mod_doc,
-    })
+    }).collect()
 }
 
 // ── 工具函数（单文件分析） ────────────────────────────
