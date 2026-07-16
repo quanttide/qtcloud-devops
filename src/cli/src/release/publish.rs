@@ -1,9 +1,10 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::PublishTarget;
 use super::plan::{build_plan, print_plan, validate_plan, ReleasePlan};
 use crate::contract;
 use crate::source::changelog::write_changelog_content;
+use crate::source::git::worktree;
 
 /// 发布版本。三阶段架构：Plan（只读）→ Confirm → Execute（只写）。
 ///
@@ -183,31 +184,15 @@ fn git_commit_all(plan: &ReleasePlan, repo_path: &Path, anything_changed: bool) 
         return;
     }
 
-    // Stage 配置文件
-    for f in &["Cargo.toml", "pyproject.toml", "Cargo.lock"] {
+    // 收集待 stage 的文件（相对于 repo 根）
+    let mut to_stage: Vec<PathBuf> = Vec::new();
+    for f in &["Cargo.toml", "pyproject.toml", "Cargo.lock", "CHANGELOG.md"] {
         let path = plan.scope_dir.join(f);
         if path.exists() {
-            if let Ok(rel) = path.strip_prefix(repo_path) {
-                std::process::Command::new("git")
-                    .args(["add", rel.to_str().unwrap_or(f)])
-                    .current_dir(repo_path)
-                    .output()
-                    .ok();
-            }
+            to_stage.push(path);
         }
     }
-
-    // Stage CHANGELOG
-    let cl_path = plan.scope_dir.join("CHANGELOG.md");
-    if cl_path.exists() {
-        if let Ok(rel) = cl_path.strip_prefix(repo_path) {
-            std::process::Command::new("git")
-                .args(["add", rel.to_str().unwrap_or("CHANGELOG.md")])
-                .current_dir(repo_path)
-                .output()
-                .ok();
-        }
-    }
+    worktree::stage_files(repo_path, &to_stage);
 
     // Commit
     let msg = match (&plan.changelog_content, plan.config_updates.is_empty()) {
@@ -215,11 +200,7 @@ fn git_commit_all(plan: &ReleasePlan, repo_path: &Path, anything_changed: bool) 
         (None, false) => format!("chore: bump version to {}", plan.ver),
         _ => format!("chore: prepare release {}", plan.ver),
     };
-    std::process::Command::new("git")
-        .args(["commit", "-m", &msg])
-        .current_dir(repo_path)
-        .output()
-        .ok();
+    worktree::commit(repo_path, &msg);
     println!("✓ Git 提交: {}", msg);
 }
 

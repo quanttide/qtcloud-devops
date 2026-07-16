@@ -14,6 +14,7 @@ pub mod repo;
 pub mod status;
 pub mod submodule;
 pub mod tag;
+pub mod worktree;
 
 use std::path::Path;
 
