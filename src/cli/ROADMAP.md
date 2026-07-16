@@ -7,6 +7,7 @@
 - [ ] 新增 `source::manifest` 模块：封装 `Cargo.toml` 解析和 `cargo metadata` 输出（`Manifest::from_path`、`Workspace::from_metadata`）
 - [ ] 新增 `persist` 模块：追加式 JSON 行文件存储，用于审计快照持久化
 - [ ] contract 增加查询方法：`scopes_by_language()`、`shared_dependencies()`、`version_consistency()`
+- [ ] `release audit` 增加包元数据完整性检查：按语言检测必需的包描述字段（Rust: description/license/repository, Python: description/readme, Dart: description/homepage）
 
 ### Changed
 
