@@ -108,7 +108,17 @@ enum PlanAction {
         scope: Option<String>,
     },
     /// 从审计 JSON 更新 TODO.md（从 stdin 读取 JSON）
-    TodoFromAudit,
+    TodoFromAudit {
+        /// scope 名称（省略时自动检测当前目录所属 scope）
+        #[arg(long)]
+        scope: Option<String>,
+    },
+    /// 从审计 JSON 更新 ROADMAP.md（从 stdin 读取 JSON）
+    RoadmapFromAudit {
+        /// scope 名称（省略时自动检测当前目录所属 scope）
+        #[arg(long)]
+        scope: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -325,10 +335,16 @@ fn run_plan(action: PlanAction) -> Result<(), String> {
         PlanAction::Audit => {
             qtcloud_devops_cli::plan::plan_audit(&repo_path()).map_err(|e| format!("{}", e))
         }
-        PlanAction::TodoFromAudit => {
+        PlanAction::TodoFromAudit { scope } => {
             let input = std::io::read_to_string(std::io::stdin().lock())
                 .map_err(|e| format!("读取 stdin 失败: {}", e))?;
-            qtcloud_devops_cli::plan::todo_from_audit(&repo_path(), &input)
+            qtcloud_devops_cli::plan::todo_from_audit(&repo_path(), &input, scope.as_deref())
+                .map_err(|e| format!("{}", e))
+        }
+        PlanAction::RoadmapFromAudit { scope } => {
+            let input = std::io::read_to_string(std::io::stdin().lock())
+                .map_err(|e| format!("读取 stdin 失败: {}", e))?;
+            qtcloud_devops_cli::plan::roadmap_from_audit(&repo_path(), &input, scope.as_deref())
                 .map_err(|e| format!("{}", e))
         }
     }

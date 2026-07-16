@@ -72,6 +72,7 @@ pub struct AuditPlanPriority {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct AuditPlanItem {
+    pub check: String,
     pub file: String,
     pub detail: String,
 }
@@ -88,7 +89,7 @@ fn to_audit_plan(results: &[RuleResult]) -> AuditPlan {
         }
         for d in &r.details {
             let (file, detail) = split_detail(d);
-            let item = AuditPlanItem { file, detail };
+            let item = AuditPlanItem { check: r.name.to_string(), file, detail };
             match classify_priority(r.name, d) {
                 "MUST" => must.push(item),
                 "SHOULD" => should.push(item),
