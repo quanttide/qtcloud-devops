@@ -21,6 +21,17 @@
 - [ ] `code status` 在非 git 目录或空 repo 时给出友好提示而非 panic
 
 
+## [0.11.2]
+
+### Added
+
+- [ ] `code audit` 新增死 import 检测（聚合 `cargo check` 的 `unused_imports` 警告）
+- [ ] `code audit` 新增注释掉的代码块检测（超过 5 行被 `//` 或 `/* */` 包裹的块）
+- [ ] `code audit` 新增 `todo!()` / `panic!()` / `unreachable!()` 在非测试文件中的检测
+- [ ] `code audit --scope <name>` 参数，支持只审计单个 scope
+- [ ] `build audit` 新增 `--summary` 参数，按 scope 聚合 `cargo check` 警告
+
+
 ## [0.12.0]
 
 ### Added
