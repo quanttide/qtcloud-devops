@@ -1,5 +1,5 @@
 use super::PlanError;
-use crate::plan::status::resolve_plan_dir;
+use crate::plan::status::resolve_roadmap_dir;
 use std::path::Path;
 use std::collections::BTreeMap;
 
@@ -8,7 +8,7 @@ pub fn todo_from_audit(repo_path: &Path, json: &str, scope: Option<&str>) -> Res
 
     let plan: AuditPlan = serde_json::from_str(json)
         .map_err(|e| PlanError::Other(format!("JSON 解析失败: {}", e)))?;
-    let todo_path = resolve_plan_dir(repo_path, scope).join("TODO.md");
+    let todo_path = resolve_roadmap_dir(repo_path, scope).join("TODO.md");
 
     let mut content = if todo_path.exists() {
         std::fs::read_to_string(&todo_path)?
@@ -54,7 +54,7 @@ pub fn roadmap_from_audit(repo_path: &Path, json: &str, scope: Option<&str>) -> 
 
     let plan: AuditPlan = serde_json::from_str(json)
         .map_err(|e| PlanError::Other(format!("JSON 解析失败: {}", e)))?;
-    let roadmap_path = resolve_plan_dir(repo_path, scope).join("ROADMAP.md");
+    let roadmap_path = resolve_roadmap_dir(repo_path, scope).join("ROADMAP.md");
 
     let mut content = if roadmap_path.exists() {
         std::fs::read_to_string(&roadmap_path)?

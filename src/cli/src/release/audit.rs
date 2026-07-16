@@ -45,7 +45,7 @@ pub fn audit_all(
 /// 为 scope 生成候选版本（最新 tag 的 patch+1，无 tag 则 v0.1.0）。
 fn detect_candidate_version(repo_path: &Path, scope_name: &str) -> String {
     let root = std::path::Path::new(repo_path);
-    let latest = crate::source::tag::get_latest_tag_for_scope(root, Some(scope_name));
+    let latest = crate::source::git_tag::get_latest_tag_for_scope(root, Some(scope_name));
     match latest {
         Some(tag) => {
             // tag 格式 "scope/vX.Y.Z[-pre.N]"

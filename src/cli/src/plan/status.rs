@@ -5,38 +5,10 @@ use quanttide_devops::source::roadmap::{Roadmap, RoadmapVersion};
 use crate::source::roadmap::{apply_rules_to_line, is_version_line, CATEGORIES};
 use crate::plan::doctor::edit_llm;
 
-pub fn resolve_roadmap_path(repo_path: &Path, scope: Option<&str>) -> PathBuf {
-    let c = crate::contract::load(repo_path);
-    match scope {
-        Some(name) if !name.is_empty() => {
-            // 按 scope 名称查找
-            if let Some(s) = c.scopes.iter().find(|s| s.name == name) {
-                repo_path.join(&s.dir).join("ROADMAP.md")
-            } else {
-                // 回退：scope 名作为子目录
-                repo_path.join(name).join("ROADMAP.md")
-            }
-        }
-        _ => {
-            // 省略 scope → 找当前目录所属 scope
-            let current_dir = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
-            // 相对化 current_dir，find_scope_by_path 用 scope.dir（相对路径）做 starts_with
-            let relative = current_dir.strip_prefix(repo_path).unwrap_or(&current_dir);
-            if let Some(s) = c.find_scope_by_path(relative) {
-                repo_path.join(&s.dir).join("ROADMAP.md")
-            } else {
-                repo_path.join("ROADMAP.md")
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// plan status
-// ═══════════════════════════════════════════════════════════════════════
-
-/// 获取 scope 对应的规划目录（ROADMAP.md 和 TODO.md 所在目录）。
-pub fn resolve_roadmap_dir(repo_path: &Path, scope: Option<&str>) -> PathBuf {
+/// 根据 repo_path 和可选的 scope 名称，解析 scope 所在目录。
+/// - 有 scope 名：按 contract 查找，回退为子目录名
+/// - 无 scope 名：按当前目录自动探测所属 scope
+fn resolve_scope_dir(repo_path: &Path, scope: Option<&str>) -> PathBuf {
     let c = crate::contract::load(repo_path);
     match scope {
         Some(name) if !name.is_empty() => {
@@ -48,8 +20,7 @@ pub fn resolve_roadmap_dir(repo_path: &Path, scope: Option<&str>) -> PathBuf {
         }
         _ => {
             let current_dir = std::env::current_dir().unwrap_or_else(|_| repo_path.to_path_buf());
-            let relative = current_dir.strip_prefix(repo_path).unwrap_or(&current_dir);
-            if let Some(s) = c.find_scope_by_path(relative) {
+            if let Some(s) = c.find_scope_by_path(repo_path, &current_dir) {
                 repo_path.join(&s.dir)
             } else {
                 repo_path.to_path_buf()
@@ -57,6 +28,19 @@ pub fn resolve_roadmap_dir(repo_path: &Path, scope: Option<&str>) -> PathBuf {
         }
     }
 }
+
+pub fn resolve_roadmap_path(repo_path: &Path, scope: Option<&str>) -> PathBuf {
+    resolve_scope_dir(repo_path, scope).join("ROADMAP.md")
+}
+
+/// 获取 scope 对应的规划目录（ROADMAP.md 和 TODO.md 所在目录）。
+pub fn resolve_roadmap_dir(repo_path: &Path, scope: Option<&str>) -> PathBuf {
+    resolve_scope_dir(repo_path, scope)
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// plan status
+// ═══════════════════════════════════════════════════════════════════════
 
 /// 修复 ROADMAP 或 TODO 文件的格式。
 pub fn parse_roadmap(path: &Path) -> Result<Vec<RoadmapVersion>, PlanError> {
@@ -82,7 +66,7 @@ pub fn print_status_to(
     repo_path: &Path,
     scope: Option<&str>,
 ) -> Result<(), PlanError> {
-    let plan_dir = resolve_plan_dir(repo_path, scope);
+    let plan_dir = resolve_roadmap_dir(repo_path, scope);
     let scope_label = scope.unwrap_or("(auto)");
     let files = ["ROADMAP.md", "TODO.md"];
     let mut found = false;
@@ -156,11 +140,7 @@ fn try_print_plan_file(
     print_progress(writer, scope_label, &versions)
 }
 
-/// 返回 planning 文件所在目录。
-pub(crate) fn resolve_plan_dir(repo_path: &Path, scope: Option<&str>) -> PathBuf {
-    let p = resolve_roadmap_path(repo_path, scope);
-    p.parent().unwrap_or(repo_path).to_path_buf()
-}
+
 
 /// 输出进度表（抽离以供 LLM 转换后重用）。
 fn print_progress(

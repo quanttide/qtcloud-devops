@@ -15,7 +15,7 @@ pub fn audit(repo_path: &Path, c: &contract::Contract, all: bool, verbose: bool)
             c.scopes.iter().map(|s| (s.name.clone(), repo_path.join(&s.dir))).collect()
         }
     } else {
-        let current = if let Some(s) = c.find_scope_by_path(&cwd) {
+        let current = if let Some(s) = c.find_scope_by_path(repo_path, &cwd) {
             (s.name.clone(), repo_path.join(&s.dir))
         } else {
             ("(root)".into(), repo_path.to_path_buf())

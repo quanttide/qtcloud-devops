@@ -3,7 +3,7 @@ pub mod changelog;
 pub mod gh;
 pub mod git;
 pub mod roadmap;
-pub mod tag;
+pub mod git_tag;
 
 use std::io::Write;
 use std::path::Path;

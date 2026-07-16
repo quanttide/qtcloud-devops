@@ -40,7 +40,7 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, DetectError> {
     let scope = detect_single_scope(&root)?;
     println!("📌 scope: {:?}", scope);
 
-    let latest_tag = crate::source::tag::get_latest_tag_for_scope(&root, scope.as_deref());
+    let latest_tag = crate::source::git_tag::get_latest_tag_for_scope(&root, scope.as_deref());
     let (has_tag, major, minor, patch, pre_stage, pre_num) = parse_and_print_tag(latest_tag.as_ref());
 
     if has_tag && !has_new_commits_since_tag(&root, latest_tag.as_ref().unwrap()) {
@@ -56,11 +56,11 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, DetectError> {
     let decision = llm_decide(&commits, llm_tag, project_type, scope.as_deref().unwrap_or("(root)"))?;
     println!("🧠 LLM 决策: {}", decision.reason);
 
-    let new_version = build_version_from_decision(has_tag, &crate::source::tag::VersionParts {
+    let new_version = build_version_from_decision(has_tag, &crate::source::git_tag::VersionParts {
         major, minor, patch, pre_stage: pre_stage.clone(), pre_num,
     }, &decision)?;
 
-    let version = crate::source::tag::apply_scope_prefix(scope.as_deref(), &new_version);
+    let version = crate::source::git_tag::apply_scope_prefix(scope.as_deref(), &new_version);
     println!("\n🔮 建议版本: {}", version);
     Ok(DetectResult { version })
 }
@@ -74,8 +74,8 @@ fn resolve_git_root(repo_path: &Path) -> Result<PathBuf, DetectError> {
 fn parse_and_print_tag(latest_tag: Option<&String>) -> (bool, u32, u32, u32, Option<String>, Option<u32>) {
     match latest_tag {
         Some(tag) => {
-            let (_, ver_str) = crate::source::tag::parse_tag(tag);
-            let (ma, mi, pa, st, nu): (u32, u32, u32, Option<String>, Option<u32>) = crate::source::tag::parse_version(ver_str).unwrap_or((0, 0, 0, None, None));
+            let (_, ver_str) = crate::source::git_tag::parse_tag(tag);
+            let (ma, mi, pa, st, nu): (u32, u32, u32, Option<String>, Option<u32>) = crate::source::git_tag::parse_version(ver_str).unwrap_or((0, 0, 0, None, None));
             println!("📦 最新标签: {}", tag);
             println!("   v{}.{}.{}", ma, mi, pa);
             if let Some(ref stage) = st {
@@ -149,7 +149,7 @@ fn detect_single_scope(root: &Path) -> Result<Option<String>, DetectError> {
         return Ok(Some(name.clone()));
     }
 
-    let all_tags = crate::source::tag::collect_tags_with_scope(root);
+    let all_tags = crate::source::git_tag::collect_tags_with_scope(root);
     let scoped: Vec<&String> = all_tags.keys().filter(|k| *k != "(root)").collect();
     if scoped.len() == 1 {
         return Ok(Some(scoped[0].clone()));
@@ -166,7 +166,7 @@ fn detect_single_scope(root: &Path) -> Result<Option<String>, DetectError> {
 }
 
 fn get_changed_paths_since_last_tag(root: &Path) -> Result<Vec<String>, DetectError> {
-    let tags = crate::source::tag::collect_tags_with_scope(root);
+    let tags = crate::source::git_tag::collect_tags_with_scope(root);
     let latest_tag = tags
         .iter()
         .filter(|(k, _)| *k != "(root)")
@@ -188,7 +188,7 @@ fn get_changed_paths_since_last_tag(root: &Path) -> Result<Vec<String>, DetectEr
 
 fn build_version_from_decision(
     has_tag: bool,
-    parts: &crate::source::tag::VersionParts,
+    parts: &crate::source::git_tag::VersionParts,
     decision: &LlmDecision,
 ) -> Result<String, DetectError> {
     if !has_tag {
@@ -207,7 +207,7 @@ fn build_version_from_decision(
         )));
     }
     let increment = decision.increment.as_deref().unwrap_or("patch");
-    Ok(crate::source::tag::build_version(
+    Ok(crate::source::git_tag::build_version(
         parts,
         increment,
         decision.prerelease.as_deref(),
@@ -401,7 +401,7 @@ mod tests {
         };
         let v = build_version_from_decision(
             false,
-            &crate::source::tag::VersionParts {
+            &crate::source::git_tag::VersionParts {
                 major: 0,
                 minor: 0,
                 patch: 0,
@@ -424,7 +424,7 @@ mod tests {
         };
         let v = build_version_from_decision(
             false,
-            &crate::source::tag::VersionParts {
+            &crate::source::git_tag::VersionParts {
                 major: 0,
                 minor: 0,
                 patch: 0,
@@ -447,7 +447,7 @@ mod tests {
         };
         assert!(build_version_from_decision(
             true,
-            &crate::source::tag::VersionParts {
+            &crate::source::git_tag::VersionParts {
                 major: 1,
                 minor: 0,
                 patch: 0,
@@ -469,7 +469,7 @@ mod tests {
         };
         assert!(build_version_from_decision(
             true,
-            &crate::source::tag::VersionParts {
+            &crate::source::git_tag::VersionParts {
                 major: 1,
                 minor: 0,
                 patch: 0,
@@ -491,7 +491,7 @@ mod tests {
         };
         let v = build_version_from_decision(
             true,
-            &crate::source::tag::VersionParts {
+            &crate::source::git_tag::VersionParts {
                 major: 0,
                 minor: 8,
                 patch: 4,

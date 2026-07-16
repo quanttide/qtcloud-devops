@@ -1,5 +1,5 @@
 use super::{PlanError, parse_roadmap};
-use crate::plan::{status::resolve_plan_dir, edit_roadmap};
+use crate::plan::{status::resolve_roadmap_dir, edit_roadmap};
 use std::path::Path;
 use crate::source::roadmap::{is_version_line, CATEGORIES};
 
@@ -165,7 +165,7 @@ fn audit_orphan_roadmap(roadmap_path: &Path, todo_path: &Path) -> Result<bool, P
 /// 审计规划：ROADMAP 是完整规划，TODO 是待办。
 /// 检查格式合规、条目一致性、路径存在性、粒度。
 pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
-    let dir = resolve_plan_dir(repo_path, None);
+    let dir = resolve_roadmap_dir(repo_path, None);
     let roadmap_path = dir.join("ROADMAP.md");
     let todo_path = dir.join("TODO.md");
 

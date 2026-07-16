@@ -1,122 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// 在 `cwd` 下执行 git 命令，成功时返回 stdout（去尾空白），失败返回错误描述。
-pub fn git(args: &[&str], cwd: &Path) -> Result<String, String> {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .output()
-        .map_err(|e| format!("git 无法执行: {}", e))?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    } else {
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        Err(if stderr.is_empty() {
-            "git 命令失败".into()
-        } else {
-            stderr
-        })
-    }
-}
-
-/// 执行 git 命令，返回 `Option<bool>` 表示成功与否（不关心 stdout 内容）。
-pub fn git_check(args: &[&str], cwd: &Path) -> bool {
-    Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// 检查路径是否为 git 仓库。
-pub fn is_git_repo(path: &Path) -> bool {
-    quanttide_devops::source::git_repo::is_git_repo(path)
-}
-
-/// 统计 `tag..HEAD` 之间的提交数。
-///
-/// `path_filter` 可选，限制路径范围。返回 `Some(n)` 表示成功。
-pub fn rev_list_count(repo_path: &Path, tag: &str, path_filter: Option<&str>) -> Option<usize> {
-    let range = format!("{}..HEAD", tag);
-    let mut args = vec!["rev-list", "--count", &range];
-    if let Some(filter) = path_filter {
-        if !filter.is_empty() && filter != "." {
-            args.push("--");
-            args.push(filter);
-        }
-    }
-    let out = Command::new("git")
-        .args(&args)
-        .current_dir(repo_path)
-        .output()
-        .ok()?;
-    if out.status.success() {
-        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        s.parse::<usize>().ok()
-    } else {
-        None
-    }
-}
-
-/// 检查工作区是否有未提交的变更。
-pub fn is_working_tree_dirty(repo_path: &Path) -> bool {
-    Command::new("git")
-        .args(["status", "--porcelain"])
-        .current_dir(repo_path)
-        .output()
-        .map(|o| !o.stdout.is_empty())
-        .unwrap_or(false)
-}
-
-/// 检查指定 ref 是否存在（如 tag、branch）。
-pub fn ref_exists(repo_path: &Path, refname: &str) -> bool {
-    Command::new("git")
-        .args(["rev-parse", "--verify", refname])
-        .current_dir(repo_path)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// 解析 git log --oneline 输出为提交消息列表。
-pub fn parse_commit_messages(log_output: &str) -> Vec<String> {
-    log_output
-        .lines()
-        .map(|l| {
-            if l.len() > 8 {
-                l[7..].trim().to_string()
-            } else {
-                l.to_string()
-            }
-        })
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
-/// 获取自最新 tag 以来的变更文件列表。
-pub fn get_changed_paths_since_last_tag(root: &Path) -> Vec<String> {
-    let tags = crate::source::git_tag::collect_tags_with_scope(root);
-    let latest_tag = tags
-        .iter()
-        .filter(|(k, _)| *k != "(root)")
-        .find_map(|(_, v)| v.first())
-        .or_else(|| tags.get("(root)").and_then(|v| v.first()));
-
-    let range = match latest_tag {
-        Some(tag) => format!("{}..HEAD", tag),
-        None => return vec![],
-    };
-
-    let output = git(&["diff", "--name-only", &range], root).unwrap_or_default();
-    output.lines().map(|s| s.to_string()).collect()
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// 子模块扫描（原 src/cli/src/git.rs）
-// ═══════════════════════════════════════════════════════════════════════
-
 /// 截断 OID 到 7 字符显示（等价旧 CommitHash Display）。
 pub fn fmt_oid(id: &gix::ObjectId) -> String {
     gix::hash::Prefix::new(id, 7)
@@ -607,55 +491,6 @@ impl RepoState {
 mod tests {
     use super::*;
 
-    // ---- git utility tests ----
-    #[test]
-    fn test_is_git_repo_dir() {
-        let d = tempfile::tempdir().unwrap();
-        std::fs::create_dir(d.path().join(".git")).unwrap();
-        assert!(is_git_repo(d.path()));
-    }
-
-    #[test]
-    fn test_is_git_repo_file() {
-        let d = tempfile::tempdir().unwrap();
-        std::fs::write(d.path().join(".git"), "gitdir: ../.git/modules/foo").unwrap();
-        assert!(is_git_repo(d.path()));
-    }
-
-    #[test]
-    fn test_is_git_repo_false() {
-        let d = tempfile::tempdir().unwrap();
-        assert!(!is_git_repo(d.path()));
-    }
-
-    #[test]
-    fn test_is_working_tree_dirty_in_empty_repo() {
-        let d = tempfile::tempdir().unwrap();
-        let dirty = is_working_tree_dirty(d.path());
-        assert!(!dirty);
-    }
-
-    #[test]
-    fn test_parse_commit_messages_typical() {
-        let msgs = parse_commit_messages("abc1234 feat: add foo\ndef5678 fix: bar\n");
-        assert_eq!(msgs.len(), 2);
-        assert_eq!(msgs[0], "feat: add foo");
-        assert_eq!(msgs[1], "fix: bar");
-    }
-
-    #[test]
-    fn test_parse_commit_messages_empty() {
-        assert!(parse_commit_messages("").is_empty());
-    }
-
-    #[test]
-    fn test_parse_commit_messages_short_line() {
-        let msgs = parse_commit_messages("abc1234\n");
-        assert_eq!(msgs.len(), 1);
-        assert_eq!(msgs[0], "abc1234");
-    }
-
-    // ---- submodule scan tests ----
     fn git_init(path: &std::path::Path) {
         let repo = git2::Repository::init(path).unwrap();
         let mut cfg = repo.config().unwrap();
@@ -676,6 +511,42 @@ mod tests {
         let parents: Vec<&git2::Commit> = parent.iter().collect();
         repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents)
             .unwrap();
+    }
+
+    fn setup_repo_with_submodule(tmp: &Path) -> PathBuf {
+        let parent = tmp.join("parent");
+        let sub = tmp.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        git_init(&sub);
+        git_commit(&sub, "init sub");
+        std::fs::create_dir_all(&parent).unwrap();
+        git_init(&parent);
+        git_commit(&parent, "init parent");
+        Command::new("git")
+            .args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "add submodule"])
+            .current_dir(&parent)
+            .output()
+            .unwrap();
+        parent
+    }
+
+    fn dh() -> gix::ObjectId {
+        gix::ObjectId::null(gix::hash::Kind::Sha1)
+    }
+
+    fn h(s: &str) -> gix::ObjectId {
+        let padded = format!("{:0>40}", s);
+        gix::ObjectId::from_hex(padded.as_bytes())
+            .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1))
+    }
+
+    fn ds(state: SubmoduleState) -> SubmoduleStatus {
+        RepoState::determine_submodule_status(&state)
     }
 
     // ---- SubmoduleStatus tests ----
@@ -874,43 +745,7 @@ mod tests {
         describe_issue(&SubmoduleStatus::Clean);
     }
 
-    // ---- scan tests ----
-    fn setup_repo_with_submodule(tmp: &Path) -> PathBuf {
-        let parent = tmp.join("parent");
-        let sub = tmp.join("sub");
-        std::fs::create_dir_all(&sub).unwrap();
-        git_init(&sub);
-        git_commit(&sub, "init sub");
-        std::fs::create_dir_all(&parent).unwrap();
-        git_init(&parent);
-        git_commit(&parent, "init parent");
-        Command::new("git")
-            .args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"])
-            .current_dir(&parent)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", "add submodule"])
-            .current_dir(&parent)
-            .output()
-            .unwrap();
-        parent
-    }
-
-    fn dh() -> gix::ObjectId {
-        gix::ObjectId::null(gix::hash::Kind::Sha1)
-    }
-    fn h(s: &str) -> gix::ObjectId {
-        let padded = format!("{:0>40}", s);
-        gix::ObjectId::from_hex(padded.as_bytes())
-            .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1))
-    }
-
     // ---- determine_submodule_status ----
-    fn ds(state: SubmoduleState) -> SubmoduleStatus {
-        RepoState::determine_submodule_status(&state)
-    }
-
     #[test]
     fn test_determine_status_uninitialized() {
         assert_eq!(
@@ -1062,8 +897,6 @@ mod tests {
         let (subs, _) = RepoState::scan_all(&p).unwrap();
         assert_eq!(subs.len(), 1);
     }
-
-    // ---- edge case scan tests ----
     #[test]
     fn test_scan_with_uninitialized_submodule() {
         let tmp = tempfile::tempdir().unwrap();
