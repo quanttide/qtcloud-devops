@@ -7,7 +7,7 @@ fn main() {
     let version = "v0.1.0";
 
     // 1. 校验版本号
-    if !qtcloud_devops_cli::release::validate_version(version) {
+    if !qtcloud_devops_cli::contract::validate_version(version) {
         eprintln!("版本号格式错误: {}", version);
         std::process::exit(1);
     }

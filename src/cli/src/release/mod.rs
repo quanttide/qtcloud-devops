@@ -40,7 +40,7 @@ pub fn normalize_version(version: &str) -> String {
 
 pub fn precheck_version_changelog(version: &str, changelog_path: &Path) -> Vec<String> {
     let mut errors = Vec::new();
-    if !validate_version(version) {
+    if !crate::contract::validate_version(version) {
         errors.push(format!("版本号格式错误: {}", version));
     }
     if changelog_path.exists() {
@@ -57,7 +57,7 @@ pub fn precheck_version_changelog(version: &str, changelog_path: &Path) -> Vec<S
 }
 
 pub fn extract_notes(version: &str, changelog_path: &Path) -> Option<String> {
-    let ver = normalize_version(version);
+    let ver = crate::contract::normalize_version(version);
     let cl = quanttide_devops::source::changelog::Changelog::from_path(changelog_path).ok()?;
     cl.release_notes(&ver).map(|s| s.to_string())
 }

@@ -87,7 +87,7 @@ pub fn ensure_changelog(
     let changelog_path = scope_dir.join("CHANGELOG.md");
     if changelog_path.exists() {
         if let Ok(cl) = Changelog::from_path(&changelog_path) {
-            let ver = crate::release::normalize_version(version);
+            let ver = crate::contract::normalize_version(version);
             if cl.contains_version(&ver) {
                 return Ok(None);
             }

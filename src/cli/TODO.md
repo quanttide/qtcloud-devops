@@ -6,16 +6,11 @@
 
 #### MUST
 
-- [ ] `src/source/changelog.rs` → `crate::release::normalize_version`：反向依赖。
-      source 层不应依赖 release 层。`normalize_version` 是 contract 定义的标准，
-      应改为 `crate::contract::normalize_version`，直接调用 contract 而非 release 的薄包装。
-- [ ] `src/source/mod.rs` → `crate::contract`：`detect_used_languages()` 读取 contract 来确定
-      需要检查哪些语言/工具链。这是系统诊断功能，不属于 source 层的实现逻辑。
-      做法：将 `detect_used_languages()` 和配套的 `build_tool_status_header()`、
-      `build_language_sections()` 从 source/mod.rs 提取到独立的 `diagnostics` 模块或 main.rs。
-- [ ] `src/release/mod.rs` 内联 contract 薄包装：`validate_version()`、`normalize_version()`、
-      `precheck_version_changelog()`、`extract_notes()`、`confirm_release()`、`parse_github_repo()` ——
-      这些要么是 contract 定义的规范（version），要么是 platform 的实现（github），不应放在 release 里。
+- [x] `src/source/changelog.rs` → `crate::release::normalize_version`：反向依赖
+- [x] `src/source/mod.rs` → `crate::contract`：`detect_used_languages()` 和配套函数提取到独立 `diagnostics` 模块
+- [x] `src/release/mod.rs` 内联 contract 薄包装：移除了 `validate_version()` 和 `normalize_version()` 两个纯委托函数
+- [ ] `src/release/mod.rs`：`precheck_version_changelog()`、`extract_notes()`、`confirm_release()`、`parse_github_repo()` ——
+      这些是 release 业务逻辑，但在依赖分层上属于 contract-consumer 层，标记待审
 
 #### SHOULD
 
