@@ -1,6 +1,6 @@
 pub mod build;
 pub mod code;
-pub mod diagnostics;
+pub mod doctor;
 pub mod platform;
 pub mod contract;
 pub mod source;

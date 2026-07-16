@@ -54,10 +54,10 @@ enum Commands {
     Status,
     /// 概览审计：聚合 build / test / release 审计
     Audit,
-    /// 环境诊断：检查外部依赖命令状态
-    Source {
+    /// 环境诊断：检查外部工具链和命令状态
+    Doctor {
         #[command(subcommand)]
-        action: SourceAction,
+        action: DoctorAction,
     },
 }
 
@@ -164,7 +164,7 @@ enum ReleaseAction {
 }
 
 #[derive(Subcommand)]
-enum SourceAction {
+enum DoctorAction {
     /// 检查系统依赖命令状态
     Status,
 }
@@ -246,7 +246,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
         Commands::Help => run_help(),
         Commands::Status => run_overall_status(),
         Commands::Audit => run_overall_audit(),
-        Commands::Source { action } => run_source(action),
+        Commands::Doctor { action } => run_doctor(action),
     }
 }
 
@@ -358,9 +358,9 @@ fn run_contract(action: ContractAction) -> Result<(), String> {
     }
 }
 
-fn run_source(action: SourceAction) -> Result<(), String> {
+fn run_doctor(action: DoctorAction) -> Result<(), String> {
     match action {
-        SourceAction::Status => { qtcloud_devops_cli::source::status(&repo_path()); Ok(()) }
+        DoctorAction::Status => { qtcloud_devops_cli::doctor::status(&repo_path()); Ok(()) }
     }
 }
 
@@ -378,7 +378,7 @@ fn run_help() -> Result<(), String> {
     println!("  code status / audit");
     println!("  plan  status / clean / doctor / audit");
     println!("  contract status");
-    println!("  source status");
+    println!("  doctor status");
     println!();
     println!("Overview:");
     println!("  status    聚合所有 status");
@@ -392,7 +392,7 @@ fn run_overall_status() -> Result<(), String> {
     let rp = repo_path();
     qtcloud_devops_cli::contract::status(&rp);
     println!();
-    qtcloud_devops_cli::source::status(&rp);
+    qtcloud_devops_cli::doctor::status(&rp);
     println!();
     qtcloud_devops_cli::plan::print_status(&rp, None).ok();
     println!();
