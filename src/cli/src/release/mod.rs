@@ -14,7 +14,7 @@ pub use crate::platform::gh::{check_gh_installed, create_release, delete_release
 pub use crate::source::git::{
     git, git_check, is_git_repo, is_working_tree_dirty, ref_exists, rev_list_count,
 };
-pub use crate::source::git_tag::{create_tag, delete_local_tag, delete_remote_tag, push_tag, rollback_tag};
+pub use crate::source::git::tag::{create_tag, delete_local_tag, delete_remote_tag, push_tag, rollback_tag};
 
 // ═══════════════════════════════════════════════════════════════════════
 // 业务逻辑（保留在 mod.rs）
