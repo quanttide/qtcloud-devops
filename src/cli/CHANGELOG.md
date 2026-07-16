@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [0.11.0] - 2025-07-16
+## [0.11.0] - 2026-07-16
 
 ### Breaking
 
@@ -14,6 +14,7 @@
 - plan roadmap-from-audit：从审计 JSON 自动生成 ROADMAP（按检查名聚合为战略目标）
 - release publish 前后各跑一次 release status，展示发布前后状态
 - `doctor status` 命令：检查外部工具链和命令状态（原 `source status`）
+- `source::git::worktree`：stage_files / commit / is_clean 抽象
 
 ### Changed
 
@@ -24,11 +25,15 @@
 - contract.rs 拆分为 contract/{core,platform,source,scope,version,stage}.rs
 - resolve_roadmap_path/resolve_roadmap_dir/resolve_plan_dir 合并为统一入口
 - source/changelog.rs 反向依赖修复（release::normalize_version → contract::normalize_version）
+- release publish 重构为三阶段架构：Plan（只读）→ Confirm → Execute（只写）
+- publish.rs 中 git 操作改用 source::git::worktree，消除内联 std::process::Command
 
 ### Fixed
 
 - `find_scope_by_path` 签名增加 repo_path 参数，消除路径坐标系歧义
 - src/cli/ROADMAP.md 精简为战略级目标，细化规则与门禁对齐
+- publish 的 Cargo.lock 未提交缺陷：仅在 config 实际变更时同步，且比较变更前后再 stage
+- validate_plan 允许 config_updates 覆盖的版本差异
 
 ### Removed
 
