@@ -29,6 +29,7 @@ pub fn audit(repo_path: &Path, c: &contract::Contract, all: bool, verbose: bool)
     for (name, dir) in &scope_dirs {
         let report = scan_scope(dir, c, name)?;
         print_scope_audit(name, &report, verbose);
+        check_missing_test_files(dir, name);
         total_tests += report.total_tests as u32;
         if !report.gates_met {
             all_met = false;
@@ -331,4 +332,78 @@ fn print_line_coverage(report: &AuditReport) {
     }
     let icon = if report.coverage_pct >= report.coverage_threshold { "✅" } else { "⚠" };
     println!("    行覆盖率:     {:.1}% (阈值 {}%) {}", report.coverage_pct, report.coverage_threshold, icon);
+}
+
+/// 检查 scope 内源文件是否缺少对应测试文件。
+fn check_missing_test_files(dir: &Path, _scope_name: &str) {
+    let mut rs_files = Vec::new();
+    collect_rs_files(dir, &mut rs_files);
+
+    let mut missing: Vec<String> = Vec::new();
+
+    for file in &rs_files {
+        let rel = file.strip_prefix(dir).unwrap_or(file);
+        let file_name = rel.file_name().and_then(|s| s.to_str()).unwrap_or("");
+
+        // 跳过测试文件本身
+        if file_name.ends_with("_test.rs") {
+            continue;
+        }
+        // 跳过骨架文件
+        if file_name == "build.rs" {
+            continue;
+        }
+        if matches!(file_name, "mod.rs" | "lib.rs") {
+            if let Ok(content) = std::fs::read_to_string(file) {
+                if is_declaration_only(&content) {
+                    continue;
+                }
+            }
+        }
+
+        // 检查是否有内联测试
+        if let Ok(content) = std::fs::read_to_string(file) {
+            if content.contains("#[cfg(test)]") {
+                continue;
+            }
+        }
+
+        // 检查是否有外部测试文件
+        if let Some(stem) = rel.file_stem().and_then(|s| s.to_str()) {
+            let test_path = dir.join("tests").join(format!("{}.rs", stem));
+            if test_path.exists() {
+                continue;
+            }
+        }
+
+        missing.push(rel.to_string_lossy().to_string());
+    }
+
+    if missing.is_empty() {
+        println!("    ✅ 全部源文件有对应测试");
+    } else {
+        println!("    ❌ 缺测试文件 ({} 个):", missing.len());
+        for f in &missing {
+            println!("      {}", f);
+        }
+    }
+}
+
+/// 检查文件是否仅包含声明（mod/use），不含函数/结构体/trait 定义。
+fn is_declaration_only(content: &str) -> bool {
+    for line in content.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with("//") || t.starts_with('#') || t.starts_with("/*") || t.starts_with("*") {
+            continue;
+        }
+        if t.starts_with("fn ") || t.starts_with("pub fn ")
+            || t.starts_with("struct ") || t.starts_with("pub struct ")
+            || t.starts_with("enum ") || t.starts_with("pub enum ")
+            || t.starts_with("trait ") || t.starts_with("pub trait ")
+            || t.starts_with("impl ") || t.starts_with("pub impl ") || t.starts_with("unsafe impl ")
+        {
+            return false;
+        }
+    }
+    true
 }
