@@ -122,5 +122,5 @@ scopes:
     test_threshold: 90
     release:
       changelog: CHANGELOG.md
-    ci_workflow: build-cli
+    ci_workflow: release-cli
 ```

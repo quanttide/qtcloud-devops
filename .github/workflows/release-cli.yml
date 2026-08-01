@@ -1,4 +1,4 @@
-name: build-cli
+name: release-cli
 on:
   release:
     types: [published]
@@ -74,7 +74,6 @@ jobs:
       - name: install maturin
         run: pip install maturin
       - name: build wheel
-        working-directory: src/cli
         run: maturin build --release --out dist --auditwheel skip
       - name: upload package
         uses: actions/upload-artifact@v5
@@ -82,4 +81,34 @@ jobs:
           name: dist
           path: ${{ github.workspace }}/src/cli/dist/*
 
+  publish-crate:
+    needs: [build-binaries, build-package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: publish to crates.io
+        working-directory: src/cli
+        run: cargo publish --allow-dirty --token ${{ secrets.CRATES_API_TOKEN }}
 
+  publish-pypi:
+    needs: [build-binaries, build-package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install uv
+        run: pip install uv
+      - name: download package from build
+        uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: ${{ github.workspace }}/src/cli/dist
+      - name: publish to PyPI
+        working-directory: src/cli
+        run: uv publish
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}

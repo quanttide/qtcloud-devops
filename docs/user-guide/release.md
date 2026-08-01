@@ -45,9 +45,7 @@ publish 成功后会自动触发 GitHub Actions：
 
 ```
 release published
-    → build-cli（三平台构建 + wheel 构建）
-        → publish-crate（crates.io）
-        → publish-pypi（PyPI）
+    → release-cli（版本校验 → 三平台构建 + wheel 构建 → publish-crate / publish-pypi）
 ```
 
 ### Step 4：验证

@@ -32,7 +32,7 @@ scopes:
     build_tool: cargo
     registry: crates
     test_threshold: 90
-    ci_workflow: build-cli
+    ci_workflow: release-cli
 ```
 
 所有段均可省略，省略的部分走 `Default` 值。

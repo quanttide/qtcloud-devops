@@ -45,7 +45,7 @@ contract.yaml → Contract
 | `scope.ci_workflow` | 高 | `ci_workflow: my-pipeline` → `--workflow my-pipeline` |
 | 约定 `build-{scope}` | 低 | scope `cli` → `--workflow build-cli` |
 
-匹配 `.github/workflows/build-cli.yml` 文件。workflow 不存在时输出 `⚠ 无 CI 运行记录`。
+匹配 `.github/workflows/release-cli.yml` 文件（cli scope 的构建与发布已合并为 `release-cli`，不再符合 `build-{scope}` 约定，需在契约中显式配置 `ci_workflow: release-cli`）。workflow 不存在时输出 `⚠ 无 CI 运行记录`。
 
 ### 语法校验命令表
 
