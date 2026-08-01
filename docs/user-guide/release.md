@@ -41,10 +41,10 @@ qtcloud-devops publish -v cli/v0.3.0 -y  # 打 tag + GitHub Release
 
 `stage` 校验版本号格式，`publish` 执行 tag 创建、推送、GitHub Release。
 
-publish 成功后会自动触发 GitHub Actions：
+推送 `cli/*` tag 后会自动触发 GitHub Actions：
 
 ```
-release published
+push tag cli/*
     → release-cli（版本校验 → 三平台构建 + wheel 构建 → publish-crate / publish-pypi）
 ```
 

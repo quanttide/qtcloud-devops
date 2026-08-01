@@ -63,7 +63,7 @@ apps/qtcloud-devops/src/cli/     ← Python CLI
 
 | 工作流 | 触发 | 行为 |
 |--------|------|------|
-| `release-cli` | `release: [published]` + tag `cli/*` | 版本校验 → 三平台构建 → wheel 构建 → publish-crate + publish-pypi |
+| `release-cli` | `push` tag `cli/*` | 版本校验 → 三平台构建 → wheel 构建 → publish-crate + publish-pypi |
 
 ## 测试
 
