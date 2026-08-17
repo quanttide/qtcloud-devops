@@ -35,14 +35,18 @@ type Options struct {
 	// RepoRoot 是 qtcloud-devops 仓库根（用于定位 src/cli）；
 	// 为空时从当前目录向上探测 git 根。
 	RepoRoot string
+	// AllowedOrigins 是浏览器跨源白名单（精确匹配）。
+	// 为空时不做跨源（同源部署或非浏览器消费端）。
+	AllowedOrigins []string
 }
 
 // Handler 提供 /health 与 /api/scan。
 type Handler struct {
-	root     string
-	cliBin   string
-	repoRoot string
-	run      runCommand
+	root           string
+	cliBin         string
+	repoRoot       string
+	allowedOrigins []string
+	run            runCommand
 }
 
 // NewHandler 构造 Handler，解析默认值。
@@ -60,19 +64,20 @@ func NewHandler(opts Options) *Handler {
 		repoRoot = gitRootOf(cwd)
 	}
 	return &Handler{
-		root:     root,
-		cliBin:   opts.CLIBin,
-		repoRoot: repoRoot,
-		run:      execCommand,
+		root:           root,
+		cliBin:         opts.CLIBin,
+		repoRoot:       repoRoot,
+		allowedOrigins: opts.AllowedOrigins,
+		run:            execCommand,
 	}
 }
 
-// Routes 返回 HTTP 路由。
+// Routes 返回 HTTP 路由（含 CORS 包装）。
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.handleHealth)
 	mux.HandleFunc("GET /api/scan", h.handleScan)
-	return mux
+	return corsMiddleware(h.allowedOrigins, mux)
 }
 
 // handleHealth 健康检查。
@@ -92,10 +97,13 @@ func (h *Handler) handleScan(w http.ResponseWriter, r *http.Request) {
 }
 
 // scan 依次尝试 CLI 候选，返回解析后的扫描报告。
+// 单次候选调用受 cliScanTimeout 限制（进程挂起时取消，避免请求无限等待）。
 func (h *Handler) scan(ctx context.Context) (*Report, error) {
 	var lastErr error
 	for _, c := range h.candidates() {
-		stdout, stderr, exitCode, err := h.run(ctx, c.name, c.args)
+		callCtx, cancel := context.WithTimeout(ctx, cliScanTimeout)
+		stdout, stderr, exitCode, err := h.run(callCtx, c.name, c.args)
+		cancel()
 		if err != nil {
 			// 进程无法启动（可执行文件缺失）→ 尝试下一个候选。
 			lastErr = err
@@ -123,7 +131,8 @@ type candidate struct {
 	args []string
 }
 
-// candidates 返回 CLI 调用候选（对齐 studio cli_client_io.dart 的探测顺序）。
+// candidates 返回 CLI 调用候选（对齐 studio cli_client_io.dart 的探测顺序：
+// 候选仅在文件存在时加入，避免无谓的失败 spawn）。
 func (h *Handler) candidates() []candidate {
 	if h.cliBin != "" {
 		return []candidate{{name: h.cliBin, args: h.baseArgs()}}
@@ -131,12 +140,16 @@ func (h *Handler) candidates() []candidate {
 	cs := []candidate{{name: "qtcloud-devops", args: h.baseArgs()}}
 	if h.repoRoot != "" {
 		prebuilt := filepath.Join(h.repoRoot, "src", "cli", "target", "release", "qtcloud-devops")
-		cs = append(cs, candidate{name: prebuilt, args: h.baseArgs()})
+		if _, err := os.Stat(prebuilt); err == nil {
+			cs = append(cs, candidate{name: prebuilt, args: h.baseArgs()})
+		}
 		manifest := filepath.Join(h.repoRoot, "src", "cli", "Cargo.toml")
-		cs = append(cs, candidate{
-			name: "cargo",
-			args: append([]string{"run", "--quiet", "--manifest-path", manifest, "--"}, h.baseArgs()...),
-		})
+		if _, err := os.Stat(manifest); err == nil {
+			cs = append(cs, candidate{
+				name: "cargo",
+				args: append([]string{"run", "--quiet", "--manifest-path", manifest, "--"}, h.baseArgs()...),
+			})
+		}
 	}
 	return cs
 }

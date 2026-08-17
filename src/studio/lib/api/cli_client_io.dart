@@ -11,10 +11,15 @@
 /// 全部无法启动时抛出 [CliException]，由 UI 降级为占位提示。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'cli_client.dart';
+
+/// CLI 单次调用的超时（对齐 provider 的 cliScanTimeout：60s）。
+/// cargo 候选首次运行要编译整个项目，可能远超离线扫描本身。
+const _cliTimeout = Duration(seconds: 60);
 
 CliClient createCliClient() => CliProcessClient();
 
@@ -40,26 +45,40 @@ class CliProcessClient implements CliClient {
     Object? lastSpawnError;
     for (final (name, args) in candidates) {
       try {
-        final result = await Process.run(
-          name,
-          args,
-          stdoutEncoding: utf8,
-          stderrEncoding: utf8,
-        );
+        final result = await _runWithTimeout(name, args);
         if (result.exitCode != 0) {
-          final stderr = result.stderr.toString().trim();
+          final stderr = result.stderr.trim();
           throw CliException(
             'qtcloud-devops code status 失败（exit ${result.exitCode}）'
             '${stderr.isEmpty ? '' : '：$stderr'}',
           );
         }
-        return parseStatusReport(result.stdout.toString());
+        return parseStatusReport(result.stdout);
+      } on TimeoutException {
+        // CLI 挂起（如首次 cargo 编译超长）→ 不尝试其他候选，直接报错。
+        throw CliException('qtcloud-devops code status 超时（${_cliTimeout.inSeconds}s）');
       } on ProcessException catch (e) {
         // 进程无法启动（可执行文件缺失）→ 尝试下一个候选。
         lastSpawnError = e;
       }
     }
     throw CliException('无法调用 qtcloud-devops CLI：$lastSpawnError');
+  }
+
+  /// 启动进程并等待完成；超过 [_cliTimeout] 时 kill 进程并抛 [TimeoutException]。
+  /// （`Process.run` 无 timeout 参数，故手动管理。）
+  Future<({int exitCode, String stdout, String stderr})> _runWithTimeout(
+    String name,
+    List<String> args,
+  ) async {
+    final process = await Process.start(name, args);
+    final stdout = process.stdout.transform(utf8.decoder).join();
+    final stderr = process.stderr.transform(utf8.decoder).join();
+    final exitCode = await process.exitCode.timeout(_cliTimeout, onTimeout: () {
+      process.kill(ProcessSignal.sigkill);
+      throw TimeoutException('qtcloud-devops code status 超时');
+    });
+    return (exitCode: exitCode, stdout: await stdout, stderr: await stderr);
   }
 }
 

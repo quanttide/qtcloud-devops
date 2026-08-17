@@ -5,10 +5,12 @@ import 'package:studio/api/cli_client.dart';
 void main() {
   group('parseStatusReport', () {
     test('解析待处理输出（四种详情格式与汇总行）', () {
+      // 注意：真实 CLI 只列出非同步组件行（main.rs:201 跳过 Synced），
+      // 这里的 data/ok「已同步」行是向前兼容的容错输入——解析器应容忍。
       const output = '''
 仓库: /home/user/repo
-组件总数: 4
-待处理: 3
+组件总数: 5
+待处理: 4
   libs/sub             待推送 (领先 2 提交)
   docs/tutorial        待拉取 (落后 1 提交)
   examples/default     冲突 (+3/-1)
@@ -17,8 +19,8 @@ void main() {
 ''';
       final report = parseStatusReport(output);
       expect(report.root, '/home/user/repo');
-      expect(report.total, 4);
-      expect(report.pending, 3);
+      expect(report.total, 5);
+      expect(report.pending, 4);
       expect(report.synced, 1);
       expect(report.components, hasLength(5));
       expect(report.components[0].name, 'libs/sub');

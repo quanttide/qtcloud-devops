@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -320,12 +321,29 @@ func TestScanCallsCLIWithActualCommand(t *testing.T) {
 
 func TestScanRetriesNextCandidateOnSpawnFailure(t *testing.T) {
 	// 第一个候选无法启动 → 尝试下一个（PATH 二进制 → 预构建 → cargo）。
+	// 候选按存在性加入：预构建二进制存在、Cargo.toml 存在 → 三个候选。
+	repo := t.TempDir()
+	prebuilt := filepath.Join(repo, "src", "cli", "target", "release", "qtcloud-devops")
+	if err := os.MkdirAll(filepath.Dir(prebuilt), 0o755); err != nil {
+		t.Fatalf("创建目录失败: %v", err)
+	}
+	if err := os.WriteFile(prebuilt, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("创建预构建失败: %v", err)
+	}
+	manifest := filepath.Join(repo, "src", "cli", "Cargo.toml")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatalf("创建目录失败: %v", err)
+	}
+	if err := os.WriteFile(manifest, []byte("[package]\n"), 0o644); err != nil {
+		t.Fatalf("创建 manifest 失败: %v", err)
+	}
+
 	output := `仓库: /fake/scan/root
 组件总数: 0
 全部组件已同步
 `
 	var calls []string
-	h := NewHandler(Options{Root: "/fake/scan/root", RepoRoot: "/fake/repo"})
+	h := NewHandler(Options{Root: "/fake/scan/root", RepoRoot: repo})
 	h.run = func(ctx context.Context, name string, args []string) (string, string, int, error) {
 		calls = append(calls, name)
 		if name == "qtcloud-devops" {
@@ -337,7 +355,7 @@ func TestScanRetriesNextCandidateOnSpawnFailure(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/api/scan = %d, 期望 200（body: %s）", rec.Code, rec.Body.String())
 	}
-	want := []string{"qtcloud-devops", "/fake/repo/src/cli/target/release/qtcloud-devops"}
+	want := []string{"qtcloud-devops", prebuilt}
 	if len(calls) != len(want) {
 		t.Fatalf("候选调用 = %v, 期望 %v", calls, want)
 	}
@@ -348,9 +366,119 @@ func TestScanRetriesNextCandidateOnSpawnFailure(t *testing.T) {
 	}
 }
 
+func TestScanCandidatesSkipMissingFiles(t *testing.T) {
+	// repoRoot 下无 prebuilt、无 Cargo.toml → 只有 PATH 候选。
+	h := NewHandler(Options{Root: "/fake/scan/root", RepoRoot: t.TempDir()})
+	cs := h.candidates()
+	if len(cs) != 1 || cs[0].name != "qtcloud-devops" {
+		t.Fatalf("候选 = %+v, 期望仅 PATH 候选", cs)
+	}
+}
+
+func TestScanAppliesTimeout(t *testing.T) {
+	// scan 必须给 CLI 调用挂上 cliScanTimeout 超时（进程挂起时取消）。
+	output := `仓库: /fake/scan/root
+组件总数: 0
+全部组件已同步
+`
+	repo := t.TempDir()
+	prebuilt := filepath.Join(repo, "src", "cli", "target", "release", "qtcloud-devops")
+	if err := os.MkdirAll(filepath.Dir(prebuilt), 0o755); err != nil {
+		t.Fatalf("创建目录失败: %v", err)
+	}
+	if err := os.WriteFile(prebuilt, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("创建预构建失败: %v", err)
+	}
+
+	var gotDeadline time.Duration
+	h := NewHandler(Options{Root: "/fake/scan/root", RepoRoot: repo})
+	h.run = func(ctx context.Context, name string, args []string) (string, string, int, error) {
+		if d, ok := ctx.Deadline(); ok {
+			gotDeadline = time.Until(d)
+		}
+		return output, "", 0, nil
+	}
+	rec := doRequest(t, h, http.MethodGet, "/api/scan")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/scan = %d, 期望 200", rec.Code)
+	}
+	if gotDeadline <= 0 || gotDeadline > cliScanTimeout {
+		t.Errorf("CLI 调用上下文超时 = %v, 期望 ≤ %v", gotDeadline, cliScanTimeout)
+	}
+}
+
 func TestMethodNotAllowed(t *testing.T) {
 	h := newTestHandler(t, fakeRun("", 0, nil))
 	if rec := doRequest(t, h, http.MethodPost, "/api/scan"); rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /api/scan = %d, 期望 405", rec.Code)
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// CORS
+// ═══════════════════════════════════════════════════════════════════════
+
+func TestCORSAllowedOrigin(t *testing.T) {
+	h := NewHandler(Options{
+		Root:           "/fake/scan/root",
+		CLIBin:         "/fake/bin/qtcloud-devops",
+		AllowedOrigins: []string{"https://devops.cloud.quanttide.com"},
+	})
+	h.run = fakeRun(`仓库: /fake/scan/root
+组件总数: 0
+全部组件已同步
+`, 0, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/scan", nil)
+	req.Header.Set("Origin", "https://devops.cloud.quanttide.com")
+	rec := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rec, req)
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://devops.cloud.quanttide.com" {
+		t.Errorf("Allow-Origin = %q, 期望白名单 origin", got)
+	}
+}
+
+func TestCORSDeniedOrigin(t *testing.T) {
+	h := NewHandler(Options{
+		Root:           "/fake/scan/root",
+		CLIBin:         "/fake/bin/qtcloud-devops",
+		AllowedOrigins: []string{"https://devops.cloud.quanttide.com"},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/scan", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	rec := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rec, req)
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("Allow-Origin = %q, 白名单外 origin 不应回显", got)
+	}
+}
+
+func TestCORSPreflight(t *testing.T) {
+	h := NewHandler(Options{
+		Root:           "/fake/scan/root",
+		CLIBin:         "/fake/bin/qtcloud-devops",
+		AllowedOrigins: []string{"https://devops.cloud.quanttide.com"},
+	})
+	req := httptest.NewRequest(http.MethodOptions, "/api/scan", nil)
+	req.Header.Set("Origin", "https://devops.cloud.quanttide.com")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	rec := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("OPTIONS 预检 = %d, 期望 204", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, "GET") {
+		t.Errorf("Allow-Methods = %q, 应含 GET", got)
+	}
+}
+
+func TestCORSDisabledWhenNoOrigins(t *testing.T) {
+	h := newTestHandler(t, fakeRun("", 0, nil))
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set("Origin", "https://any.example.com")
+	rec := httptest.NewRecorder()
+	h.Routes().ServeHTTP(rec, req)
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("未配置白名单时不应设置 CORS 头, 得到 %q", got)
 	}
 }

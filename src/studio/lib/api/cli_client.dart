@@ -5,11 +5,11 @@
 ///
 /// 桌面端（Linux/macOS/Windows）通过 `dart:io` 调用 CLI
 /// （`qtcloud-devops code status <root> --offline`，见 cli_client_io.dart）；
-/// web 等无法启动进程的平台使用占位实现（cli_client_stub.dart）。
+/// Web 端无法启动进程，改走 provider 的 HTTP API（见 cli_client_http.dart）。
 /// 具体平台由 `createCliClient()` 按 `dart.library.io` 条件导入选择。
 library;
 
-import 'cli_client_stub.dart' if (dart.library.io) 'cli_client_io.dart' as impl;
+import 'cli_client_http.dart' if (dart.library.io) 'cli_client_io.dart' as impl;
 
 /// 创建当前平台的 CLI 客户端。
 CliClient createCliClient() => impl.createCliClient();

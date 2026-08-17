@@ -1,0 +1,42 @@
+# qtcloud-devops 契约配置
+# scope 定义：cli（引擎）/ provider（CLI 的 HTTP 网关）/ studio（客户端视图）。
+# 详见 src/cli/docs/contract/。
+
+stages:
+  build:
+    command: cargo build --release
+  test:
+    command: cargo test
+    threshold: 70
+  release:
+    changelog: CHANGELOG.md
+
+platform:
+  source_control: github
+  pipeline: github_actions
+  artifact_registry: github_releases
+
+scopes:
+  cli:
+    dir: src/cli
+    language: rust
+    framework: clap
+    build_tool: cargo
+    registry: crates
+    test_threshold: 90
+    ci_workflow: release-cli
+  provider:
+    dir: src/provider
+    language: go
+    framework: net/http
+    build_tool: go
+    registry: github_releases
+    test_threshold: 80
+    ci_workflow: provider-ci
+  studio:
+    dir: src/studio
+    language: dart
+    framework: flutter
+    build_tool: flutter
+    registry: pubdev
+    ci_workflow: studio-ci

@@ -1,0 +1,28 @@
+name: studio-ci
+on:
+  push:
+    paths:
+      - 'src/studio/**'
+      - '.github/workflows/studio-ci.yml'
+  pull_request:
+    paths:
+      - 'src/studio/**'
+      - '.github/workflows/studio-ci.yml'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/studio
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: pub get
+        run: flutter pub get
+      - name: analyze
+        run: flutter analyze
+      - name: test
+        run: flutter test
