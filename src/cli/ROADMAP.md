@@ -1,5 +1,20 @@
 # ROADMAP
 
+## [0.13.0] 
+
+### Added
+
+- [ ] 新增 `deploy` 命令集（生命周期新增一环：build → test → release → deploy），与 `release` 同级
+- [ ] 新增 `deploy init`：一键为新仓库生成/升级部署能力（`--domain/--kind/--stack/--bucket`），就地写入 `.github/workflows/deploy-*.yml` + `manifests/terraform/*`
+- [ ] `deploy init` 支持幂等：已存在则合并/提示，`--force` 全量覆盖；`--dry-run` 只预览；`--apply` 生成后执行 terraform apply
+- [ ] `deploy init` 按模板映射表推导：kind/stack → `build_dir`/`oss_bucket`/`cdn_domain`/`cdn_domains`/DNS rr/缓存策略
+- [ ] `deploy init` 内置已知坑处理：SPA 回退改写（`back_to_origin_url_rewrite`）、缓存策略分离（assets 长缓存 + index.html no-cache）、私有 OSS 回源鉴权（`l2_oss_key private_oss_auth=on` + RAM 角色/策略）、SSL 证书占位提示、ICP 备案提示
+- [ ] 新增 `deploy status`：检查当前仓库部署就绪度（workflow / terraform / org secrets / CDN / DNS CNAME / 证书 / SPA 回退）
+- [ ] 新增 `deploy audit`：对照平台标准模板检测现有 deploy workflow 的漂移，输出差异清单
+- [ ] 新增 `deploy apply`（可选）：把 build+upload+refresh 抽成 CLI 可调用，支持 `--dry-run`
+- [ ] 文档：README 新增 `deploy` 部分，说明新仓库获得部署能力的标准流程；CLI `docs/deploy/init.md`
+
+
 ## [0.11.1] 
 
 ### Added
