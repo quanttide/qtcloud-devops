@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use qtcloud_devops_cli::code::{self, StatusReport};
+use qtcloud_devops_cli::deploy::{DeployKind, DeployStack};
 use qtcloud_devops_cli::release::PublishTarget;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -47,6 +48,11 @@ enum Commands {
     Release {
         #[command(subcommand)]
         action: ReleaseAction,
+    },
+    /// 部署管理命令集（build → test → release → deploy）
+    Deploy {
+        #[command(subcommand)]
+        action: DeployAction,
     },
     /// 快速导览：按 stage 分组展示命令
     Help,
@@ -164,6 +170,46 @@ enum ReleaseAction {
 }
 
 #[derive(Subcommand)]
+enum DeployAction {
+    /// 一键为新仓库/应用生成或升级部署能力（workflow + terraform）
+    Init {
+        /// 站点域名，如 crowd.quanttide.com
+        #[arg(long)]
+        domain: String,
+        /// 部署形态
+        #[arg(long, value_enum)]
+        kind: DeployKind,
+        /// 技术栈（省略时按 kind 推导）
+        #[arg(long, value_enum)]
+        stack: Option<DeployStack>,
+        /// OSS 桶名（省略时按 {repo}-{kind} 推导）
+        #[arg(long)]
+        bucket: Option<String>,
+        /// 仓库名（省略时从 git 远程推断）
+        #[arg(long)]
+        repo: Option<String>,
+        /// 覆盖已存在的文件
+        #[arg(long, short = 'f')]
+        force: bool,
+        /// 只预览，不落盘
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// 查看当前仓库/应用部署就绪度
+    Status {
+        /// 部署形态
+        #[arg(long, value_enum)]
+        kind: Option<DeployKind>,
+    },
+    /// 审计部署配置的一致性/漂移
+    Audit {
+        /// 部署形态（省略时自动探测）
+        #[arg(long, value_enum)]
+        kind: Option<DeployKind>,
+    },
+}
+
+#[derive(Subcommand)]
 enum DoctorAction {
     /// 检查系统依赖命令状态
     Status,
@@ -241,6 +287,7 @@ fn dispatch(cli: Cli) -> Result<(), String> {
         Commands::Build { action } => run_build(action),
         Commands::Test { action } => run_test(action),
         Commands::Release { action } => run_release(action),
+        Commands::Deploy { action } => run_deploy(action),
         Commands::Plan { action } => run_plan(action),
         Commands::Contract { action } => run_contract(action),
         Commands::Help => run_help(),
@@ -292,8 +339,78 @@ fn run_release(action: ReleaseAction) -> Result<(), String> {
     }
 }
 
-fn run_release_audit(version: Option<String>, scope: Option<String>) -> Result<(), String> {
-    let rp = repo_path();
+fn run_deploy(action: DeployAction) -> Result<(), String> {
+    let cwd = std::env::current_dir().map_err(|e| format!("获取当前目录失败: {}", e))?;
+    match action {
+        DeployAction::Init { domain, kind, stack, bucket, repo, force, dry_run } => {
+            let opts = qtcloud_devops_cli::deploy::InitOptions {
+                domain,
+                kind,
+                stack,
+                bucket,
+                repo,
+                force,
+                dry_run,
+                dir: cwd.clone(),
+            };
+            let report = qtcloud_devops_cli::deploy::init(&opts)
+                .map_err(|e| format!("deploy init 失败: {}", e))?;
+            println!("[{}] {}", kind.as_str(), report.bucket);
+            println!("{}", "-".repeat(50));
+            for f in &report.files {
+                if dry_run {
+                    println!("  · {}", f.path.display());
+                } else {
+                    let marker = if f.existed { "覆盖" } else { "生成" };
+                    println!("  {} {}", marker, f.path.display());
+                }
+            }
+            println!("{}", "-".repeat(50));
+            println!("  CDN 域名: {}", report.cdn_domain);
+            println!("  技术栈:   {}", report.stack.as_str());
+            Ok(())
+        }
+        DeployAction::Status { kind } => {
+            let results = match kind {
+                Some(k) => {
+                    let s = qtcloud_devops_cli::deploy::deploy_status(&cwd, k)
+                        .map_err(|e| format!("{}", e))?;
+                    println!("{}", s.summary());
+                    vec![s]
+                }
+                None => qtcloud_devops_cli::deploy::status(&cwd),
+            };
+            if results.is_empty() {
+                println!("当前目录未发现部署配置，可用 `deploy init` 生成。");
+            }
+            Ok(())
+        }
+        DeployAction::Audit { kind } => {
+            let kinds = match kind {
+                Some(k) => vec![k],
+                None => vec![
+                    DeployKind::Site,
+                    DeployKind::Studio,
+                    DeployKind::Provider,
+                    DeployKind::Docs,
+                ],
+            };
+            for k in kinds {
+                let items = qtcloud_devops_cli::deploy::audit(&cwd, k);
+                let passed = items.iter().filter(|i| i.passed).count();
+                println!("部署审计 — {}", k.as_str());
+                println!("{}", "-".repeat(50));
+                for item in &items {
+                    println!("  {} {}  {}", if item.passed { "✅" } else { "❌" }, item.name, item.detail);
+                }
+                println!("{}\n  {}/{} 项通过\n", "-".repeat(50), passed, items.len());
+            }
+            Ok(())
+        }
+    }
+}
+
+fn run_release_audit(version: Option<String>, scope: Option<String>) -> Result<(), String> {    let rp = repo_path();
     let all_items = if let Some(v) = version {
         qtcloud_devops_cli::release::audit(Some(&v), &rp)
             .map(|items| vec![("".to_string(), items)])
@@ -368,11 +485,12 @@ fn run_help() -> Result<(), String> {
     println!("qtcloud-devops — 量潮DevOps命令行工具");
     println!();
     println!("Development lifecycle (stages):");
-    println!("  build → test → release");
+    println!("  build → test → release → deploy");
     println!();
     println!("  build status / clean / audit");
     println!("  test  status / clean / audit");
-    println!("        release status / audit / publish");
+    println!("  release status / audit / publish");
+    println!("  deploy init / status / audit");
     println!();
     println!("Cross-stage:");
     println!("  code status / audit");

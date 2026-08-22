@@ -5,6 +5,7 @@ pub mod platform;
 pub mod contract;
 pub mod source;
 
+pub mod deploy;
 pub mod plan;
 pub mod release;
 pub mod test;
