@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand};
 use qtcloud_devops_cli::code::{self, StatusReport};
-use qtcloud_devops_cli::deploy::{DeployKind, DeployStack};
 use qtcloud_devops_cli::release::PublishTarget;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -171,17 +170,14 @@ enum ReleaseAction {
 
 #[derive(Subcommand)]
 enum DeployAction {
-    /// 一键为新仓库/应用生成或升级部署能力（workflow + terraform）
+    /// 一键为指定 scope 生成或升级部署能力（workflow + terraform）
     Init {
+        /// 契约 scope 名称（如 studio / provider），部署形态与技术栈由契约推导
+        #[arg(long)]
+        scope: String,
         /// 站点域名，如 crowd.quanttide.com
         #[arg(long)]
         domain: String,
-        /// 部署形态
-        #[arg(long, value_enum)]
-        kind: DeployKind,
-        /// 技术栈（省略时按 kind 推导）
-        #[arg(long, value_enum)]
-        stack: Option<DeployStack>,
         /// OSS 桶名（省略时按 {repo}-{kind} 推导）
         #[arg(long)]
         bucket: Option<String>,
@@ -195,17 +191,17 @@ enum DeployAction {
         #[arg(long)]
         dry_run: bool,
     },
-    /// 查看当前仓库/应用部署就绪度
+    /// 查看指定 scope 的部署就绪度
     Status {
-        /// 部署形态
-        #[arg(long, value_enum)]
-        kind: Option<DeployKind>,
+        /// 契约 scope 名称
+        #[arg(long)]
+        scope: Option<String>,
     },
-    /// 审计部署配置的一致性/漂移
+    /// 审计指定 scope 的部署配置一致性/漂移
     Audit {
-        /// 部署形态（省略时自动探测）
-        #[arg(long, value_enum)]
-        kind: Option<DeployKind>,
+        /// 契约 scope 名称
+        #[arg(long)]
+        scope: Option<String>,
     },
 }
 
@@ -340,29 +336,29 @@ fn run_release(action: ReleaseAction) -> Result<(), String> {
 }
 
 fn run_deploy(action: DeployAction) -> Result<(), String> {
-    let cwd = std::env::current_dir().map_err(|e| format!("获取当前目录失败: {}", e))?;
+    let repo_path = repo_path();
     match action {
-        DeployAction::Init { domain, kind, stack, bucket, repo, force, dry_run } => {
+        DeployAction::Init { scope, domain, bucket, repo, force, dry_run } => {
             let opts = qtcloud_devops_cli::deploy::InitOptions {
                 domain,
-                kind,
-                stack,
+                scope,
                 bucket,
                 repo,
                 force,
                 dry_run,
-                dir: cwd.clone(),
+                repo_path: repo_path.clone(),
             };
             let report = qtcloud_devops_cli::deploy::init(&opts)
                 .map_err(|e| format!("deploy init 失败: {}", e))?;
-            println!("[{}] {}", kind.as_str(), report.bucket);
+            println!("[{}] {}（scope: {}）", report.kind.as_str(), report.bucket, report.scope_dir);
             println!("{}", "-".repeat(50));
             for f in &report.files {
+                let shown = repo_path.join(&report.scope_dir).join(&f.path);
                 if dry_run {
-                    println!("  · {}", f.path.display());
+                    println!("  · {}", shown.display());
                 } else {
                     let marker = if f.existed { "覆盖" } else { "生成" };
-                    println!("  {} {}", marker, f.path.display());
+                    println!("  {} {}", marker, shown.display());
                 }
             }
             println!("{}", "-".repeat(50));
@@ -370,35 +366,62 @@ fn run_deploy(action: DeployAction) -> Result<(), String> {
             println!("  技术栈:   {}", report.stack.as_str());
             Ok(())
         }
-        DeployAction::Status { kind } => {
-            let results = match kind {
-                Some(k) => {
-                    let s = qtcloud_devops_cli::deploy::deploy_status(&cwd, k)
+        DeployAction::Status { scope } => {
+            let all = match scope {
+                Some(s) => {
+                    let (kind, dir) = qtcloud_devops_cli::deploy::resolve_scope(&repo_path, &s)
                         .map_err(|e| format!("{}", e))?;
-                    println!("{}", s.summary());
-                    vec![s]
+                    vec![(s, dir, kind)]
                 }
-                None => qtcloud_devops_cli::deploy::status(&cwd),
+                None => {
+                    let scopes = qtcloud_devops_cli::contract::load_scopes(&repo_path);
+                    scopes
+                        .iter()
+                        .filter_map(|sc| {
+                            qtcloud_devops_cli::deploy::resolve_scope(&repo_path, &sc.name)
+                                .ok()
+                                .map(|(kind, dir)| (sc.name.clone(), dir, kind))
+                        })
+                        .collect()
+                }
             };
-            if results.is_empty() {
-                println!("当前目录未发现部署配置，可用 `deploy init` 生成。");
+            let mut found = false;
+            for (name, dir, kind) in all {
+                let base = repo_path.join(&dir);
+                let s = qtcloud_devops_cli::deploy::deploy_status(&base, kind)
+                    .map_err(|e| format!("{}", e))?;
+                println!("[{}] {}（{}）", name, s.summary(), dir);
+                found = true;
+            }
+            if !found {
+                println!("当前仓库未找到可部署的 scope。");
             }
             Ok(())
         }
-        DeployAction::Audit { kind } => {
-            let kinds = match kind {
-                Some(k) => vec![k],
-                None => vec![
-                    DeployKind::Site,
-                    DeployKind::Studio,
-                    DeployKind::Provider,
-                    DeployKind::Docs,
-                ],
+        DeployAction::Audit { scope } => {
+            let all = match scope {
+                Some(s) => {
+                    let (kind, dir) = qtcloud_devops_cli::deploy::resolve_scope(&repo_path, &s)
+                        .map_err(|e| format!("{}", e))?;
+                    vec![(s, dir, kind)]
+                }
+                None => {
+                    let scopes = qtcloud_devops_cli::contract::load_scopes(&repo_path);
+                    scopes
+                        .iter()
+                        .filter_map(|sc| {
+                            qtcloud_devops_cli::deploy::resolve_scope(&repo_path, &sc.name)
+                                .ok()
+                                .map(|(kind, dir)| (sc.name.clone(), dir, kind))
+                        })
+                        .collect()
+                }
             };
-            for k in kinds {
-                let items = qtcloud_devops_cli::deploy::audit(&cwd, k);
+            for (name, dir, kind) in all {
+                let base = repo_path.join(&dir);
+                let items = qtcloud_devops_cli::deploy::audit(&base, kind);
                 let passed = items.iter().filter(|i| i.passed).count();
-                println!("部署审计 — {}", k.as_str());
+                println!("部署审计 — {}（{}）", name, dir);
                 println!("{}", "-".repeat(50));
                 for item in &items {
                     println!("  {} {}  {}", if item.passed { "✅" } else { "❌" }, item.name, item.detail);

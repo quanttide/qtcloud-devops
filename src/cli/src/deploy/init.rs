@@ -12,10 +12,8 @@ use std::path::{Path, PathBuf};
 pub struct InitOptions {
     /// 站点域名，如 `crowd.quanttide.com`。
     pub domain: String,
-    /// 部署形态。
-    pub kind: DeployKind,
-    /// 技术栈，省略时按 [`DeployKind::default_stack`] 推导。
-    pub stack: Option<DeployStack>,
+    /// 契约 scope 名称（如 `studio` / `provider`）。
+    pub scope: String,
     /// OSS 桶名，省略时按 `{repo}-{kind}` 推导。
     pub bucket: Option<String>,
     /// 仓库名，省略时从 git 远程推断。
@@ -24,8 +22,8 @@ pub struct InitOptions {
     pub force: bool,
     /// 只预览要生成的文件与内容，不落盘。
     pub dry_run: bool,
-    /// 输出基准目录（通常为当前工作目录）。
-    pub dir: PathBuf,
+    /// 仓库根路径（用于加载契约与推导 scope 目录）。
+    pub repo_path: PathBuf,
 }
 
 /// 单个生成的部署文件。
@@ -50,6 +48,10 @@ pub struct InitReport {
     pub cdn_domain: String,
     /// 使用的技术栈。
     pub stack: DeployStack,
+    /// 推导出的部署形态。
+    pub kind: DeployKind,
+    /// scope 目录（仓库根相对）。
+    pub scope_dir: String,
 }
 
 #[derive(Debug)]
@@ -60,10 +62,17 @@ struct DomainParts {
 
 /// 运行 `deploy init`。
 pub fn init(opts: &InitOptions) -> Result<InitReport, DeployError> {
-    let stack = match opts.stack {
-        Some(s) => s,
-        None => opts.kind.default_stack(),
-    };
+    let scopes = crate::contract::load_scopes(&opts.repo_path);
+    let scope = scopes
+        .iter()
+        .find(|s| s.name == opts.scope)
+        .ok_or_else(|| DeployError::ScopeNotFound(opts.scope.clone()))?;
+    let scope_dir = scope.dir.clone();
+    let language = scope.language.as_str();
+    let kind = DeployKind::from_scope(&scope.name, language)
+        .ok_or_else(|| DeployError::UnsupportedScope(scope.name.clone(), language.to_string()))?;
+
+    let stack = super::stack_from_language(language).unwrap_or_else(|| kind.default_stack());
 
     let bucket = match &opts.bucket {
         Some(b) => b.clone(),
@@ -71,28 +80,30 @@ pub fn init(opts: &InitOptions) -> Result<InitReport, DeployError> {
             let repo = opts
                 .repo
                 .clone()
-                .or_else(|| detect_repo(&opts.dir))
+                .or_else(|| detect_repo(&opts.repo_path))
                 .ok_or(DeployError::RepoMissing)?;
-            format!("{}-{}", repo, opts.kind.as_str())
+            format!("{}-{}", repo, kind.as_str())
         }
     };
 
     let domain = parse_domain(&opts.domain)?;
-    let cdn_domain = if opts.kind.is_static_site() {
+    let cdn_domain = if kind.is_static_site() {
         domain.cdn_domain.clone()
     } else {
         String::new()
     };
 
     // 从桶名反推仓库名（bucket 格式 {repo}-{kind}）
-    let suffix = format!("-{}", opts.kind.as_str());
+    let suffix = format!("-{}", kind.as_str());
     let repo_name = bucket.strip_suffix(&suffix).unwrap_or(&bucket).to_string();
 
-    let files = render_files(opts.kind, stack, &bucket, &repo_name, &domain);
+    let files = render_files(kind, stack, &bucket, &repo_name, &scope_dir, &domain);
 
+    // 输出基准目录：scope 目录
+    let base = opts.repo_path.join(&scope_dir);
     if !opts.dry_run {
         for f in &files {
-            write_if_needed(&opts.dir, f, opts.force)?;
+            write_if_needed(&base, f, opts.force)?;
         }
     }
 
@@ -101,6 +112,8 @@ pub fn init(opts: &InitOptions) -> Result<InitReport, DeployError> {
         bucket,
         cdn_domain,
         stack,
+        kind,
+        scope_dir,
     })
 }
 
@@ -124,14 +137,14 @@ fn parse_domain(domain: &str) -> Result<DomainParts, DeployError> {
 }
 
 /// 为指定形态生成全部部署文件（相对路径 + 内容）。
-fn render_files(kind: DeployKind, stack: DeployStack, bucket: &str, repo_name: &str, d: &DomainParts) -> Vec<GeneratedFile> {
+fn render_files(kind: DeployKind, stack: DeployStack, bucket: &str, repo_name: &str, scope_dir: &str, d: &DomainParts) -> Vec<GeneratedFile> {
     let mut files = Vec::new();
 
     if kind.is_static_site() {
         let workflow = PathBuf::from(format!(".github/workflows/deploy-{}.yml", kind.as_str()));
         files.push(GeneratedFile {
             path: workflow,
-            content: render_workflow(kind, stack, bucket, repo_name, d),
+            content: render_workflow(kind, stack, bucket, repo_name, scope_dir, d),
             existed: false,
         });
 
@@ -183,14 +196,23 @@ fn write_if_needed(base: &Path, f: &GeneratedFile, force: bool) -> Result<(), De
 // Workflow 渲染
 // ═══════════════════════════════════════════════════════════════════
 
-fn render_workflow(kind: DeployKind, stack: DeployStack, bucket: &str, repo_name: &str, d: &DomainParts) -> String {
+fn render_workflow(kind: DeployKind, stack: DeployStack, bucket: &str, repo_name: &str, scope_dir: &str, d: &DomainParts) -> String {
     let name = match kind {
         DeployKind::Site => "Deploy Site",
         DeployKind::Studio => "Deploy Studio",
         DeployKind::Docs => "Deploy Docs",
         _ => "Deploy",
     };
-    let (build_dir, build_cmd, upload_dir) = build_command(stack);
+    let (build_cmd, out_rel) = build_parts(stack);
+    // build 目录与上传目录均相对仓库根；空 scope_dir 视为仓库根自身。
+    let build_dir = if scope_dir.is_empty() { ".".to_string() } else { scope_dir.to_string() };
+    let upload_dir = if out_rel.is_empty() {
+        build_dir.clone()
+    } else if scope_dir.is_empty() {
+        out_rel.to_string()
+    } else {
+        format!("{}/{}", scope_dir, out_rel)
+    };
     let title = format!("# 部署 {}：推送 {}/* tag 时，应用基础设施（Terraform），构建产物上传 OSS，刷新 CDN。\n# 所需 GitHub secrets（org 级）：\n#   - ALIYUN_ACCESS_KEY_ID / ALIYUN_ACCESS_KEY_SECRET：RAM 用户 AccessKey（terraform + OSS 上传 + CDN 刷新）\n", kind.as_str(), kind.as_str());
 
     format!(
@@ -295,27 +317,15 @@ jobs:
     )
 }
 
-fn build_command(stack: DeployStack) -> (String, String, String) {
-    // (build_dir, build_cmd 单行链式, upload_dir 仓库根相对路径)
+/// 各技术栈的构建命令与产物相对子目录（相对 scope 目录）。
+fn build_parts(stack: DeployStack) -> (String, &'static str) {
     match stack {
-        DeployStack::Vite => (
-            "src/site".to_string(),
-            "npm ci && npm run build".to_string(),
-            "src/site/dist".to_string(),
-        ),
-        DeployStack::Flutter => (
-            "src/studio".to_string(),
-            "flutter pub get && flutter build web".to_string(),
-            "src/studio/build/web".to_string(),
-        ),
-        DeployStack::Myst => (
-            ".".to_string(),
-            "pip install mystmd && myst build --html".to_string(),
-            "_build/html".to_string(),
-        ),
-        DeployStack::Go => (".".to_string(), "go build ./...".to_string(), String::new()),
-        DeployStack::Python => (".".to_string(), "python -m build".to_string(), "dist".to_string()),
-        DeployStack::Rust => (".".to_string(), "cargo build --release".to_string(), String::new()),
+        DeployStack::Vite => ("npm ci && npm run build".to_string(), "dist"),
+        DeployStack::Flutter => ("flutter pub get && flutter build web".to_string(), "build/web"),
+        DeployStack::Myst => ("pip install mystmd && myst build --html".to_string(), "_build/html"),
+        DeployStack::Go => ("go build ./...".to_string(), ""),
+        DeployStack::Python => ("python -m build".to_string(), "dist"),
+        DeployStack::Rust => ("cargo build --release".to_string(), ""),
     }
 }
 
@@ -645,18 +655,35 @@ fn render_versions_tf() -> String {
 mod tests {
     use super::*;
 
-    fn opts(domain: &str, kind: DeployKind, stack: Option<DeployStack>) -> InitOptions {
+    /// 在临时目录写入 contract.yaml，返回含 scopes 的仓库根。
+    fn contract_repo(scope_list: &str) -> tempfile::TempDir {
+        let d = tempfile::tempdir().unwrap();
+        let cfg_dir = d.path().join(".quanttide/devops");
+        std::fs::create_dir_all(&cfg_dir).unwrap();
+        std::fs::write(
+            cfg_dir.join("contract.yaml"),
+            format!(
+                "scopes:\n{}\n",
+                scope_list
+            ),
+        )
+        .unwrap();
+        d
+    }
+
+    fn opts(domain: &str, scope: &str, repo_path: &Path) -> InitOptions {
         InitOptions {
             domain: domain.to_string(),
-            kind,
-            stack,
+            scope: scope.to_string(),
             bucket: None,
             repo: Some("qtcloud-devops".to_string()),
             force: false,
             dry_run: true,
-            dir: PathBuf::from("."),
+            repo_path: repo_path.to_path_buf(),
         }
     }
+
+    const SCOPES: &str = "  cli:\n    dir: src/cli\n    language: rust\n  provider:\n    dir: src/provider\n    language: go\n  studio:\n    dir: src/studio\n    language: dart\n";
 
     #[test]
     fn test_parse_domain_subdomain() {
@@ -685,36 +712,65 @@ mod tests {
     }
 
     #[test]
-    fn test_init_renders_site_files() {
-        let r = init(&opts("crowd.quanttide.com", DeployKind::Site, None)).unwrap();
-        assert_eq!(r.bucket, "qtcloud-devops-site");
-        assert_eq!(r.cdn_domain, "crowd.quanttide.com");
-        assert_eq!(r.stack, DeployStack::Vite);
-        // workflow + 8 terraform 文件
-        assert_eq!(r.files.len(), 9);
-        assert!(r.files.iter().any(|f| f.path == PathBuf::from(".github/workflows/deploy-site.yml")));
-        assert!(r.files.iter().any(|f| f.path == PathBuf::from("manifests/terraform/cdn.tf")));
-        let cdn = r.files.iter().find(|f| f.path == PathBuf::from("manifests/terraform/cdn.tf")).unwrap();
-        assert!(cdn.content.contains("back_to_origin_url_rewrite"));
-        assert!(cdn.content.contains("private_oss_auth"));
+    fn test_kind_from_scope_by_name() {
+        assert_eq!(DeployKind::from_scope("studio", "dart"), Some(DeployKind::Studio));
+        assert_eq!(DeployKind::from_scope("provider", "go"), Some(DeployKind::Provider));
+        assert_eq!(DeployKind::from_scope("docs", "python"), Some(DeployKind::Docs));
     }
 
     #[test]
-    fn test_init_stack_default_for_studio() {
-        let r = init(&opts("studio.quanttide.com", DeployKind::Studio, None)).unwrap();
+    fn test_kind_from_scope_by_language() {
+        // 名称不匹配时按语言回退
+        assert_eq!(DeployKind::from_scope("web", "dart"), Some(DeployKind::Studio));
+        assert_eq!(DeployKind::from_scope("api", "go"), Some(DeployKind::Provider));
+        assert_eq!(DeployKind::from_scope("site", "typescript"), Some(DeployKind::Site));
+    }
+
+    #[test]
+    fn test_init_scope_studio() {
+        let d = contract_repo(SCOPES);
+        let r = init(&opts("studio.quanttide.com", "studio", d.path())).unwrap();
+        assert_eq!(r.kind, DeployKind::Studio);
         assert_eq!(r.stack, DeployStack::Flutter);
         assert_eq!(r.bucket, "qtcloud-devops-studio");
+        assert_eq!(r.scope_dir, "src/studio");
+        assert_eq!(r.files.len(), 9);
+        assert!(r.files.iter().any(|f| f.path == PathBuf::from(".github/workflows/deploy-studio.yml")));
         let wf = r.files.iter().find(|f| f.path.to_string_lossy().contains("deploy-studio.yml")).unwrap();
         assert!(wf.content.contains("flutter build web"));
+        // 上传路径基于 scope 目录
+        assert!(wf.content.contains("src/studio/build/web/"));
+        assert_eq!(r.cdn_domain, "studio.quanttide.com");
     }
 
     #[test]
-    fn test_init_provider_docker() {
-        let r = init(&opts("api.quanttide.com", DeployKind::Provider, Some(DeployStack::Go))).unwrap();
+    fn test_init_scope_provider_docker() {
+        let d = contract_repo(SCOPES);
+        let r = init(&opts("api.quanttide.com", "provider", d.path())).unwrap();
+        assert_eq!(r.kind, DeployKind::Provider);
+        assert_eq!(r.stack, DeployStack::Go);
         // provider 非静态：仅 workflow
         assert_eq!(r.files.len(), 1);
         let wf = &r.files[0];
         assert!(wf.path.to_string_lossy().contains("deploy-provider.yml"));
         assert!(wf.content.contains("docker/build-push-action"));
+    }
+
+    #[test]
+    fn test_init_scope_cli_derives_site() {
+        // cli scope（rust）→ 名称不匹配，语言回退为 Site
+        let d = contract_repo(SCOPES);
+        let r = init(&opts("cli.quanttide.com", "cli", d.path())).unwrap();
+        assert_eq!(r.kind, DeployKind::Site);
+        assert_eq!(r.stack, DeployStack::Rust);
+    }
+
+    #[test]
+    fn test_init_scope_not_found() {
+        let d = contract_repo(SCOPES);
+        assert!(matches!(
+            init(&opts("x.quanttide.com", "missing", d.path())),
+            Err(DeployError::ScopeNotFound(_))
+        ));
     }
 }
