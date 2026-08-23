@@ -353,7 +353,7 @@ fn run_deploy(action: DeployAction) -> Result<(), String> {
             println!("[{}] {}（scope: {}）", report.kind.as_str(), report.bucket, report.scope_dir);
             println!("{}", "-".repeat(50));
             for f in &report.files {
-                let shown = repo_path.join(&report.scope_dir).join(&f.path);
+                let shown = repo_path.join(&f.path);
                 if dry_run {
                     println!("  · {}", shown.display());
                 } else {
