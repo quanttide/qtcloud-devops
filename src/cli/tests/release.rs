@@ -176,14 +176,20 @@ fn test_release_publish_rejects_invalid_version() {
 }
 
 #[test]
-fn test_release_publish_auto_generates_changelog() {
+fn test_release_publish_with_existing_changelog_entry() {
+    // 自动生成依赖 LLM_API_KEY（无本地回退），预置条目验证发布主链路。
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
+    std::fs::write(
+        dir.path().join("CHANGELOG.md"),
+        "# CHANGELOG\n\n## [1.0.0]\n\ncontent\n",
+    )
+    .unwrap();
     let result =
         qtcloud_devops_cli::release::publish(Some("v1.0.0"), dir.path(), true, false, false, None);
     assert!(
         result.is_ok(),
-        "publish with auto-generated CHANGELOG 应成功, 得到: {:?}",
+        "publish with existing CHANGELOG entry 应成功, 得到: {:?}",
         result
     );
     let changelog = std::fs::read_to_string(dir.path().join("CHANGELOG.md")).unwrap_or_default();
@@ -224,22 +230,19 @@ fn test_release_publish_idempotent() {
 }
 
 #[test]
-fn test_release_publish_without_changelog_entry() {
+fn test_release_publish_fails_when_changelog_entry_missing() {
+    // 离线（LLM_API_KEY 未配置）时自动生成不可用，缺失版本条目应确定性报错且不破坏原文件。
     let dir = tempfile::tempdir().unwrap();
     git_init(dir.path());
     std::fs::write(dir.path().join("CHANGELOG.md"), "## [1.0.0]\n\ncontent\n").unwrap();
     let result =
         qtcloud_devops_cli::release::publish(Some("v2.0.0"), dir.path(), true, false, false, None);
     assert!(
-        result.is_ok(),
-        "LLM 应自动生成缺失的 CHANGELOG 条目, 得到: {:?}",
+        result.is_err(),
+        "离线且缺少 CHANGELOG 条目时应报错, 得到: {:?}",
         result
     );
     let changelog = std::fs::read_to_string(dir.path().join("CHANGELOG.md")).unwrap_or_default();
-    assert!(
-        changelog.contains("## [2.0.0]"),
-        "CHANGELOG 应包含自动生成的 v2.0.0 条目"
-    );
     assert!(changelog.contains("## [1.0.0]"), "原有的 v1.0.0 条目应保留");
 }
 
@@ -304,7 +307,7 @@ fn test_release_publish_scoped_monorepo() {
     .unwrap();
     std::fs::write(
         scope_dir.join("CHANGELOG.md"),
-        "# CHANGELOG\n\n## [0.1.0]\n\n### Added\n- init\n",
+        "# CHANGELOG\n\n## [0.2.0]\n\n### Added\n- init\n",
     )
     .unwrap();
 

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::source::git::submodule::{SubmoduleStatus, scan_repo_state, scan_repo_state_offline};
+use crate::source::git::submodule::{scan_repo_state, scan_repo_state_offline, SubmoduleStatus};
 
 // ═══════════════════════════════════════════════════════════════════════
 // 模型
@@ -247,7 +247,14 @@ mod tests {
         git_init(&parent);
         git_commit(&parent, "init parent");
         std::process::Command::new("git")
-            .args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"])
+            .args([
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                &sub.to_string_lossy(),
+                "libs/sub",
+            ])
             .current_dir(&parent)
             .output()
             .unwrap();

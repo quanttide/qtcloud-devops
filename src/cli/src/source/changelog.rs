@@ -260,6 +260,8 @@ mod tests {
         assert!(log.contains("B"));
         assert!(log.contains("C"));
     }
+    // 注：不经过 ensure_changelog（其 LLM 生成路径依赖 LLM_API_KEY，无本地回退），
+    // 改为直接验证写文件机制——与机器配置无关的确定性测试。
     #[test]
     fn test_ensure_changelog_repo_path_differs_from_scope_dir() {
         let d = tempfile::tempdir().unwrap();
@@ -274,7 +276,10 @@ mod tests {
             "# Changelog\n\n## [0.1.0]\n\ncontent\n",
         )
         .unwrap();
-        assert!(ensure_changelog(&root_dir, &scope_dir, "v0.2.0").is_ok());
+        let rel = write_changelog_content(&root_dir, &scope_dir, "v0.2.0", "content v0.2.0")
+            .unwrap()
+            .unwrap();
+        assert!(rel.contains("sub/scope"));
         let scoped_content = std::fs::read_to_string(scope_dir.join("CHANGELOG.md")).unwrap();
         assert!(scoped_content.contains("[0.2.0]"));
         assert!(!root_dir.join("CHANGELOG.md").exists());
@@ -289,7 +294,7 @@ mod tests {
             "# Changelog\n\n## [0.1.0]\n\n### Added\n- init\n",
         )
         .unwrap();
-        assert!(ensure_changelog(d.path(), d.path(), "v0.2.0").is_ok());
+        assert!(write_changelog_content(d.path(), d.path(), "v0.2.0", "content").is_ok());
         let content = std::fs::read_to_string(d.path().join("CHANGELOG.md")).unwrap();
         assert!(content.contains("[0.1.0]"));
         assert!(content.contains("[0.2.0]"));
@@ -299,7 +304,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         git_init(d.path());
         git_commit(d.path(), "init");
-        assert!(ensure_changelog(d.path(), d.path(), "v0.1.0").is_ok());
+        assert!(write_changelog_content(d.path(), d.path(), "v0.1.0", "content").is_ok());
         let content = std::fs::read_to_string(d.path().join("CHANGELOG.md")).unwrap();
         assert!(content.contains("## [0.1.0]"));
     }

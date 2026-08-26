@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use super::PublishTarget;
 use super::plan::{build_plan, print_plan, validate_plan, ReleasePlan};
+use super::PublishTarget;
 use crate::source::changelog::write_changelog_content;
 use crate::source::git::worktree;
 
@@ -41,7 +41,11 @@ pub fn publish(
     Ok(())
 }
 
-fn resolve_version(version: Option<&str>, repo_path: &Path, dry_run: bool) -> Result<String, Box<dyn std::error::Error>> {
+fn resolve_version(
+    version: Option<&str>,
+    repo_path: &Path,
+    dry_run: bool,
+) -> Result<String, Box<dyn std::error::Error>> {
     match version {
         Some(v) => {
             if !super::validate_version(v) {
@@ -102,7 +106,11 @@ fn execute_plan(
     let changelog_written = maybe_write_changelog(plan, repo_path);
 
     // 5. Git 提交
-    git_commit_all(plan, repo_path, lock_changed || changelog_written || !plan.config_updates.is_empty());
+    git_commit_all(
+        plan,
+        repo_path,
+        lock_changed || changelog_written || !plan.config_updates.is_empty(),
+    );
 
     // 6. Git tag + push + GitHub Release
     execute_release(&plan.version, repo_path, registry)?;
@@ -277,10 +285,16 @@ mod tests {
     }
 
     #[test]
-    fn test_publish_auto_generates_changelog() {
+    fn test_publish_with_existing_changelog_entry() {
+        // 自动生成依赖 LLM_API_KEY（无本地回退），此处预置版本条目验证发布主链路。
         let d = tempfile::tempdir().unwrap();
         git_init(d.path());
         git_commit(d.path(), "init");
+        std::fs::write(
+            d.path().join("CHANGELOG.md"),
+            "# CHANGELOG\n\n## [1.0.0]\n\ncontent\n",
+        )
+        .unwrap();
         let result = publish(Some("v1.0.0"), d.path(), true, false, false, None);
         assert!(result.is_ok());
         let changelog = std::fs::read_to_string(d.path().join("CHANGELOG.md")).unwrap_or_default();
@@ -331,7 +345,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             scope_dir.join("CHANGELOG.md"),
-            "# CHANGELOG\n\n## [0.1.0]\n\ncontent\n",
+            "# CHANGELOG\n\n## [0.2.0]\n\ncontent\n",
         )
         .unwrap();
 

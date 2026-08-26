@@ -3,8 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub use quanttide_devops::source::git::submodule::{
-    AggregateStatus, HealthIssue, RepoState, Submodule, SubmoduleStatus,
-    describe_issue, fmt_oid,
+    describe_issue, fmt_oid, AggregateStatus, HealthIssue, RepoState, Submodule, SubmoduleStatus,
 };
 
 /// 子模块状态快照，用于 `determine_submodule_status` 入参。
@@ -115,241 +114,244 @@ pub fn scan_repo_state(root: &Path) -> Result<RepoState, Box<dyn std::error::Err
     scan_repo_state_with_options(root, false)
 }
 
-    pub fn scan_repo_state_offline(root: &Path) -> Result<RepoState, Box<dyn std::error::Error>> {
+pub fn scan_repo_state_offline(root: &Path) -> Result<RepoState, Box<dyn std::error::Error>> {
     scan_repo_state_with_options(root, true)
 }
 
-    fn scan_repo_state_with_options(root: &Path, offline: bool) -> Result<RepoState, Box<dyn std::error::Error>> {
-        if gix::open(root).is_err() {
-            return Err(format!("不在 git 仓库中: {:?}", root).into());
-        }
-
-        let raw_entries = parse_gitmodules(root);
-        let mut submodules: Vec<Submodule> = Vec::with_capacity(raw_entries.len());
-
-        let parent_repo = gix::open(root).ok();
-
-        for (name, sm_path, url, branch) in &raw_entries {
-            let full_sm_path = root.join(sm_path);
-
-            let parent_pointer = parent_repo
-                .as_ref()
-                .and_then(|r| gix_tree_entry_id(r, sm_path))
-                .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1));
-
-            let (
-                local_head,
-                remote_head,
-                is_detached,
-                ahead_count,
-                behind_count,
-                is_orphaned,
-                remote_unreachable,
-                is_uninitialized,
-                is_dirty,
-            ) = scan_single_submodule(&full_sm_path, branch, &parent_pointer, offline);
-
-            let status = determine_submodule_status(&SubmoduleState {
-                is_uninitialized,
-                is_dirty,
-                is_detached,
-                is_orphaned,
-                remote_unreachable,
-                ahead_count,
-                behind_count,
-                local_head,
-                parent_pointer,
-            });
-
-            submodules.push(Submodule {
-                name: name.clone(),
-                path: sm_path.clone(),
-                url: url.clone(),
-                tracked_branch: branch.clone(),
-                parent_pointer,
-                local_head,
-                remote_head,
-                status,
-                ahead_count,
-                behind_count,
-                remote_unreachable,
-            });
-        }
-
-        Ok(build_repo_state(root, submodules))
+fn scan_repo_state_with_options(
+    root: &Path,
+    offline: bool,
+) -> Result<RepoState, Box<dyn std::error::Error>> {
+    if gix::open(root).is_err() {
+        return Err(format!("不在 git 仓库中: {:?}", root).into());
     }
 
-    fn build_repo_state(root: &Path, mut submodules: Vec<Submodule>) -> RepoState {
-        submodules.sort_by(|a, b| a.name.cmp(&b.name));
-        let total = submodules.len();
-        let clean_count = submodules
-            .iter()
-            .filter(|s| s.status == SubmoduleStatus::Clean)
-            .count();
-        let needs_attention: Vec<String> = submodules
-            .iter()
-            .filter(|s| s.status != SubmoduleStatus::Clean)
-            .map(|s| s.name.clone())
-            .collect();
+    let raw_entries = parse_gitmodules(root);
+    let mut submodules: Vec<Submodule> = Vec::with_capacity(raw_entries.len());
 
-        RepoState {
-            root_path: root.to_path_buf(),
-            submodules,
-            total,
-            clean_count,
-            needs_attention,
-        }
-    }
+    let parent_repo = gix::open(root).ok();
 
-    fn default_uninitialized_result() -> (
-        gix::ObjectId,
-        gix::ObjectId,
-        bool,
-        usize,
-        usize,
-        bool,
-        bool,
-        bool,
-        bool,
-    ) {
-        let null = gix::ObjectId::null(gix::hash::Kind::Sha1);
-        (null, null, false, 0, 0, false, false, true, false)
-    }
+    for (name, sm_path, url, branch) in &raw_entries {
+        let full_sm_path = root.join(sm_path);
 
-    fn read_local_head(sm_repo: &Option<gix::Repository>) -> gix::ObjectId {
-        sm_repo
+        let parent_pointer = parent_repo
             .as_ref()
-            .and_then(|r| r.head_commit().ok().map(|c| c.id().into()))
-            .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1))
-    }
+            .and_then(|r| gix_tree_entry_id(r, sm_path))
+            .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1));
 
-    fn check_detached(sm_repo: &Option<gix::Repository>) -> bool {
-        sm_repo
-            .as_ref()
-            .map(|r| r.head().ok().map(|h| h.is_detached()).unwrap_or(false))
-            .unwrap_or(false)
-    }
-
-    fn check_dirty(full_sm_path: &Path) -> bool {
-        git2::Repository::open(full_sm_path)
-            .map(|r| {
-                r.statuses(Some(git2::StatusOptions::new().include_untracked(true)))
-                    .map(|s| s.len() > 0)
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false)
-    }
-
-    fn try_fetch_remote(full_sm_path: &Path, offline: bool) {
-        if offline {
-            return;
-        }
-        if let Ok(repo) = git2::Repository::open(full_sm_path) {
-            if let Ok(mut remote) = repo.find_remote("origin") {
-                let _ = remote.fetch(&[] as &[&str], None, None);
-            }
-        }
-    }
-
-    fn read_remote_state(sm_repo: &Option<gix::Repository>, branch: &str) -> (gix::ObjectId, bool) {
-        let remote_ref = format!("refs/remotes/origin/{}", branch);
-        sm_repo
-            .as_ref()
-            .and_then(|r| r.find_reference(&remote_ref).ok())
-            .map(|r| {
-                let target = r.target();
-                let id: gix::ObjectId = (*target.id()).into();
-                if id.is_null() {
-                    (gix::ObjectId::null(gix::hash::Kind::Sha1), true)
-                } else {
-                    (id, false)
-                }
-            })
-            .unwrap_or((gix::ObjectId::null(gix::hash::Kind::Sha1), true))
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn scan_single_submodule(
-        full_sm_path: &Path,
-        branch: &str,
-        parent_pointer: &gix::ObjectId,
-        offline: bool,
-    ) -> (
-        gix::ObjectId,
-        gix::ObjectId,
-        bool,
-        usize,
-        usize,
-        bool,
-        bool,
-        bool,
-        bool,
-    ) {
-        if !full_sm_path.exists() || !full_sm_path.join(".git").exists() {
-            return default_uninitialized_result();
-        }
-
-        let sm_repo = gix::open(full_sm_path).ok();
-        let local_head = read_local_head(&sm_repo);
-        let is_detached = check_detached(&sm_repo);
-        let is_dirty = check_dirty(full_sm_path);
-        try_fetch_remote(full_sm_path, offline);
-
-        let (remote_head, remote_unreachable) = read_remote_state(&sm_repo, branch);
-        let ahead = sm_repo
-            .as_ref()
-            .map(|r| gix_count_between(r, *parent_pointer, local_head))
-            .unwrap_or(0);
-        let behind = if remote_unreachable {
-            0
-        } else {
-            sm_repo
-                .as_ref()
-                .map(|r| gix_count_between(r, local_head, remote_head))
-                .unwrap_or(0)
-        };
-        let is_orphaned = !remote_unreachable
-            && remote_head != gix::ObjectId::null(gix::hash::Kind::Sha1)
-            && *parent_pointer != remote_head;
-
-        (
+        let (
             local_head,
             remote_head,
             is_detached,
-            ahead,
-            behind,
+            ahead_count,
+            behind_count,
             is_orphaned,
             remote_unreachable,
-            false,
+            is_uninitialized,
             is_dirty,
-        )
+        ) = scan_single_submodule(&full_sm_path, branch, &parent_pointer, offline);
+
+        let status = determine_submodule_status(&SubmoduleState {
+            is_uninitialized,
+            is_dirty,
+            is_detached,
+            is_orphaned,
+            remote_unreachable,
+            ahead_count,
+            behind_count,
+            local_head,
+            parent_pointer,
+        });
+
+        submodules.push(Submodule {
+            name: name.clone(),
+            path: sm_path.clone(),
+            url: url.clone(),
+            tracked_branch: branch.clone(),
+            parent_pointer,
+            local_head,
+            remote_head,
+            status,
+            ahead_count,
+            behind_count,
+            remote_unreachable,
+        });
     }
 
-    fn determine_submodule_status(state: &SubmoduleState) -> SubmoduleStatus {
-        if state.is_uninitialized {
-            return SubmoduleStatus::Uninitialized;
+    Ok(build_repo_state(root, submodules))
+}
+
+fn build_repo_state(root: &Path, mut submodules: Vec<Submodule>) -> RepoState {
+    submodules.sort_by(|a, b| a.name.cmp(&b.name));
+    let total = submodules.len();
+    let clean_count = submodules
+        .iter()
+        .filter(|s| s.status == SubmoduleStatus::Clean)
+        .count();
+    let needs_attention: Vec<String> = submodules
+        .iter()
+        .filter(|s| s.status != SubmoduleStatus::Clean)
+        .map(|s| s.name.clone())
+        .collect();
+
+    RepoState {
+        root_path: root.to_path_buf(),
+        submodules,
+        total,
+        clean_count,
+        needs_attention,
+    }
+}
+
+fn default_uninitialized_result() -> (
+    gix::ObjectId,
+    gix::ObjectId,
+    bool,
+    usize,
+    usize,
+    bool,
+    bool,
+    bool,
+    bool,
+) {
+    let null = gix::ObjectId::null(gix::hash::Kind::Sha1);
+    (null, null, false, 0, 0, false, false, true, false)
+}
+
+fn read_local_head(sm_repo: &Option<gix::Repository>) -> gix::ObjectId {
+    sm_repo
+        .as_ref()
+        .and_then(|r| r.head_commit().ok().map(|c| c.id().into()))
+        .unwrap_or(gix::ObjectId::null(gix::hash::Kind::Sha1))
+}
+
+fn check_detached(sm_repo: &Option<gix::Repository>) -> bool {
+    sm_repo
+        .as_ref()
+        .map(|r| r.head().ok().map(|h| h.is_detached()).unwrap_or(false))
+        .unwrap_or(false)
+}
+
+fn check_dirty(full_sm_path: &Path) -> bool {
+    git2::Repository::open(full_sm_path)
+        .map(|r| {
+            r.statuses(Some(git2::StatusOptions::new().include_untracked(true)))
+                .map(|s| s.len() > 0)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+}
+
+fn try_fetch_remote(full_sm_path: &Path, offline: bool) {
+    if offline {
+        return;
+    }
+    if let Ok(repo) = git2::Repository::open(full_sm_path) {
+        if let Ok(mut remote) = repo.find_remote("origin") {
+            let _ = remote.fetch(&[] as &[&str], None, None);
         }
-        if state.is_dirty {
-            return SubmoduleStatus::Dirty;
-        }
-        if state.is_detached {
-            return SubmoduleStatus::Detached;
-        }
-        if state.is_orphaned && !state.remote_unreachable {
-            return SubmoduleStatus::Orphaned;
-        }
-        if (state.remote_unreachable && state.local_head != state.parent_pointer)
-            || (state.ahead_count > 0 && state.behind_count == 0)
-        {
-            return SubmoduleStatus::AheadOfParent;
-        }
-        if state.behind_count > 0 && !state.remote_unreachable {
-            return SubmoduleStatus::BehindRemote;
-        }
-        SubmoduleStatus::Clean
+    }
+}
+
+fn read_remote_state(sm_repo: &Option<gix::Repository>, branch: &str) -> (gix::ObjectId, bool) {
+    let remote_ref = format!("refs/remotes/origin/{}", branch);
+    sm_repo
+        .as_ref()
+        .and_then(|r| r.find_reference(&remote_ref).ok())
+        .map(|r| {
+            let target = r.target();
+            let id: gix::ObjectId = (*target.id()).into();
+            if id.is_null() {
+                (gix::ObjectId::null(gix::hash::Kind::Sha1), true)
+            } else {
+                (id, false)
+            }
+        })
+        .unwrap_or((gix::ObjectId::null(gix::hash::Kind::Sha1), true))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scan_single_submodule(
+    full_sm_path: &Path,
+    branch: &str,
+    parent_pointer: &gix::ObjectId,
+    offline: bool,
+) -> (
+    gix::ObjectId,
+    gix::ObjectId,
+    bool,
+    usize,
+    usize,
+    bool,
+    bool,
+    bool,
+    bool,
+) {
+    if !full_sm_path.exists() || !full_sm_path.join(".git").exists() {
+        return default_uninitialized_result();
     }
 
-    pub fn scan_all_submodules(
+    let sm_repo = gix::open(full_sm_path).ok();
+    let local_head = read_local_head(&sm_repo);
+    let is_detached = check_detached(&sm_repo);
+    let is_dirty = check_dirty(full_sm_path);
+    try_fetch_remote(full_sm_path, offline);
+
+    let (remote_head, remote_unreachable) = read_remote_state(&sm_repo, branch);
+    let ahead = sm_repo
+        .as_ref()
+        .map(|r| gix_count_between(r, *parent_pointer, local_head))
+        .unwrap_or(0);
+    let behind = if remote_unreachable {
+        0
+    } else {
+        sm_repo
+            .as_ref()
+            .map(|r| gix_count_between(r, local_head, remote_head))
+            .unwrap_or(0)
+    };
+    let is_orphaned = !remote_unreachable
+        && remote_head != gix::ObjectId::null(gix::hash::Kind::Sha1)
+        && *parent_pointer != remote_head;
+
+    (
+        local_head,
+        remote_head,
+        is_detached,
+        ahead,
+        behind,
+        is_orphaned,
+        remote_unreachable,
+        false,
+        is_dirty,
+    )
+}
+
+fn determine_submodule_status(state: &SubmoduleState) -> SubmoduleStatus {
+    if state.is_uninitialized {
+        return SubmoduleStatus::Uninitialized;
+    }
+    if state.is_dirty {
+        return SubmoduleStatus::Dirty;
+    }
+    if state.is_detached {
+        return SubmoduleStatus::Detached;
+    }
+    if state.is_orphaned && !state.remote_unreachable {
+        return SubmoduleStatus::Orphaned;
+    }
+    if (state.remote_unreachable && state.local_head != state.parent_pointer)
+        || (state.ahead_count > 0 && state.behind_count == 0)
+    {
+        return SubmoduleStatus::AheadOfParent;
+    }
+    if state.behind_count > 0 && !state.remote_unreachable {
+        return SubmoduleStatus::BehindRemote;
+    }
+    SubmoduleStatus::Clean
+}
+
+pub fn scan_all_submodules(
     root: &Path,
 ) -> Result<(Vec<Submodule>, AggregateStatus), Box<dyn std::error::Error>> {
     let state = scan_repo_state(root)?;
@@ -393,7 +395,14 @@ mod tests {
         git_init(&parent);
         git_commit(&parent, "init parent");
         Command::new("git")
-            .args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"])
+            .args([
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                &sub.to_string_lossy(),
+                "libs/sub",
+            ])
             .current_dir(&parent)
             .output()
             .unwrap();
@@ -779,7 +788,14 @@ mod tests {
         git_init(&sub);
         git_commit(&sub, "init");
         Command::new("git")
-            .args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"])
+            .args([
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                &sub.to_string_lossy(),
+                "libs/sub",
+            ])
             .current_dir(&parent)
             .output()
             .unwrap();
@@ -870,12 +886,26 @@ mod tests {
         let bare = tmp.path().join("bare");
         std::fs::create_dir_all(&bare).unwrap();
         Command::new("git")
-            .args(["init", "--bare", &bare.to_string_lossy()])
+            .args([
+                "-c",
+                "init.defaultBranch=main",
+                "init",
+                "--bare",
+                &bare.to_string_lossy(),
+            ])
             .current_dir(tmp.path())
             .output()
             .unwrap();
         Command::new("git")
-            .args(["clone", &bare.to_string_lossy(), &sub.to_string_lossy()])
+            .args([
+                "-c",
+                "protocol.file.allow=always",
+                "-c",
+                "init.defaultBranch=main",
+                "clone",
+                &bare.to_string_lossy(),
+                &sub.to_string_lossy(),
+            ])
             .current_dir(tmp.path())
             .output()
             .unwrap();
@@ -890,7 +920,14 @@ mod tests {
         git_init(&parent);
         git_commit(&parent, "init parent");
         Command::new("git")
-            .args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"])
+            .args([
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                &sub.to_string_lossy(),
+                "libs/sub",
+            ])
             .current_dir(&parent)
             .output()
             .unwrap();
