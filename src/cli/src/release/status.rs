@@ -27,7 +27,8 @@ fn collect_tagged_states(repo_path: &Path, latest_tags: &[(String, String)]) -> 
     let mut states = Vec::new();
     for (scope, tag) in latest_tags {
         let scope_dir = super::resolve_scope_dir(tag, repo_path);
-        let scope_path = scope_dir.strip_prefix(repo_path)
+        let scope_path = scope_dir
+            .strip_prefix(repo_path)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| ".".into());
         let version_consistent = check_changelog_consistency(&scope_dir.join("CHANGELOG.md"), tag);
@@ -55,7 +56,8 @@ fn collect_untagged_states(
     scopes_map: &std::collections::HashMap<String, String>,
     latest_tags: &[(String, String)],
 ) -> Vec<ReleaseState> {
-    let tagged_scopes: std::collections::HashSet<&str> = latest_tags.iter().map(|(s, _)| s.as_str()).collect();
+    let tagged_scopes: std::collections::HashSet<&str> =
+        latest_tags.iter().map(|(s, _)| s.as_str()).collect();
     let mut states = Vec::new();
     for (scope, dir) in scopes_map {
         if !tagged_scopes.contains(scope.as_str()) {
@@ -63,7 +65,11 @@ fn collect_untagged_states(
                 ReleaseState::builder()
                     .status(ReleaseStatus::Unreleased)
                     .scope(scope.clone())
-                    .scope_path(if scope == "(root)" { "".to_string() } else { dir.clone() })
+                    .scope_path(if scope == "(root)" {
+                        "".to_string()
+                    } else {
+                        dir.clone()
+                    })
                     .build(),
             );
         }
@@ -72,9 +78,14 @@ fn collect_untagged_states(
 }
 
 fn check_changelog_consistency(changelog_path: &Path, tag: &str) -> Option<bool> {
-    if !changelog_path.exists() { return Some(false); }
+    if !changelog_path.exists() {
+        return Some(false);
+    }
     match quanttide_devops::source::changelog::Changelog::from_path(changelog_path) {
-        Ok(cl) => { let ver = super::normalize_version(tag); Some(cl.contains_version(&ver)) }
+        Ok(cl) => {
+            let ver = super::normalize_version(tag);
+            Some(cl.contains_version(&ver))
+        }
         Err(_) => None,
     }
 }

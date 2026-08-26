@@ -2,14 +2,14 @@ use std::path::Path;
 
 use crate::contract;
 
-pub(crate) mod status;
-pub(crate) mod clean;
 pub(crate) mod audit;
+pub(crate) mod clean;
+pub(crate) mod status;
 
-pub use status::status;
-pub use clean::clean;
 pub use audit::audit;
+pub use clean::clean;
 pub use quanttide_devops::stage::build::CiRun;
+pub use status::status;
 
 pub(crate) struct ScopeInfo<'a> {
     name: &'a str,

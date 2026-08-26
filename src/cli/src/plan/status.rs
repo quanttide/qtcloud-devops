@@ -1,8 +1,8 @@
 use super::PlanError;
-use std::path::{Path, PathBuf};
-use quanttide_devops::source::roadmap::{Roadmap, RoadmapVersion};
-use crate::source::roadmap::CATEGORIES;
 use crate::plan::doctor::edit_llm;
+use crate::source::roadmap::CATEGORIES;
+use quanttide_devops::source::roadmap::{Roadmap, RoadmapVersion};
+use std::path::{Path, PathBuf};
 
 /// 根据 repo_path 和可选的 scope 名称，解析 scope 所在目录。
 /// - 有 scope 名：按 contract 查找，回退为子目录名
@@ -138,8 +138,6 @@ fn try_print_plan_file(
     }
     print_progress(writer, scope_label, &versions)
 }
-
-
 
 /// 输出进度表（抽离以供 LLM 转换后重用）。
 fn print_progress(

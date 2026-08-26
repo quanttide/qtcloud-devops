@@ -1,6 +1,6 @@
 use std::path::Path;
 
-pub use quanttide_devops::contract::{Contract, ContractError, load_or_default};
+pub use quanttide_devops::contract::{load_or_default, Contract, ContractError};
 
 /// 加载契约。有 `contract.yaml` 则解析，无则自动推测。
 pub fn load(repo_path: &Path) -> Contract {

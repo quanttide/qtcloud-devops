@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::build::*;
     use crate::build::status::*;
+    use crate::build::*;
     use crate::contract;
 
     use std::path::Path;
@@ -18,7 +18,12 @@ mod tests {
         };
         let release = contract::StageRelease::default();
         let s = build_scope_str(&ScopeInfo {
-            name: "test", dir: d.path(), lang: &contract::Language::Rust, c: &c, vs: &vs, release: &release,
+            name: "test",
+            dir: d.path(),
+            lang: &contract::Language::Rust,
+            c: &c,
+            vs: &vs,
+            release: &release,
         });
         assert!(s.contains("✅"), "一致状态应显示 ✅");
     }
@@ -34,7 +39,12 @@ mod tests {
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
         let s = build_scope_str(&ScopeInfo {
-            name: "test", dir: Path::new("/tmp"), lang: &contract::Language::Rust, c: &c, vs: &vs, release: &release,
+            name: "test",
+            dir: Path::new("/tmp"),
+            lang: &contract::Language::Rust,
+            c: &c,
+            vs: &vs,
+            release: &release,
         });
         assert!(s.contains("配置不一致"), "应显示不一致");
     }
@@ -50,7 +60,12 @@ mod tests {
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
         let s = build_scope_str(&ScopeInfo {
-            name: "test", dir: Path::new("/tmp"), lang: &contract::Language::Rust, c: &c, vs: &vs, release: &release,
+            name: "test",
+            dir: Path::new("/tmp"),
+            lang: &contract::Language::Rust,
+            c: &c,
+            vs: &vs,
+            release: &release,
         });
         assert!(s.contains("无配置文件"), "有 tag 无配置应提示无配置文件");
     }
@@ -66,7 +81,12 @@ mod tests {
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
         let s = build_scope_str(&ScopeInfo {
-            name: "test", dir: Path::new("/tmp"), lang: &contract::Language::Rust, c: &c, vs: &vs, release: &release,
+            name: "test",
+            dir: Path::new("/tmp"),
+            lang: &contract::Language::Rust,
+            c: &c,
+            vs: &vs,
+            release: &release,
         });
         assert!(s.contains("有配置版本"), "有配置无 tag 应提示");
     }
@@ -82,7 +102,12 @@ mod tests {
         let release = contract::StageRelease::default();
         let c = contract::Contract::default();
         let s = build_scope_str(&ScopeInfo {
-            name: "test", dir: Path::new("/tmp"), lang: &contract::Language::Rust, c: &c, vs: &vs, release: &release,
+            name: "test",
+            dir: Path::new("/tmp"),
+            lang: &contract::Language::Rust,
+            c: &c,
+            vs: &vs,
+            release: &release,
         });
         assert!(s.contains("暂无发布"), "无 tag 无配置应显示暂无发布");
     }

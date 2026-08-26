@@ -1,8 +1,8 @@
 pub mod build;
 pub mod code;
+pub mod contract;
 pub mod doctor;
 pub mod platform;
-pub mod contract;
 pub mod source;
 
 pub mod deploy;

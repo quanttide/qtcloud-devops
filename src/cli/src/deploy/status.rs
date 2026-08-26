@@ -39,7 +39,11 @@ impl DeployStatus {
 }
 
 fn check(b: bool) -> &'static str {
-    if b { "OK" } else { "MISSING" }
+    if b {
+        "OK"
+    } else {
+        "MISSING"
+    }
 }
 
 /// 检查某形态在当前目录下的部署就绪度。
@@ -55,8 +59,8 @@ pub fn deploy_status(dir: &Path, kind: DeployKind) -> Result<DeployStatus, Deplo
     let spa_fallback = cdn_content.contains("back_to_origin_url_rewrite");
     let private_back = cdn_content.contains("private_oss_auth");
     let workflow_content = workflow_content(dir, kind);
-    let cache_separation = workflow_content.contains("max-age=31536000")
-        && workflow_content.contains("no-cache");
+    let cache_separation =
+        workflow_content.contains("max-age=31536000") && workflow_content.contains("no-cache");
     let secrets = workflow_content.contains("ALIYUN_ACCESS_KEY_ID")
         || workflow_content.contains("DOCKERHUB_USERNAME");
 

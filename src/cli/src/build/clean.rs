@@ -10,7 +10,10 @@ pub fn clean(repo_path: &Path) {
     ];
     let mut count = 0u32;
     for t in targets {
-        if t.is_dir() { std::fs::remove_dir_all(t).ok(); count += 1; }
+        if t.is_dir() {
+            std::fs::remove_dir_all(t).ok();
+            count += 1;
+        }
     }
     if count == 0 {
         println!("  无构建产物可清理");

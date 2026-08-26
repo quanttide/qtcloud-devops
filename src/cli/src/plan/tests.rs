@@ -1,9 +1,8 @@
-
 #[cfg(test)]
 mod tests {
-    use crate::plan::*;
-    use crate::plan::clean::*;
     use crate::plan::audit::*;
+    use crate::plan::clean::*;
+    use crate::plan::*;
     use std::io::Write;
     use std::path::Path;
 
@@ -88,7 +87,8 @@ mod tests {
 
     #[test]
     fn test_parse_version_with_suffix() {
-        let d = write_roadmap("# ROADMAP\n## [0.1.0] — 已发布\n### Added\n- [x] done\n- [ ] todo\n");
+        let d =
+            write_roadmap("# ROADMAP\n## [0.1.0] — 已发布\n### Added\n- [x] done\n- [ ] todo\n");
         let v = parse_roadmap(&d.path().join("ROADMAP.md")).unwrap();
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].version, "0.1.0");
@@ -447,11 +447,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(d.path().join("src")).unwrap();
         std::fs::write(d.path().join("src/main.rs"), "").unwrap();
-        std::fs::write(
-            d.path().join("TODO.md"),
-            "- [ ] `src/main.rs` 实现功能\n",
-        )
-        .unwrap();
+        std::fs::write(d.path().join("TODO.md"), "- [ ] `src/main.rs` 实现功能\n").unwrap();
         let _ = std::fs::write(d.path().join("ROADMAP.md"), "");
         let result = plan_audit(d.path());
         assert!(result.is_ok(), "路径存在应通过审计: {:?}", result);

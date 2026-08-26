@@ -135,7 +135,9 @@ fn parse_domain(domain: &str) -> Result<DomainParts, DeployError> {
     if labels.len() < 2 {
         return Err(DeployError::InvalidDomain(domain.to_string()));
     }
-    Ok(DomainParts { cdn_domain: domain.to_string() })
+    Ok(DomainParts {
+        cdn_domain: domain.to_string(),
+    })
 }
 
 /// 生成全部部署文件（仓库根相对路径 + 内容）。
@@ -160,7 +162,12 @@ fn render_files(
     for (name, content) in tern {
         let path = tf_dir.join(name);
         let existed = opts.repo_path.join(&path).exists();
-        files.push(GeneratedFile { path, content, existed, always_write: false });
+        files.push(GeneratedFile {
+            path,
+            content,
+            existed,
+            always_write: false,
+        });
     }
 
     // main.tf：合并 module 块（保留其它 scope，`{scope}` 幂等替换）
@@ -179,7 +186,15 @@ fn render_files(
     // 根级 workflow
     let wf = PathBuf::from(format!(".github/workflows/deploy-{}.yml", opts.scope));
     let wf_existed = opts.repo_path.join(&wf).exists();
-    let wf_content = render_workflow(opts.scope.as_str(), kind, stack, bucket, repo_name, scope_dir, d);
+    let wf_content = render_workflow(
+        opts.scope.as_str(),
+        kind,
+        stack,
+        bucket,
+        repo_name,
+        scope_dir,
+        d,
+    );
     files.push(GeneratedFile {
         path: wf,
         content: wf_content,
@@ -305,7 +320,13 @@ data "terraform_remote_state" "platform" {
 }
 
 /// 生成对 quanttide-platform 共享模块的 `module` 块。
-fn render_module_block(scope: &str, kind: DeployKind, bucket: &str, repo_name: &str, d: &DomainParts) -> String {
+fn render_module_block(
+    scope: &str,
+    kind: DeployKind,
+    bucket: &str,
+    repo_name: &str,
+    d: &DomainParts,
+) -> String {
     if kind.is_static_site() {
         format!(
             r#"module "{scope}" {{
@@ -361,7 +382,11 @@ fn render_workflow(
             _ => "Deploy Docs",
         };
         let (build_cmd, out_rel) = build_parts(stack);
-        let build_dir = if scope_dir.is_empty() { ".".to_string() } else { scope_dir.to_string() };
+        let build_dir = if scope_dir.is_empty() {
+            ".".to_string()
+        } else {
+            scope_dir.to_string()
+        };
         let upload_dir = if out_rel.is_empty() {
             build_dir.clone()
         } else if scope_dir.is_empty() {
@@ -375,7 +400,12 @@ fn render_workflow(
             DeployKind::Provider => "Deploy Provider",
             _ => "Deploy Service",
         };
-        (name.to_string(), ".".to_string(), String::new(), "docker build -t {image} .".to_string())
+        (
+            name.to_string(),
+            ".".to_string(),
+            String::new(),
+            "docker build -t {image} .".to_string(),
+        )
     };
 
     let title = format!("# 部署 {}：推送 {}/* tag 时，应用 IaC（terraform apply -target=module.{scope}）并完成发布/上传。\n# 共享模块源：{base}/static-site|fc\n# 所需 GitHub secrets（org 级）：ALIYUN_ACCESS_KEY_ID / ALIYUN_ACCESS_KEY_SECRET\n", scope, scope, scope=scope, base=MODULE_BASE);
@@ -518,8 +548,14 @@ jobs:
 fn build_parts(stack: DeployStack) -> (String, &'static str) {
     match stack {
         DeployStack::Vite => ("npm ci && npm run build".to_string(), "dist"),
-        DeployStack::Flutter => ("flutter pub get && flutter build web".to_string(), "build/web"),
-        DeployStack::Myst => ("pip install mystmd && myst build --html".to_string(), "_build/html"),
+        DeployStack::Flutter => (
+            "flutter pub get && flutter build web".to_string(),
+            "build/web",
+        ),
+        DeployStack::Myst => (
+            "pip install mystmd && myst build --html".to_string(),
+            "_build/html",
+        ),
         DeployStack::Go => ("go build ./...".to_string(), ""),
         DeployStack::Python => ("python -m build".to_string(), "dist"),
         DeployStack::Rust => ("cargo build --release".to_string(), ""),
@@ -534,7 +570,11 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let cfg_dir = d.path().join(".quanttide/devops");
         std::fs::create_dir_all(&cfg_dir).unwrap();
-        std::fs::write(cfg_dir.join("contract.yaml"), format!("scopes:\n{}\n", scope_list)).unwrap();
+        std::fs::write(
+            cfg_dir.join("contract.yaml"),
+            format!("scopes:\n{}\n", scope_list),
+        )
+        .unwrap();
         d
     }
 
@@ -591,8 +631,13 @@ mod tests {
 
     #[test]
     fn test_upsert_replace_same_scope() {
-        let existing = "module \"studio\" {\n  domain = \"old\"\n}\nmodule \"provider\" {\n  b = 2\n}\n";
-        let out = upsert_module_block(existing, "studio", "module \"studio\" {\n  domain = \"new\"\n}");
+        let existing =
+            "module \"studio\" {\n  domain = \"old\"\n}\nmodule \"provider\" {\n  b = 2\n}\n";
+        let out = upsert_module_block(
+            existing,
+            "studio",
+            "module \"studio\" {\n  domain = \"new\"\n}",
+        );
         assert!(out.contains("domain = \"new\""));
         assert!(!out.contains("domain = \"old\""));
         assert!(out.contains("module \"provider\""));
@@ -607,11 +652,19 @@ mod tests {
         assert_eq!(r.bucket, "qtcloud-devops-studio");
         // providers/variables/platform/main + workflow = 5 文件
         assert_eq!(r.files.len(), 5);
-        let main = r.files.iter().find(|f| f.path.to_string_lossy().ends_with("main.tf")).unwrap();
+        let main = r
+            .files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("main.tf"))
+            .unwrap();
         assert!(main.content.contains("module \"studio\""));
         assert!(main.content.contains("modules/static-site"));
         assert!(main.content.contains("studio.quanttide.com"));
-        let wf = r.files.iter().find(|f| f.path.to_string_lossy().contains("deploy-studio.yml")).unwrap();
+        let wf = r
+            .files
+            .iter()
+            .find(|f| f.path.to_string_lossy().contains("deploy-studio.yml"))
+            .unwrap();
         assert!(wf.content.contains("-target=module.studio"));
         assert!(wf.content.contains("src/studio/build/web/"));
     }
@@ -622,7 +675,11 @@ mod tests {
         let r = init(&opts("api.quanttide.com", "provider", d.path())).unwrap();
         assert_eq!(r.kind, DeployKind::Provider);
         assert_eq!(r.stack, DeployStack::Go);
-        let main = r.files.iter().find(|f| f.path.to_string_lossy().ends_with("main.tf")).unwrap();
+        let main = r
+            .files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("main.tf"))
+            .unwrap();
         assert!(main.content.contains("module \"provider\""));
         assert!(main.content.contains("modules/fc"));
         assert!(main.content.contains("resource_group_id"));

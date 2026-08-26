@@ -38,7 +38,8 @@ fn run_direct(repo_path: &Path) -> Result<(), String> {
             }
             Err(e) => {
                 // cargo llvm-cov 可能测试通过但覆盖率生成失败
-                let summary = crate::test::summary::collect_test_summary_from_run(dir, lang).unwrap_or_default();
+                let summary = crate::test::summary::collect_test_summary_from_run(dir, lang)
+                    .unwrap_or_default();
                 if summary.failed == 0 && summary.total > 0 {
                     crate::test::summary::save_test_summary(dir, &summary);
                     return Ok(());
@@ -49,7 +50,10 @@ fn run_direct(repo_path: &Path) -> Result<(), String> {
     };
 
     if scopes.is_empty() {
-        let lang = crate::contract::detect_languages(repo_path).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
+        let lang = crate::contract::detect_languages(repo_path)
+            .into_iter()
+            .next()
+            .unwrap_or(contract::Language::Unknown(String::new()));
         run_scoped(repo_path, &lang)?;
     } else {
         for scope in &scopes {
@@ -87,7 +91,9 @@ pub(crate) fn run_tests_for_lang(dir: &Path, lang: &contract::Language) -> Resul
     }
 }
 
-pub(crate) fn coverage_command(lang: &contract::Language) -> Option<(&'static str, &'static [&'static str])> {
+pub(crate) fn coverage_command(
+    lang: &contract::Language,
+) -> Option<(&'static str, &'static [&'static str])> {
     match lang {
         contract::Language::Rust => Some((
             "cargo",
@@ -187,7 +193,9 @@ fn run_coverage_for_lang(dir: &Path, lang: &contract::Language) -> Result<bool, 
 }
 
 /// 返回语言对应的测试命令和标签，None 表示不支持。
-pub(crate) fn test_command(lang: &contract::Language) -> Option<(&'static str, &'static [&'static str])> {
+pub(crate) fn test_command(
+    lang: &contract::Language,
+) -> Option<(&'static str, &'static [&'static str])> {
     match lang {
         contract::Language::Rust => Some(("cargo", &["test"])),
         contract::Language::Python => Some(("python", &["-m", "pytest"])),

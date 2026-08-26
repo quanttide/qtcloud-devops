@@ -1,6 +1,6 @@
-use super::{PlanError, Issue};
-use std::path::Path;
+use super::{Issue, PlanError};
 use crate::source::roadmap::apply_rules_to_line;
+use std::path::Path;
 
 pub fn edit_roadmap(path: &Path, scope: &str) -> Result<Vec<Issue>, PlanError> {
     let content = std::fs::read_to_string(path)?;
@@ -140,4 +140,3 @@ pub(crate) fn apply_llm_response(
 pub fn doctor_file(path: &Path, scope: &str) -> Result<Vec<Issue>, PlanError> {
     edit_roadmap(path, scope)
 }
-

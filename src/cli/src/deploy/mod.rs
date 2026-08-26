@@ -9,7 +9,7 @@ pub mod init;
 pub mod status;
 
 pub use audit::audit;
-pub use init::{init, InitOptions, InitReport, GeneratedFile};
+pub use init::{init, GeneratedFile, InitOptions, InitReport};
 pub use status::{deploy_status, status};
 
 use std::path::Path;
@@ -49,7 +49,10 @@ impl DeployKind {
 
     /// 是否为「静态站点 / OSS + CDN」形态（生成 OSS 桶 + CDN + DNS）。
     pub fn is_static_site(self) -> bool {
-        matches!(self, DeployKind::Site | DeployKind::Studio | DeployKind::Docs)
+        matches!(
+            self,
+            DeployKind::Site | DeployKind::Studio | DeployKind::Docs
+        )
     }
 }
 
@@ -78,7 +81,10 @@ impl DeployStack {
 }
 
 /// 从契约解析 scope，返回 `(部署形态, scope 目录)`。
-pub fn resolve_scope(repo_path: &Path, scope_name: &str) -> Result<(DeployKind, String), DeployError> {
+pub fn resolve_scope(
+    repo_path: &Path,
+    scope_name: &str,
+) -> Result<(DeployKind, String), DeployError> {
     let scopes = crate::contract::load_scopes(repo_path);
     let scope = scopes
         .iter()

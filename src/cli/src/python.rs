@@ -1,4 +1,4 @@
-use crate::source::git::submodule::{RepoState, scan_repo_state};
+use crate::source::git::submodule::{scan_repo_state, RepoState};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::path::PathBuf;

@@ -6,17 +6,16 @@
 /// - scope    — 子项目边界定义
 /// - version  — 语义化版本校验和状态
 /// - stage    — 构建/测试/发布管道阶段
-
 mod core;
 mod platform;
-mod source;
 mod scope;
-mod version;
+mod source;
 mod stage;
+mod version;
 
 pub use core::*;
 pub use platform::*;
-pub use source::*;
 pub use scope::*;
-pub use version::*;
+pub use source::*;
 pub use stage::*;
+pub use version::*;

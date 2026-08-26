@@ -14,6 +14,7 @@ pub fn get_changed_paths_since_last_tag(root: &Path) -> Vec<String> {
         None => return vec![],
     };
 
-    let output = crate::source::git::git(&["diff", "--name-only", &range], root).unwrap_or_default();
+    let output =
+        crate::source::git::git(&["diff", "--name-only", &range], root).unwrap_or_default();
     output.lines().map(|s| s.to_string()).collect()
 }

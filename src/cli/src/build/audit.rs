@@ -9,21 +9,36 @@ pub fn audit(repo_path: &Path) {
     let mut passed = 0u32;
     let total = 5u32;
 
-    if audit_compiler(repo_path) { passed += 1; }
-    if audit_manifest(repo_path) { passed += 1; }
-    if audit_ci_workflow(&c, repo_path) { passed += 1; }
-    if audit_deps(repo_path) { passed += 1; }
-    if audit_unused_vars(repo_path) { passed += 1; }
+    if audit_compiler(repo_path) {
+        passed += 1;
+    }
+    if audit_manifest(repo_path) {
+        passed += 1;
+    }
+    if audit_ci_workflow(&c, repo_path) {
+        passed += 1;
+    }
+    if audit_deps(repo_path) {
+        passed += 1;
+    }
+    if audit_unused_vars(repo_path) {
+        passed += 1;
+    }
 
     print_audit_summary(passed, total);
 }
 
 fn audit_compiler(repo_path: &Path) -> bool {
-    let lang = contract::detect_languages(repo_path).into_iter().next()
+    let lang = contract::detect_languages(repo_path)
+        .into_iter()
+        .next()
         .unwrap_or(contract::Language::Unknown(String::new()));
     if let Some((cmd, label)) = crate::build::check_command(&lang) {
-        let ok = std::process::Command::new(cmd).arg("--version").output()
-            .map(|o| o.status.success()).unwrap_or(false);
+        let ok = std::process::Command::new(cmd)
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
         println!("  {} 编译器: {}", if ok { "✅" } else { "❌" }, label);
         ok
     } else {
@@ -33,7 +48,9 @@ fn audit_compiler(repo_path: &Path) -> bool {
 }
 
 fn audit_manifest(repo_path: &Path) -> bool {
-    let lang = contract::detect_languages(repo_path).into_iter().next()
+    let lang = contract::detect_languages(repo_path)
+        .into_iter()
+        .next()
         .unwrap_or(contract::Language::Unknown(String::new()));
     if let Some(f) = crate::build::check_manifest_file(&lang) {
         let exists = repo_path.join(f).exists();
@@ -52,11 +69,24 @@ fn audit_ci_workflow(c: &contract::Contract, repo_path: &Path) -> bool {
     }
     let all_ci = c.scopes.iter().all(|s| {
         let workflow = crate::build::resolve_workflow(&s.name, s.ci_workflow.as_deref());
-        repo_path.join(".github/workflows").join(format!("{}.yml", workflow)).exists()
-            || repo_path.join(".github/workflows").join(format!("{}.yaml", workflow)).exists()
+        repo_path
+            .join(".github/workflows")
+            .join(format!("{}.yml", workflow))
+            .exists()
+            || repo_path
+                .join(".github/workflows")
+                .join(format!("{}.yaml", workflow))
+                .exists()
     });
-    println!("  {} CI 工作流: {}", if all_ci { "✅" } else { "❌" },
-        if all_ci { "全部 scope 已定义" } else { "部分 scope 缺少 CI 工作流" });
+    println!(
+        "  {} CI 工作流: {}",
+        if all_ci { "✅" } else { "❌" },
+        if all_ci {
+            "全部 scope 已定义"
+        } else {
+            "部分 scope 缺少 CI 工作流"
+        }
+    );
     all_ci
 }
 
@@ -70,7 +100,9 @@ fn audit_deps(repo_path: &Path) -> bool {
 /// 审计未用变量：运行 cargo check 并解析编译器警告。
 fn audit_unused_vars(repo_path: &Path) -> bool {
     let langs = crate::contract::detect_languages(repo_path);
-    let is_rust = langs.iter().any(|l| matches!(l, crate::contract::Language::Rust));
+    let is_rust = langs
+        .iter()
+        .any(|l| matches!(l, crate::contract::Language::Rust));
     if !is_rust {
         println!("  ⚠ 未用变量检测: 仅支持 Rust，跳过");
         return true;

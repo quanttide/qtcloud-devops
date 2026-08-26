@@ -1,7 +1,6 @@
 use super::PlanError;
-use crate::plan::{status::resolve_roadmap_dir, edit_roadmap};
+use crate::plan::{edit_roadmap, status::resolve_roadmap_dir};
 use std::path::Path;
-
 
 fn llm_audit_consistency(
     roadmap: &str,
@@ -101,12 +100,16 @@ pub(crate) fn extract_line_paths(line: &str) -> Vec<String> {
 fn audit_format(roadmap_path: &Path, todo_path: &Path) -> Result<bool, PlanError> {
     let mut all_ok = true;
     for (path, label) in &[(roadmap_path, "ROADMAP.md"), (todo_path, "TODO.md")] {
-        if !path.exists() { continue; }
+        if !path.exists() {
+            continue;
+        }
         let issues = edit_roadmap(path, "(root)")?;
         if !issues.is_empty() {
             all_ok = false;
             println!("  ❌ {} 格式问题: {} 处", label, issues.len());
-            for i in &issues { println!("     L{}: {}", i.line, i.message); }
+            for i in &issues {
+                println!("     L{}: {}", i.line, i.message);
+            }
         } else {
             println!("  ✅ {} 格式规范", label);
         }
@@ -116,13 +119,17 @@ fn audit_format(roadmap_path: &Path, todo_path: &Path) -> Result<bool, PlanError
 
 /// 路径与粒度检查：扫描 TODO.md 条目中的路径引用是否有效。
 fn audit_todo_paths(todo_path: &Path, dir: &Path) -> Result<bool, PlanError> {
-    if !todo_path.exists() { return Ok(true); }
+    if !todo_path.exists() {
+        return Ok(true);
+    }
     let content = std::fs::read_to_string(todo_path)?;
     let mut path_missing_count = 0u32;
     let mut no_path_count = 0u32;
     for line in content.lines() {
         let trimmed = line.trim();
-        if !trimmed.starts_with("- [") { continue; }
+        if !trimmed.starts_with("- [") {
+            continue;
+        }
         let paths = extract_line_paths(trimmed);
         if paths.is_empty() {
             no_path_count += 1;
@@ -136,7 +143,9 @@ fn audit_todo_paths(todo_path: &Path, dir: &Path) -> Result<bool, PlanError> {
         }
     }
     if path_missing_count > 0 || no_path_count > 0 {
-        if no_path_count > 0 { println!("  ⚠ {} 条 TODO 条目未引用文件路径", no_path_count); }
+        if no_path_count > 0 {
+            println!("  ⚠ {} 条 TODO 条目未引用文件路径", no_path_count);
+        }
         Ok(false)
     } else {
         println!("  ✅ TODO.md 路径引用均有效");
@@ -217,4 +226,3 @@ pub fn plan_audit(repo_path: &Path) -> Result<(), PlanError> {
         Err(PlanError::Other("审计未通过".into()))
     }
 }
-

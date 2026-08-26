@@ -2,7 +2,6 @@
 ///
 /// 读取 contract 确定需要检查哪些语言，然后检测对应工具链是否可用。
 /// 属于 CLI 上层编排，不依赖 source / platform 的实现细节。
-
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;

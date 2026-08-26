@@ -51,15 +51,9 @@ pub fn parse_version(s: &str) -> Result<(u32, u32, u32, Option<String>, Option<u
     if parts.len() != 3 {
         return Err(format!("版本号格式错误: {}，需要 X.Y.Z", s));
     }
-    let major = parts[0]
-        .parse()
-        .map_err(|_| "major 不是数字".to_string())?;
-    let minor = parts[1]
-        .parse()
-        .map_err(|_| "minor 不是数字".to_string())?;
-    let patch: u32 = parts[2]
-        .parse()
-        .map_err(|_| "patch 不是数字".to_string())?;
+    let major = parts[0].parse().map_err(|_| "major 不是数字".to_string())?;
+    let minor = parts[1].parse().map_err(|_| "minor 不是数字".to_string())?;
+    let patch: u32 = parts[2].parse().map_err(|_| "patch 不是数字".to_string())?;
     let (pre_stage, pre_num) = if pre_part.is_empty() {
         (None, None)
     } else {
@@ -455,7 +449,15 @@ mod tests {
             .output()
             .unwrap();
         std::process::Command::new("git")
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init"])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-m",
+                "init",
+            ])
             .current_dir(path)
             .output()
             .unwrap();

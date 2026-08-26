@@ -28,8 +28,12 @@ pub fn status_to(
     writeln!(writer, "{}", "-".repeat(50))?;
 
     if scopes.is_empty() {
-        let lang = contract::detect_languages(repo_path).into_iter().next().unwrap_or(contract::Language::Unknown(String::new()));
-        let coverage = crate::test::coverage::collect_coverage(repo_path, &lang, c.stages.test.threshold);
+        let lang = contract::detect_languages(repo_path)
+            .into_iter()
+            .next()
+            .unwrap_or(contract::Language::Unknown(String::new()));
+        let coverage =
+            crate::test::coverage::collect_coverage(repo_path, &lang, c.stages.test.threshold);
         print_scope_status(writer, "(root)", &coverage)?;
     } else {
         for scope in &scopes {

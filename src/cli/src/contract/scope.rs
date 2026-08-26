@@ -1,6 +1,4 @@
-pub use quanttide_devops::contract::{
-    BuildTool, Language, Scope,
-};
+pub use quanttide_devops::contract::{BuildTool, Language, Scope};
 
 use std::path::Path;
 

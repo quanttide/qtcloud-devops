@@ -72,8 +72,11 @@ pub fn clear_cache(dir: &Path) {
         dir.join(".quanttide/devops/test-summary.json"),
     ];
     for t in &targets {
-        if t.is_dir() { std::fs::remove_dir_all(t).ok(); }
-        else if t.exists() { std::fs::remove_file(t).ok(); }
+        if t.is_dir() {
+            std::fs::remove_dir_all(t).ok();
+        } else if t.exists() {
+            std::fs::remove_file(t).ok();
+        }
     }
     println!("  ✓ 测试产物已清理");
 }

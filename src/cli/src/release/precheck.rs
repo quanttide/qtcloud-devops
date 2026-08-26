@@ -79,6 +79,10 @@ mod tests {
         .unwrap();
         std::fs::create_dir_all(d.path().join("packages/cli")).unwrap();
         let result = run_precheck("cli/v0.1.0", d.path());
-        assert!(result.scope_dir.ends_with("packages/cli"), "scope_dir 应指向 packages/cli, 得到 {:?}", result.scope_dir);
+        assert!(
+            result.scope_dir.ends_with("packages/cli"),
+            "scope_dir 应指向 packages/cli, 得到 {:?}",
+            result.scope_dir
+        );
     }
 }

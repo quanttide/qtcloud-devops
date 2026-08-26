@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod tests {
-    use crate::test::*;
+    use crate::contract;
     use crate::test::audit::*;
     use crate::test::coverage::*;
     use crate::test::run::*;
     use crate::test::status::*;
     use crate::test::summary::*;
-    use crate::contract;
+    use crate::test::*;
 
     use std::path::Path;
 
@@ -75,10 +75,7 @@ mod tests {
 
     #[test]
     fn test_extract_variant_name_simple() {
-        assert_eq!(
-            extract_variant_name("    IoError,"),
-            Some("IoError".into())
-        );
+        assert_eq!(extract_variant_name("    IoError,"), Some("IoError".into()));
     }
 
     #[test]
@@ -104,10 +101,7 @@ mod tests {
 
     #[test]
     fn test_extract_variant_name_skips_derive() {
-        assert_eq!(
-            extract_variant_name("#[derive(Debug)]"),
-            None
-        );
+        assert_eq!(extract_variant_name("#[derive(Debug)]"), None);
     }
 
     #[test]

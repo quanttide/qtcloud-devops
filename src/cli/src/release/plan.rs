@@ -168,7 +168,10 @@ pub fn validate_plan(plan: &ReleasePlan) -> Result<(), Box<dyn std::error::Error
         if plan.force {
             eprintln!("🔁 标签 {} 已存在，使用 --force 重新发布", plan.version);
         } else {
-            eprintln!("ℹ 标签 {} 已存在，将复用（如需强制覆盖，请用 --force）", plan.version);
+            eprintln!(
+                "ℹ 标签 {} 已存在，将复用（如需强制覆盖，请用 --force）",
+                plan.version
+            );
         }
     }
 
@@ -202,9 +205,16 @@ pub fn print_plan(plan: &ReleasePlan) {
             let preview = if lines.len() <= 6 {
                 c.clone()
             } else {
-                format!("{}\n    ... ({} 行)", lines[..3].join("\n    "), lines.len())
+                format!(
+                    "{}\n    ... ({} 行)",
+                    lines[..3].join("\n    "),
+                    lines.len()
+                )
             };
-            println!("\n  CHANGELOG 更新:\n    {}", preview.replace('\n', "\n    "));
+            println!(
+                "\n  CHANGELOG 更新:\n    {}",
+                preview.replace('\n', "\n    ")
+            );
         }
         None => println!("\n  CHANGELOG:     版本已存在，无需更新"),
     }
@@ -214,9 +224,30 @@ pub fn print_plan(plan: &ReleasePlan) {
     }
 
     println!("\n  将执行:");
-    println!("    • {} 写配置文件", if plan.config_updates.is_empty() { "☐" } else { "✓" });
-    println!("    • {} 生成 CHANGELOG", if plan.changelog_content.is_some() { "✓" } else { "☐" });
-    println!("    • {} 同步 Cargo.lock", if plan.lockfile_needs_update { "✓" } else { "☐" });
+    println!(
+        "    • {} 写配置文件",
+        if plan.config_updates.is_empty() {
+            "☐"
+        } else {
+            "✓"
+        }
+    );
+    println!(
+        "    • {} 生成 CHANGELOG",
+        if plan.changelog_content.is_some() {
+            "✓"
+        } else {
+            "☐"
+        }
+    );
+    println!(
+        "    • {} 同步 Cargo.lock",
+        if plan.lockfile_needs_update {
+            "✓"
+        } else {
+            "☐"
+        }
+    );
     println!("    • ✓ Git 提交");
     println!("    • ✓ 创建并推送 tag");
     println!("    • ✓ 创建 GitHub Release");
@@ -293,7 +324,11 @@ mod tests {
             lockfile_needs_update: true,
         };
         let result = validate_plan(&plan);
-        assert!(result.is_ok(), "有 config_updates 覆盖时应通过: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "有 config_updates 覆盖时应通过: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -311,7 +346,7 @@ mod tests {
             repo_path: d.path().to_path_buf(),
             scope_dir: d.path().to_path_buf(),
             force: false,
-            config_updates: vec![],  // 无更新覆盖
+            config_updates: vec![], // 无更新覆盖
             changelog_content: None,
             lockfile_needs_update: false,
         };

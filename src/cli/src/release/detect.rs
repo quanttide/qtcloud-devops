@@ -41,7 +41,8 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, DetectError> {
     println!("📌 scope: {:?}", scope);
 
     let latest_tag = crate::source::git::tag::get_latest_tag_for_scope(&root, scope.as_deref());
-    let (has_tag, major, minor, patch, pre_stage, pre_num) = parse_and_print_tag(latest_tag.as_ref());
+    let (has_tag, major, minor, patch, pre_stage, pre_num) =
+        parse_and_print_tag(latest_tag.as_ref());
 
     if has_tag && !has_new_commits_since_tag(&root, latest_tag.as_ref().unwrap()) {
         return Err(DetectError::Other("上次标签后没有新提交".into()));
@@ -53,12 +54,25 @@ pub fn detect_version(repo_path: &Path) -> Result<DetectResult, DetectError> {
     }
 
     let llm_tag = latest_tag.as_deref().unwrap_or("(新项目，无版本标签)");
-    let decision = llm_decide(&commits, llm_tag, project_type, scope.as_deref().unwrap_or("(root)"))?;
+    let decision = llm_decide(
+        &commits,
+        llm_tag,
+        project_type,
+        scope.as_deref().unwrap_or("(root)"),
+    )?;
     println!("🧠 LLM 决策: {}", decision.reason);
 
-    let new_version = build_version_from_decision(has_tag, &crate::source::git::tag::VersionParts {
-        major, minor, patch, pre_stage: pre_stage.clone(), pre_num,
-    }, &decision)?;
+    let new_version = build_version_from_decision(
+        has_tag,
+        &crate::source::git::tag::VersionParts {
+            major,
+            minor,
+            patch,
+            pre_stage: pre_stage.clone(),
+            pre_num,
+        },
+        &decision,
+    )?;
 
     let version = crate::source::git::tag::apply_scope_prefix(scope.as_deref(), &new_version);
     println!("\n🔮 建议版本: {}", version);
@@ -71,11 +85,14 @@ fn resolve_git_root(repo_path: &Path) -> Result<PathBuf, DetectError> {
     Ok(PathBuf::from(root.trim()))
 }
 
-fn parse_and_print_tag(latest_tag: Option<&String>) -> (bool, u32, u32, u32, Option<String>, Option<u32>) {
+fn parse_and_print_tag(
+    latest_tag: Option<&String>,
+) -> (bool, u32, u32, u32, Option<String>, Option<u32>) {
     match latest_tag {
         Some(tag) => {
             let (_, ver_str) = crate::source::git::tag::parse_tag(tag);
-            let (ma, mi, pa, st, nu): (u32, u32, u32, Option<String>, Option<u32>) = crate::source::git::tag::parse_version(ver_str).unwrap_or((0, 0, 0, None, None));
+            let (ma, mi, pa, st, nu): (u32, u32, u32, Option<String>, Option<u32>) =
+                crate::source::git::tag::parse_version(ver_str).unwrap_or((0, 0, 0, None, None));
             println!("📦 最新标签: {}", tag);
             println!("   v{}.{}.{}", ma, mi, pa);
             if let Some(ref stage) = st {
@@ -178,7 +195,8 @@ fn get_changed_paths_since_last_tag(root: &Path) -> Result<Vec<String>, DetectEr
         None => return Ok(vec![]),
     };
 
-    let output = crate::source::git::git(&["diff", "--name-only", &range], root).unwrap_or_default();
+    let output =
+        crate::source::git::git(&["diff", "--name-only", &range], root).unwrap_or_default();
     Ok(output.lines().map(|s| s.to_string()).collect())
 }
 
@@ -615,7 +633,15 @@ mod tests {
             .output()
             .unwrap();
         std::process::Command::new("git")
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init"])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-m",
+                "init",
+            ])
             .current_dir(path)
             .output()
             .unwrap();
@@ -629,7 +655,15 @@ mod tests {
             .output()
             .unwrap();
         std::process::Command::new("git")
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", &format!("update {path}")])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-m",
+                &format!("update {path}"),
+            ])
             .current_dir(repo_path)
             .output()
             .unwrap();
@@ -663,7 +697,10 @@ mod tests {
         let paths = get_changed_paths_since_last_tag(d.path()).unwrap();
         assert!(paths.contains(&"added.txt".to_string()));
         assert!(paths.contains(&"modified.txt".to_string()));
-        assert!(!paths.contains(&"initial.txt".to_string()), "tag 前的文件不应出现");
+        assert!(
+            !paths.contains(&"initial.txt".to_string()),
+            "tag 前的文件不应出现"
+        );
     }
 
     #[test]

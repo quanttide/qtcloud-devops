@@ -6,7 +6,6 @@
 /// - doctor — 修复格式问题（规则修复 + LLM 修复）
 /// - audit — 审计规划与待办关系
 /// - todo-from-audit / roadmap-from-audit — 从审计 JSON 更新规划文件
-
 pub use crate::source::roadmap::Issue;
 
 use quanttide_devops::source::roadmap::RoadmapError;
@@ -25,21 +24,20 @@ pub enum PlanError {
     Other(String),
 }
 
-
-mod status;
+mod audit;
 mod clean;
 mod doctor;
-mod audit;
 mod from_audit;
+mod status;
 
-pub use status::{print_status, print_status_to, parse_roadmap, parse_roadmap_str,
-    resolve_roadmap_path, resolve_roadmap_dir};
+pub use audit::plan_audit;
 pub use clean::{clean_done_items, clean_roadmap};
 pub use doctor::{doctor_file, edit_roadmap};
-pub use audit::{plan_audit};
-pub use from_audit::{todo_from_audit, roadmap_from_audit};
-
-
+pub use from_audit::{roadmap_from_audit, todo_from_audit};
+pub use status::{
+    parse_roadmap, parse_roadmap_str, print_status, print_status_to, resolve_roadmap_dir,
+    resolve_roadmap_path,
+};
 
 #[cfg(test)]
 mod tests;

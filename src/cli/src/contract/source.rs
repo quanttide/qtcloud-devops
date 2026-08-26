@@ -1,13 +1,14 @@
-pub use quanttide_devops::source::config_file::{
-    detect_languages, read_config_versions,
-};
+pub use quanttide_devops::source::config_file::{detect_languages, read_config_versions};
 
 use crate::contract::Language;
 use std::path::Path;
 
 /// 按目录中的文件推测语言。
 pub fn detect_by_files(dir: &Path) -> Language {
-    detect_languages(dir).into_iter().next().unwrap_or(Language::Unknown(String::new()))
+    detect_languages(dir)
+        .into_iter()
+        .next()
+        .unwrap_or(Language::Unknown(String::new()))
 }
 
 #[cfg(test)]

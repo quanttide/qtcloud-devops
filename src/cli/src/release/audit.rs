@@ -145,25 +145,55 @@ pub fn audit(version: Option<&str>, repo_path: &Path) -> Result<Vec<AuditItem>, 
     let remote_name = super::get_remote_repo(repo_path);
     items.push(check_remote(remote_name.as_deref()));
 
-    audit_github_release(&mut items, tag_exists, remote_name.as_deref(), &version, &pre.changelog_path);
+    audit_github_release(
+        &mut items,
+        tag_exists,
+        remote_name.as_deref(),
+        &version,
+        &pre.changelog_path,
+    );
 
     Ok(items)
 }
 
-fn resolve_or_detect_version(version: Option<&str>, repo_path: &Path, items: &mut Vec<AuditItem>) -> Result<String, String> {
+fn resolve_or_detect_version(
+    version: Option<&str>,
+    repo_path: &Path,
+    items: &mut Vec<AuditItem>,
+) -> Result<String, String> {
     match version {
         Some(v) => {
             let ok = super::validate_version(v);
-            items.push(AuditItem { name: "版本号格式", passed: ok, detail: if ok { v.to_string() } else { format!("无效: {}", v) } });
-            if ok { Ok(v.to_string()) } else { Err("版本号无效".into()) }
+            items.push(AuditItem {
+                name: "版本号格式",
+                passed: ok,
+                detail: if ok {
+                    v.to_string()
+                } else {
+                    format!("无效: {}", v)
+                },
+            });
+            if ok {
+                Ok(v.to_string())
+            } else {
+                Err("版本号无效".into())
+            }
         }
         None => match super::detect::detect_version(repo_path) {
             Ok(result) => {
-                items.push(AuditItem { name: "版本号检测", passed: true, detail: result.version.clone() });
+                items.push(AuditItem {
+                    name: "版本号检测",
+                    passed: true,
+                    detail: result.version.clone(),
+                });
                 Ok(result.version)
             }
             Err(e) => {
-                items.push(AuditItem { name: "版本号检测", passed: false, detail: format!("自动检测失败: {}", e) });
+                items.push(AuditItem {
+                    name: "版本号检测",
+                    passed: false,
+                    detail: format!("自动检测失败: {}", e),
+                });
                 Err("版本号检测失败".into())
             }
         },
@@ -172,14 +202,27 @@ fn resolve_or_detect_version(version: Option<&str>, repo_path: &Path, items: &mu
 
 fn check_config_consistency(scope_dir: &Path, ver: &str) -> AuditItem {
     let config_files = contract::read_config_versions(scope_dir);
-    let inconsistent: Vec<_> = config_files.iter().filter(|(_, v)| match v { Some(cv) => cv != ver, None => false }).collect();
+    let inconsistent: Vec<_> = config_files
+        .iter()
+        .filter(|(_, v)| match v {
+            Some(cv) => cv != ver,
+            None => false,
+        })
+        .collect();
     AuditItem {
         name: "配置文件一致性",
         passed: inconsistent.is_empty(),
         detail: if inconsistent.is_empty() {
             format!("{} 个文件版本均为 {}", config_files.len(), ver)
         } else {
-            format!("不一致: {}", inconsistent.iter().map(|(f, v)| format!("{} = {}", f, v.as_deref().unwrap_or("?"))).collect::<Vec<_>>().join(", "))
+            format!(
+                "不一致: {}",
+                inconsistent
+                    .iter()
+                    .map(|(f, v)| format!("{} = {}", f, v.as_deref().unwrap_or("?")))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         },
     }
 }
@@ -188,7 +231,11 @@ fn check_changelog(pre: &super::precheck::PrecheckResult, ver: &str) -> AuditIte
     AuditItem {
         name: "CHANGELOG",
         passed: pre.changelog_errors.is_empty(),
-        detail: if pre.changelog_errors.is_empty() { format!("包含 {} 条目", ver) } else { pre.changelog_errors.join("; ") },
+        detail: if pre.changelog_errors.is_empty() {
+            format!("包含 {} 条目", ver)
+        } else {
+            pre.changelog_errors.join("; ")
+        },
     }
 }
 
@@ -197,7 +244,11 @@ fn check_workspace(repo_path: &Path) -> AuditItem {
     AuditItem {
         name: "工作区状态",
         passed: !dirty,
-        detail: if dirty { "有未提交变更".into() } else { "干净".into() },
+        detail: if dirty {
+            "有未提交变更".into()
+        } else {
+            "干净".into()
+        },
     }
 }
 
@@ -205,7 +256,11 @@ fn check_tag_conflict(version: &str, tag_exists: bool) -> AuditItem {
     AuditItem {
         name: "标签冲突",
         passed: !tag_exists,
-        detail: if tag_exists { format!("{} 已存在", version) } else { format!("{} 可用", version) },
+        detail: if tag_exists {
+            format!("{} 已存在", version)
+        } else {
+            format!("{} 可用", version)
+        },
     }
 }
 
@@ -213,7 +268,11 @@ fn check_remote(remote_name: Option<&str>) -> AuditItem {
     AuditItem {
         name: "远程仓库",
         passed: remote_name.is_some(),
-        detail: if let Some(r) = remote_name { format!("origin ({})", r) } else { "未配置 origin".into() },
+        detail: if let Some(r) = remote_name {
+            format!("origin ({})", r)
+        } else {
+            "未配置 origin".into()
+        },
     }
 }
 

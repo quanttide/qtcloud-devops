@@ -47,10 +47,18 @@ pub struct RuleResult {
 
 impl RuleResult {
     fn pass(name: &'static str, detail: String) -> Self {
-        Self { name, passed: true, details: vec![detail] }
+        Self {
+            name,
+            passed: true,
+            details: vec![detail],
+        }
     }
     fn fail(name: &'static str, details: Vec<String>) -> Self {
-        Self { name, passed: false, details }
+        Self {
+            name,
+            passed: false,
+            details,
+        }
     }
 }
 
@@ -89,7 +97,11 @@ fn to_audit_plan(results: &[RuleResult]) -> AuditPlan {
         }
         for d in &r.details {
             let (file, detail) = split_detail(d);
-            let item = AuditPlanItem { check: r.name.to_string(), file, detail };
+            let item = AuditPlanItem {
+                check: r.name.to_string(),
+                file,
+                detail,
+            };
             match classify_priority(r.name, d) {
                 "MUST" => must.push(item),
                 "SHOULD" => should.push(item),
@@ -99,9 +111,24 @@ fn to_audit_plan(results: &[RuleResult]) -> AuditPlan {
     }
 
     let mut entries = Vec::new();
-    if !must.is_empty() { entries.push(AuditPlanPriority { priority: "MUST".to_string(), items: must }); }
-    if !should.is_empty() { entries.push(AuditPlanPriority { priority: "SHOULD".to_string(), items: should }); }
-    if !may.is_empty() { entries.push(AuditPlanPriority { priority: "MAY".to_string(), items: may }); }
+    if !must.is_empty() {
+        entries.push(AuditPlanPriority {
+            priority: "MUST".to_string(),
+            items: must,
+        });
+    }
+    if !should.is_empty() {
+        entries.push(AuditPlanPriority {
+            priority: "SHOULD".to_string(),
+            items: should,
+        });
+    }
+    if !may.is_empty() {
+        entries.push(AuditPlanPriority {
+            priority: "MAY".to_string(),
+            items: may,
+        });
+    }
 
     AuditPlan {
         source: "code-audit".to_string(),
@@ -162,7 +189,11 @@ struct ScannedFile {
 
 const SRC_EXTENSIONS: &[&str] = &["rs", "py", "go", "ts", "tsx", "dart", "js", "jsx"];
 const GENERATED_SUFFIXES: &[&str] = &[
-    ".freezed.dart", ".g.dart", ".grpc.dart", ".pb.dart", ".pb.go",
+    ".freezed.dart",
+    ".g.dart",
+    ".grpc.dart",
+    ".pb.dart",
+    ".pb.go",
 ];
 
 /// 遍历所有 scope 目录，收集源码文件路径
@@ -232,66 +263,133 @@ fn scan_one(path: &Path) -> Option<ScannedFile> {
     let has_mod_doc = lines.iter().take(10).any(|l| l.trim().starts_with("//!"));
 
     Some(ScannedFile {
-        path: path.to_path_buf(), lines: total_lines,
-        todos, imports, long_fns, missing_docs,
-        max_nesting, high_complexity, has_mod_doc,
+        path: path.to_path_buf(),
+        lines: total_lines,
+        todos,
+        imports,
+        long_fns,
+        missing_docs,
+        max_nesting,
+        high_complexity,
+        has_mod_doc,
     })
 }
 
 fn scan_todo_markers(lines: &[&str]) -> Vec<(usize, String)> {
-    lines.iter().enumerate().filter_map(|(i, l)| {
-        let t = l.trim().to_lowercase();
-        if t.contains("todo") || t.contains("fixme") || t.contains("hack") {
-            Some((i + 1, l.trim().to_string()))
-        } else { None }
-    }).collect()
+    lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, l)| {
+            let t = l.trim().to_lowercase();
+            if t.contains("todo") || t.contains("fixme") || t.contains("hack") {
+                Some((i + 1, l.trim().to_string()))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn count_imports(lines: &[&str]) -> usize {
-    lines.iter().filter(|l| {
-        let t = l.trim();
-        t.starts_with("use ") || t.starts_with("import ")
-    }).count()
+    lines
+        .iter()
+        .filter(|l| {
+            let t = l.trim();
+            t.starts_with("use ") || t.starts_with("import ")
+        })
+        .count()
 }
 
 fn find_long_fns(lines: &[&str], fn_starts: &[usize], total_lines: usize) -> Vec<(usize, String)> {
-    fn_starts.iter().enumerate().filter_map(|(idx, &start)| {
-        let end = if idx + 1 < fn_starts.len() { fn_starts[idx + 1] } else { total_lines };
-        let n = end - start;
-        if n > 40 {
-            let name = lines[start].trim().split_whitespace().nth(1).unwrap_or("?").to_string();
-            Some((n, name))
-        } else { None }
-    }).collect()
+    fn_starts
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, &start)| {
+            let end = if idx + 1 < fn_starts.len() {
+                fn_starts[idx + 1]
+            } else {
+                total_lines
+            };
+            let n = end - start;
+            if n > 40 {
+                let name = lines[start]
+                    .trim()
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("?")
+                    .to_string();
+                Some((n, name))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn compute_max_nesting(lines: &[&str]) -> usize {
-    lines.iter().filter_map(|line| {
-        let t = line.trim();
-        if t.is_empty() || t.starts_with("//") || t.starts_with("///") || t.starts_with("/*") { return None; }
-        let indent = line.len() - line.trim_start().len();
-        Some(if indent > 0 && line.starts_with('\t') { indent } else { indent / 4 })
-    }).max().unwrap_or(0)
+    lines
+        .iter()
+        .filter_map(|line| {
+            let t = line.trim();
+            if t.is_empty() || t.starts_with("//") || t.starts_with("///") || t.starts_with("/*") {
+                return None;
+            }
+            let indent = line.len() - line.trim_start().len();
+            Some(if indent > 0 && line.starts_with('\t') {
+                indent
+            } else {
+                indent / 4
+            })
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 fn extract_high_complexity(lines: &[&str]) -> Vec<(usize, String)> {
-    high_complexity_fns(lines).iter().map(|(ln, comp)| {
-        let name = lines[*ln].trim().split_whitespace().nth(1).unwrap_or("?").to_string();
-        (*comp, name)
-    }).collect()
+    high_complexity_fns(lines)
+        .iter()
+        .map(|(ln, comp)| {
+            let name = lines[*ln]
+                .trim()
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or("?")
+                .to_string();
+            (*comp, name)
+        })
+        .collect()
 }
 
 // ── 工具函数（单文件分析） ────────────────────────────
 
 /// 查找函数定义行号（先试 Rust fn，再试其他语言）
 fn find_fn_positions(lines: &[&str]) -> Vec<usize> {
-    let rust: Vec<_> = lines.iter().enumerate()
-        .filter(|(_, l)| { let t = l.trim(); (t.starts_with("fn ") || t.starts_with("pub fn ") || t.starts_with("pub(crate) fn ")) && !t.starts_with("//") && !t.starts_with("///") })
-        .map(|(i, _)| i).collect();
-    if !rust.is_empty() { return rust; }
-    lines.iter().enumerate()
-        .filter(|(_, l)| { let t = l.trim(); (t.starts_with("def ") || t.starts_with("function ") || t.starts_with("func ")) && !t.starts_with("//") && !t.starts_with("#") && !t.starts_with("--") })
-        .map(|(i, _)| i).collect()
+    let rust: Vec<_> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| {
+            let t = l.trim();
+            (t.starts_with("fn ") || t.starts_with("pub fn ") || t.starts_with("pub(crate) fn "))
+                && !t.starts_with("//")
+                && !t.starts_with("///")
+        })
+        .map(|(i, _)| i)
+        .collect();
+    if !rust.is_empty() {
+        return rust;
+    }
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| {
+            let t = l.trim();
+            (t.starts_with("def ") || t.starts_with("function ") || t.starts_with("func "))
+                && !t.starts_with("//")
+                && !t.starts_with("#")
+                && !t.starts_with("--")
+        })
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// 收集缺少 `///` 文档注释的公开函数
@@ -311,13 +409,21 @@ fn find_missing_doc_comments(lines: &[&str]) -> Vec<String> {
 
 /// 判断行是否为函数定义
 fn is_fn_def(t: &str) -> bool {
-    t.starts_with("fn ") || t.starts_with("pub fn ") || t.starts_with("def ") || t.starts_with("function ") || t.starts_with("func ")
+    t.starts_with("fn ")
+        || t.starts_with("pub fn ")
+        || t.starts_with("def ")
+        || t.starts_with("function ")
+        || t.starts_with("func ")
 }
 
 /// 统计行中分支关键字出现次数
 fn branch_kw_count(t: &str) -> usize {
-    ["if ", "else if ", "for ", "while ", "match ", "case ", "catch ", "except"]
-        .iter().filter(|kw| t.contains(*kw)).count()
+    [
+        "if ", "else if ", "for ", "while ", "match ", "case ", "catch ", "except",
+    ]
+    .iter()
+    .filter(|kw| t.contains(*kw))
+    .count()
 }
 
 /// 查找圈复杂度超过 10 的函数
@@ -329,13 +435,19 @@ fn high_complexity_fns(lines: &[&str]) -> Vec<(usize, usize)> {
     for (i, line) in lines.iter().enumerate() {
         let t = line.trim();
         if is_fn_def(t) {
-            if in_fn && comp > 10 { results.push((start, comp)); }
-            start = i; comp = 0; in_fn = true;
+            if in_fn && comp > 10 {
+                results.push((start, comp));
+            }
+            start = i;
+            comp = 0;
+            in_fn = true;
         } else if in_fn {
             comp += branch_kw_count(t);
         }
     }
-    if in_fn && comp > 10 { results.push((start, comp)); }
+    if in_fn && comp > 10 {
+        results.push((start, comp));
+    }
     results
 }
 
@@ -350,7 +462,10 @@ fn check_scope_dirs(c: &contract::Contract, repo_path: &Path) -> RuleResult {
         .map(|s| format!("{}: 目录不存在 ({})", s.name, s.dir))
         .collect();
     if missing.is_empty() {
-        RuleResult::pass("Scope 目录", format!("全部 {} 个 scope 存在", c.scopes.len()))
+        RuleResult::pass(
+            "Scope 目录",
+            format!("全部 {} 个 scope 存在", c.scopes.len()),
+        )
     } else {
         RuleResult::fail("Scope 目录", missing)
     }
@@ -365,14 +480,20 @@ fn check_todo_density(scanned: &[ScannedFile]) -> RuleResult {
     }
     let density = total_markers as f64 / total_lines as f64 * 1000.0;
     if density < 5.0 {
-        RuleResult::pass("TODO/FIXME 密度", format!("{} 处, 密度 {:.1}‰", total_markers, density))
+        RuleResult::pass(
+            "TODO/FIXME 密度",
+            format!("{} 处, 密度 {:.1}‰", total_markers, density),
+        )
     } else {
         let files_with_todos: Vec<String> = scanned
             .iter()
             .filter(|f| !f.todos.is_empty())
             .map(|f| format!("{} ({} 处)", f.path.display(), f.todos.len()))
             .collect();
-        let mut details = vec![format!("{} 处, 密度 {:.1}‰（阈值 5‰）", total_markers, density)];
+        let mut details = vec![format!(
+            "{} 处, 密度 {:.1}‰（阈值 5‰）",
+            total_markers, density
+        )];
         details.extend(files_with_todos);
         RuleResult::fail("TODO/FIXME 密度", details)
     }
@@ -380,12 +501,18 @@ fn check_todo_density(scanned: &[ScannedFile]) -> RuleResult {
 
 /// 检查函数长度（阈值 40 行，超过 80 行大幅扣分）
 fn check_fn_length(scanned: &[ScannedFile]) -> RuleResult {
-    let all_long: Vec<String> = scanned.iter().flat_map(|f| {
-        f.long_fns.iter().map(|(n, name)| {
-            let level = if *n > 80 { "大幅" } else { "" };
-            format!("{}: `{}` {} 行（{}超限）", f.path.display(), name, n, level)
-        }).collect::<Vec<_>>()
-    }).collect();
+    let all_long: Vec<String> = scanned
+        .iter()
+        .flat_map(|f| {
+            f.long_fns
+                .iter()
+                .map(|(n, name)| {
+                    let level = if *n > 80 { "大幅" } else { "" };
+                    format!("{}: `{}` {} 行（{}超限）", f.path.display(), name, n, level)
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
     if all_long.is_empty() {
         RuleResult::pass("函数长度", "全部函数 ≤ 40 行".to_string())
     } else {
@@ -395,9 +522,15 @@ fn check_fn_length(scanned: &[ScannedFile]) -> RuleResult {
 
 /// 检查 API 文档覆盖率（pub fn 缺少 `///` 注释）
 fn check_api_docs(scanned: &[ScannedFile]) -> RuleResult {
-    let all_missing: Vec<String> = scanned.iter().flat_map(|f| {
-        f.missing_docs.iter().map(|name| format!("{}: `{}`", f.path.display(), name)).collect::<Vec<_>>()
-    }).collect();
+    let all_missing: Vec<String> = scanned
+        .iter()
+        .flat_map(|f| {
+            f.missing_docs
+                .iter()
+                .map(|name| format!("{}: `{}`", f.path.display(), name))
+                .collect::<Vec<_>>()
+        })
+        .collect();
     if all_missing.is_empty() {
         RuleResult::pass("API 文档覆盖率", "全部 pub 函数有文档注释".to_string())
     } else {
@@ -411,13 +544,22 @@ fn check_complexity(scanned: &[ScannedFile]) -> RuleResult {
     // 嵌套深度
     for f in scanned {
         if f.max_nesting > 4 {
-            details.push(format!("{}: 嵌套深度 {} 层", f.path.display(), f.max_nesting));
+            details.push(format!(
+                "{}: 嵌套深度 {} 层",
+                f.path.display(),
+                f.max_nesting
+            ));
         }
     }
     // 圈复杂度
     for f in scanned {
         for (comp, name) in &f.high_complexity {
-            details.push(format!("{}: `{}` 圈复杂度 {}", f.path.display(), name, comp));
+            details.push(format!(
+                "{}: `{}` 圈复杂度 {}",
+                f.path.display(),
+                name,
+                comp
+            ));
         }
     }
     if details.is_empty() {
@@ -467,7 +609,12 @@ fn check_mod_doc(scanned: &[ScannedFile]) -> RuleResult {
     } else {
         let total = scanned.len();
         let pct = (total - missing.len()) as f64 / total.max(1) as f64 * 100.0;
-        let mut details = vec![format!("{}/{} 文件缺少 //!（覆盖率 {:.0}%）", missing.len(), total, pct)];
+        let mut details = vec![format!(
+            "{}/{} 文件缺少 //!（覆盖率 {:.0}%）",
+            missing.len(),
+            total,
+            pct
+        )];
         details.extend(missing);
         RuleResult::fail("模块文档", details)
     }
@@ -549,7 +696,10 @@ mod tests {
     #[test]
     fn test_lint_command_rust() {
         let result = lint_command(&contract::Language::Rust);
-        assert_eq!(result, Some(("cargo", vec!["check", "--quiet"], "cargo check")));
+        assert_eq!(
+            result,
+            Some(("cargo", vec!["check", "--quiet"], "cargo check"))
+        );
     }
 
     #[test]
@@ -561,7 +711,10 @@ mod tests {
     #[test]
     fn test_lint_command_typescript() {
         let result = lint_command(&contract::Language::TypeScript);
-        assert_eq!(result, Some(("npx", vec!["tsc", "--noEmit"], "tsc --noEmit")));
+        assert_eq!(
+            result,
+            Some(("npx", vec!["tsc", "--noEmit"], "tsc --noEmit"))
+        );
     }
 
     #[test]
@@ -573,11 +726,17 @@ mod tests {
     // ── is_source_file ───────────────────────────────────────────
 
     #[test]
-    fn test_is_source_file_rs() { assert!(is_source_file(Path::new("foo.rs"))); }
+    fn test_is_source_file_rs() {
+        assert!(is_source_file(Path::new("foo.rs")));
+    }
     #[test]
-    fn test_is_source_file_py() { assert!(is_source_file(Path::new("foo.py"))); }
+    fn test_is_source_file_py() {
+        assert!(is_source_file(Path::new("foo.py")));
+    }
     #[test]
-    fn test_is_source_file_txt() { assert!(!is_source_file(Path::new("foo.txt"))); }
+    fn test_is_source_file_txt() {
+        assert!(!is_source_file(Path::new("foo.txt")));
+    }
     #[test]
     fn test_is_source_file_generated() {
         assert!(!is_source_file(Path::new("foo.freezed.dart")));
@@ -630,7 +789,9 @@ mod tests {
     #[test]
     fn test_high_complexity_fns_above_10() {
         let mut branches = String::new();
-        for i in 0..12 { branches.push_str(&format!("if {} == 0 {{ }}\n", i)); }
+        for i in 0..12 {
+            branches.push_str(&format!("if {} == 0 {{ }}\n", i));
+        }
         let code = format!("fn complex() {{\n{}}}", branches);
         let lines: Vec<&str> = code.lines().collect();
         let result = high_complexity_fns(&lines);
@@ -658,7 +819,9 @@ mod tests {
     #[test]
     fn test_scan_one_fn_length() {
         let mut content = String::from("fn long() {\n");
-        for _ in 0..45 { content.push_str("    let x = 1;\n"); }
+        for _ in 0..45 {
+            content.push_str("    let x = 1;\n");
+        }
         content.push_str("}\n");
         let (_dir, f) = with_temp_file(&content);
         assert_eq!(f.long_fns.len(), 1);
@@ -738,55 +901,85 @@ mod tests {
 
     #[test]
     fn test_check_fn_length_ok() {
-        let f = ScannedFile { long_fns: vec![], ..make_file(0, 0, 0) };
+        let f = ScannedFile {
+            long_fns: vec![],
+            ..make_file(0, 0, 0)
+        };
         assert!(check_fn_length(&[f]).passed);
     }
 
     #[test]
     fn test_check_fn_length_long() {
-        let f = ScannedFile { long_fns: vec![(50, "foo".into())], ..make_file(0, 0, 0) };
+        let f = ScannedFile {
+            long_fns: vec![(50, "foo".into())],
+            ..make_file(0, 0, 0)
+        };
         assert!(!check_fn_length(&[f]).passed);
     }
 
     #[test]
     fn test_check_api_docs_ok() {
-        let f = ScannedFile { missing_docs: vec![], ..make_file(0, 0, 0) };
+        let f = ScannedFile {
+            missing_docs: vec![],
+            ..make_file(0, 0, 0)
+        };
         assert!(check_api_docs(&[f]).passed);
     }
 
     #[test]
     fn test_check_api_docs_missing() {
-        let f = ScannedFile { missing_docs: vec!["foo".into()], ..make_file(0, 0, 0) };
+        let f = ScannedFile {
+            missing_docs: vec!["foo".into()],
+            ..make_file(0, 0, 0)
+        };
         assert!(!check_api_docs(&[f]).passed);
     }
 
     #[test]
     fn test_check_complexity_ok() {
-        let f = ScannedFile { max_nesting: 3, high_complexity: vec![], ..make_file(0, 0, 0) };
+        let f = ScannedFile {
+            max_nesting: 3,
+            high_complexity: vec![],
+            ..make_file(0, 0, 0)
+        };
         assert!(check_complexity(&[f]).passed);
     }
 
     #[test]
     fn test_check_complexity_deep_nesting() {
-        let f = ScannedFile { max_nesting: 6, high_complexity: vec![], ..make_file(0, 0, 0) };
+        let f = ScannedFile {
+            max_nesting: 6,
+            high_complexity: vec![],
+            ..make_file(0, 0, 0)
+        };
         assert!(!check_complexity(&[f]).passed);
     }
 
     #[test]
     fn test_check_complexity_high_cyclomatic() {
-        let f = ScannedFile { max_nesting: 0, high_complexity: vec![(15, "foo".into())], ..make_file(0, 0, 0) };
+        let f = ScannedFile {
+            max_nesting: 0,
+            high_complexity: vec![(15, "foo".into())],
+            ..make_file(0, 0, 0)
+        };
         assert!(!check_complexity(&[f]).passed);
     }
 
     #[test]
     fn test_check_mod_doc_ok() {
-        let f = ScannedFile { has_mod_doc: true, ..make_file(0, 0, 0) };
+        let f = ScannedFile {
+            has_mod_doc: true,
+            ..make_file(0, 0, 0)
+        };
         assert!(check_mod_doc(&[f]).passed);
     }
 
     #[test]
     fn test_check_mod_doc_missing() {
-        let f = ScannedFile { has_mod_doc: false, ..make_file(0, 0, 0) };
+        let f = ScannedFile {
+            has_mod_doc: false,
+            ..make_file(0, 0, 0)
+        };
         assert!(!check_mod_doc(&[f]).passed);
     }
 
@@ -798,7 +991,8 @@ mod tests {
         std::fs::write(
             dir.path().join(".quanttide/devops/contract.yaml"),
             format!("stages:\nscopes:\n  core:\n    dir: {}\n", scope_dir),
-        ).unwrap();
+        )
+        .unwrap();
         let c = contract::load(dir.path());
         (dir, c)
     }

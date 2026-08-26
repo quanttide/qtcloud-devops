@@ -1,6 +1,6 @@
 use super::PlanError;
-use std::path::Path;
 use crate::source::roadmap::{is_version_line, CATEGORIES};
+use std::path::Path;
 
 pub fn clean_done_items(path: &Path) -> Result<usize, PlanError> {
     let content = std::fs::read_to_string(path)?;
@@ -73,7 +73,9 @@ fn remove_empty_categories(lines: &mut Vec<&str>) {
             t == *c || t.eq_ignore_ascii_case(c)
         }) {
             let mut j = i + 1;
-            while j < lines.len() && lines[j].trim().is_empty() { j += 1; }
+            while j < lines.len() && lines[j].trim().is_empty() {
+                j += 1;
+            }
             if j >= lines.len()
                 || CATEGORIES.iter().any(|c| {
                     let t = lines[j].trim();
@@ -95,7 +97,9 @@ fn remove_empty_versions(lines: &mut Vec<&str>) {
     while i < lines.len() {
         if is_version_line(lines[i]).is_some() {
             let mut j = i + 1;
-            while j < lines.len() && lines[j].trim().is_empty() { j += 1; }
+            while j < lines.len() && lines[j].trim().is_empty() {
+                j += 1;
+            }
             if j >= lines.len() || is_version_line(lines[j]).is_some() {
                 lines.remove(i);
                 continue;
@@ -120,4 +124,3 @@ fn clean_trailing_blanks(lines: &mut Vec<&str>) {
         }
     }
 }
-

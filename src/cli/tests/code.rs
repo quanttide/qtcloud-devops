@@ -90,7 +90,14 @@ fn setup_repo_with_submodule(tmp: &std::path::Path) -> std::path::PathBuf {
         .output()
         .unwrap();
     Command::new("git")
-        .args(["submodule", "add", &sub.to_string_lossy(), "libs/sub"])
+        .args([
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            &sub.to_string_lossy(),
+            "libs/sub",
+        ])
         .current_dir(&parent)
         .output()
         .unwrap();
@@ -113,7 +120,8 @@ fn test_integration_scan_submodule() {
 
 #[test]
 fn test_integration_scan_no_gitmodules() {
-    assert!(
-        qtcloud_devops_cli::source::git::submodule::scan_repo_state(&tempfile::tempdir().unwrap().path()).is_err()
-    );
+    assert!(qtcloud_devops_cli::source::git::submodule::scan_repo_state(
+        &tempfile::tempdir().unwrap().path()
+    )
+    .is_err());
 }

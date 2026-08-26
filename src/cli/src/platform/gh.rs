@@ -38,12 +38,12 @@ pub fn create_release(version: &str, notes: &str, repo: &str) -> bool {
 /// 返回 `None` 表示 Release 不存在或访问失败。
 pub fn view_release_body(version: &str, repo: &str) -> Option<String> {
     let out = Command::new("gh")
-        .args(["release", "view", version, "--repo", repo, "--json", "body", "--jq", ".body"])
+        .args([
+            "release", "view", version, "--repo", repo, "--json", "body", "--jq", ".body",
+        ])
         .output();
     match out {
-        Ok(o) if o.status.success() => {
-            Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-        }
+        Ok(o) if o.status.success() => Some(String::from_utf8_lossy(&o.stdout).trim().to_string()),
         _ => None,
     }
 }

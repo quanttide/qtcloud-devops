@@ -48,7 +48,11 @@ pub fn todo_from_audit(repo_path: &Path, json: &str, scope: Option<&str>) -> Res
 
 /// 从审计 JSON 更新 ROADMAP.md。
 /// 按检查名聚合，不区分 >80 和 >40——最终目标一致。
-pub fn roadmap_from_audit(repo_path: &Path, json: &str, scope: Option<&str>) -> Result<(), PlanError> {
+pub fn roadmap_from_audit(
+    repo_path: &Path,
+    json: &str,
+    scope: Option<&str>,
+) -> Result<(), PlanError> {
     use crate::code::AuditPlan;
 
     let plan: AuditPlan = serde_json::from_str(json)
@@ -107,7 +111,9 @@ pub fn roadmap_from_audit(repo_path: &Path, json: &str, scope: Option<&str>) -> 
             let insert_at = pos + version_header.len();
             content.insert_str(insert_at, &format!("\n{}\n", new_section.trim_end()));
         } else {
-            if !content.ends_with('\n') { content.push('\n'); }
+            if !content.ends_with('\n') {
+                content.push('\n');
+            }
             content.push_str(&new_section);
         }
     }
@@ -139,10 +145,11 @@ fn check_to_roadmap_desc(check: &str, count: usize) -> String {
         "API 文档覆盖率" => format!("全部 pub 函数包含 /// 文档注释（{} 处）", count),
         "结构复杂度" => format!("圈复杂度 ≤ 10 / 嵌套 ≤ 4 层（{} 处）", count),
         "导入数" => format!("导入数控制在 30 以内（{} 处）", count),
-        "文件长度" | "超长文件（阈值 500 行）" => format!("文件长度控制在 500 行以内（{} 处）", count),
+        "文件长度" | "超长文件（阈值 500 行）" => {
+            format!("文件长度控制在 500 行以内（{} 处）", count)
+        }
         "模块文档" => format!("模块文档覆盖率达到 100%（{} 处）", count),
         "语法检查" => "语法检查全部通过".to_string(),
         _ => format!("{}({} 处)", check, count),
     }
 }
-

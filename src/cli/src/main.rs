@@ -295,9 +295,18 @@ fn dispatch(cli: Cli) -> Result<(), String> {
 
 fn run_build(action: BuildAction) -> Result<(), String> {
     match action {
-        BuildAction::Status => { qtcloud_devops_cli::build::status(&repo_path()); Ok(()) }
-        BuildAction::Clean => { qtcloud_devops_cli::build::clean(&repo_path()); Ok(()) }
-        BuildAction::Audit => { qtcloud_devops_cli::build::audit(&repo_path()); Ok(()) }
+        BuildAction::Status => {
+            qtcloud_devops_cli::build::status(&repo_path());
+            Ok(())
+        }
+        BuildAction::Clean => {
+            qtcloud_devops_cli::build::clean(&repo_path());
+            Ok(())
+        }
+        BuildAction::Audit => {
+            qtcloud_devops_cli::build::audit(&repo_path());
+            Ok(())
+        }
     }
 }
 
@@ -308,7 +317,10 @@ fn run_test(action: TestAction) -> Result<(), String> {
             qtcloud_devops_cli::test::status(&repo_path(), &c);
             Ok(())
         }
-        TestAction::Clean => { qtcloud_devops_cli::test::clear_cache(&repo_path()); Ok(()) }
+        TestAction::Clean => {
+            qtcloud_devops_cli::test::clear_cache(&repo_path());
+            Ok(())
+        }
         TestAction::Audit { all, verbose } => {
             let c = qtcloud_devops_cli::contract::load(&repo_path());
             qtcloud_devops_cli::test::audit(&repo_path(), &c, all, verbose)
@@ -320,25 +332,46 @@ fn run_test(action: TestAction) -> Result<(), String> {
 fn run_release(action: ReleaseAction) -> Result<(), String> {
     match action {
         ReleaseAction::Audit { version, scope } => run_release_audit(version, scope),
-        ReleaseAction::Publish { version, yes, force, dry_run, registry } => {
+        ReleaseAction::Publish {
+            version,
+            yes,
+            force,
+            dry_run,
+            registry,
+        } => {
             let rp = repo_path();
             qtcloud_devops_cli::release::status(&rp);
             println!();
             let result = qtcloud_devops_cli::release::publish(
-                version.as_deref(), &rp, yes, force, dry_run, registry,
+                version.as_deref(),
+                &rp,
+                yes,
+                force,
+                dry_run,
+                registry,
             );
             println!();
             qtcloud_devops_cli::release::status(&rp);
             result.map_err(|e| format!("{}", e))
         }
-        ReleaseAction::Status => { qtcloud_devops_cli::release::status(&repo_path()); Ok(()) }
+        ReleaseAction::Status => {
+            qtcloud_devops_cli::release::status(&repo_path());
+            Ok(())
+        }
     }
 }
 
 fn run_deploy(action: DeployAction) -> Result<(), String> {
     let repo_path = repo_path();
     match action {
-        DeployAction::Init { scope, domain, bucket, repo, force, dry_run } => {
+        DeployAction::Init {
+            scope,
+            domain,
+            bucket,
+            repo,
+            force,
+            dry_run,
+        } => {
             let opts = qtcloud_devops_cli::deploy::InitOptions {
                 domain,
                 scope,
@@ -350,7 +383,12 @@ fn run_deploy(action: DeployAction) -> Result<(), String> {
             };
             let report = qtcloud_devops_cli::deploy::init(&opts)
                 .map_err(|e| format!("deploy init 失败: {}", e))?;
-            println!("[{}] {}（scope: {}）", report.kind.as_str(), report.bucket, report.scope_dir);
+            println!(
+                "[{}] {}（scope: {}）",
+                report.kind.as_str(),
+                report.bucket,
+                report.scope_dir
+            );
             println!("{}", "-".repeat(50));
             for f in &report.files {
                 let shown = repo_path.join(&f.path);
@@ -424,7 +462,12 @@ fn run_deploy(action: DeployAction) -> Result<(), String> {
                 println!("部署审计 — {}（{}）", name, dir);
                 println!("{}", "-".repeat(50));
                 for item in &items {
-                    println!("  {} {}  {}", if item.passed { "✅" } else { "❌" }, item.name, item.detail);
+                    println!(
+                        "  {} {}  {}",
+                        if item.passed { "✅" } else { "❌" },
+                        item.name,
+                        item.detail
+                    );
                 }
                 println!("{}\n  {}/{} 项通过\n", "-".repeat(50), passed, items.len());
             }
@@ -433,45 +476,69 @@ fn run_deploy(action: DeployAction) -> Result<(), String> {
     }
 }
 
-fn run_release_audit(version: Option<String>, scope: Option<String>) -> Result<(), String> {    let rp = repo_path();
+fn run_release_audit(version: Option<String>, scope: Option<String>) -> Result<(), String> {
+    let rp = repo_path();
     let all_items = if let Some(v) = version {
-        qtcloud_devops_cli::release::audit(Some(&v), &rp)
-            .map(|items| vec![("".to_string(), items)])
+        qtcloud_devops_cli::release::audit(Some(&v), &rp).map(|items| vec![("".to_string(), items)])
     } else {
         qtcloud_devops_cli::release::audit_all(&rp, scope.as_deref())
-    }.map_err(|e| format!("审计失败: {}", e))?;
+    }
+    .map_err(|e| format!("审计失败: {}", e))?;
     print_audit_results(&all_items)
 }
 
-fn print_audit_results(all_items: &[(String, Vec<qtcloud_devops_cli::release::AuditItem>)]) -> Result<(), String> {
+fn print_audit_results(
+    all_items: &[(String, Vec<qtcloud_devops_cli::release::AuditItem>)],
+) -> Result<(), String> {
     let (all_passed, all_total) = all_items.iter().fold((0u32, 0u32), |(p, t), (_, items)| {
         let sp = items.iter().filter(|i| i.passed).count() as u32;
         (p + sp, t + items.len() as u32)
     });
     for (scope_name, items) in all_items {
-        let header = if scope_name.is_empty() { "发布审计".into() } else { format!("发布审计 — {}", scope_name) };
+        let header = if scope_name.is_empty() {
+            "发布审计".into()
+        } else {
+            format!("发布审计 — {}", scope_name)
+        };
         println!("{}\n{}", header, "-".repeat(50));
         let mut passed = 0u32;
         for item in items {
             println!("  {} {}", if item.passed { "✅" } else { "❌" }, item.name);
             println!("        {}", item.detail);
-            if item.passed { passed += 1; }
+            if item.passed {
+                passed += 1;
+            }
         }
-        println!("{}\n  {}/{} 项通过\n", "-".repeat(50), passed, items.len() as u32);
+        println!(
+            "{}\n  {}/{} 项通过\n",
+            "-".repeat(50),
+            passed,
+            items.len() as u32
+        );
     }
     if all_passed == all_total {
-        println!("  全部 {} 项检查通过 ({} scope)", all_total, all_items.len());
+        println!(
+            "  全部 {} 项检查通过 ({} scope)",
+            all_total,
+            all_items.len()
+        );
         Ok(())
     } else {
-        Err(format!("{}/{} 项未通过 ({} scope)", all_total - all_passed, all_total, all_items.len()))
+        Err(format!(
+            "{}/{} 项未通过 ({} scope)",
+            all_total - all_passed,
+            all_total,
+            all_items.len()
+        ))
     }
 }
 
 fn run_plan(action: PlanAction) -> Result<(), String> {
     match action {
-        PlanAction::Status { scope } =>
+        PlanAction::Status { scope } => {
             qtcloud_devops_cli::plan::print_status(&repo_path(), scope.as_deref())
-                .map_err(|e| format!("{}", e)),
+                .map_err(|e| format!("{}", e))
+        }
         PlanAction::Clean { scope } => run_plan_clean(scope),
         PlanAction::Doctor { scope } => run_plan_doctor(scope),
         PlanAction::Audit => {
@@ -494,13 +561,19 @@ fn run_plan(action: PlanAction) -> Result<(), String> {
 
 fn run_contract(action: ContractAction) -> Result<(), String> {
     match action {
-        ContractAction::Status => { qtcloud_devops_cli::contract::status(&repo_path()); Ok(()) }
+        ContractAction::Status => {
+            qtcloud_devops_cli::contract::status(&repo_path());
+            Ok(())
+        }
     }
 }
 
 fn run_doctor(action: DoctorAction) -> Result<(), String> {
     match action {
-        DoctorAction::Status => { qtcloud_devops_cli::doctor::status(&repo_path()); Ok(()) }
+        DoctorAction::Status => {
+            qtcloud_devops_cli::doctor::status(&repo_path());
+            Ok(())
+        }
     }
 }
 
@@ -597,32 +670,51 @@ fn run_plan_clean(scope: Option<String>) -> Result<(), String> {
 }
 
 fn collect_cleaned_files(repo_path: &Path, dir: &Path) -> Vec<String> {
-    ["ROADMAP.md", "TODO.md"].iter().filter_map(|name| {
-        let path = dir.join(name);
-        if !path.exists() { return None; }
-        match qtcloud_devops_cli::plan::clean_done_items(&path) {
-            Ok(removed) if removed > 0 => {
-                println!("  ✓ 已清理 {} 字节，文件: {}", removed, path.display());
-                let rel = path.strip_prefix(repo_path).unwrap_or(&path)
-                    .to_str().unwrap_or(name).to_string();
-                Some(rel)
+    ["ROADMAP.md", "TODO.md"]
+        .iter()
+        .filter_map(|name| {
+            let path = dir.join(name);
+            if !path.exists() {
+                return None;
             }
-            Ok(_) => None,
-            Err(e) => { eprintln!("  ✗ 清理失败 {}: {}", name, e); None }
-        }
-    }).collect()
+            match qtcloud_devops_cli::plan::clean_done_items(&path) {
+                Ok(removed) if removed > 0 => {
+                    println!("  ✓ 已清理 {} 字节，文件: {}", removed, path.display());
+                    let rel = path
+                        .strip_prefix(repo_path)
+                        .unwrap_or(&path)
+                        .to_str()
+                        .unwrap_or(name)
+                        .to_string();
+                    Some(rel)
+                }
+                Ok(_) => None,
+                Err(e) => {
+                    eprintln!("  ✗ 清理失败 {}: {}", name, e);
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
 fn git_commit_cleaned(repo_path: &Path, files: &[String]) -> Result<(), String> {
     for rel in files {
-        std::process::Command::new("git").args(["add", rel])
-            .current_dir(repo_path).output()
+        std::process::Command::new("git")
+            .args(["add", rel])
+            .current_dir(repo_path)
+            .output()
             .map_err(|e| format!("git add 失败: {}", e))?;
     }
     let files_str = files.join(", ");
-    std::process::Command::new("git").args(["commit", "-m",
-        &format!("chore: clean completed items from {}", files_str)])
-        .current_dir(repo_path).output()
+    std::process::Command::new("git")
+        .args([
+            "commit",
+            "-m",
+            &format!("chore: clean completed items from {}", files_str),
+        ])
+        .current_dir(repo_path)
+        .output()
         .map_err(|e| format!("git commit 失败: {}", e))?;
     println!("  ✓ 已提交 ({})", files_str);
     Ok(())
