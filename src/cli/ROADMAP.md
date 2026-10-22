@@ -14,6 +14,10 @@
 - [ ] 新增 `deploy apply`（可选）：把 build+upload+refresh 抽成 CLI 可调用，支持 `--dry-run`
 - [ ] 文档：README 新增 `deploy` 部分，说明新仓库获得部署能力的标准流程；CLI `docs/deploy/init.md`
 
+### Changed
+
+- [ ] 编码阶段命令改名 `code` → `develop`：与 `quanttide-code`（软件工程）区分。领域侧阶段名已在手册与意图仓改为 `develop`（2026-10-22），命令名待本项跟进。破坏性——需同步 CLI（`code` 模块与子命令）、Studio（`cli_client` 调用）、Provider（`scan` 映射）与各领域 skill，按 0.x 破坏性升级处理
+
 
 ## [0.11.1] 
 
